@@ -84,8 +84,13 @@ def csv_cell(value):
     """A value made safe to write into a CSV that someone opens in a spreadsheet.
 
     Node names and message text come from strangers on the mesh, so text that starts like a formula (=, +, -, @) gets a leading
-    quote, which makes Excel and Sheets show it as text instead of running it. Numbers and None pass through unchanged."""
-    return ("'" + value) if isinstance(value, str) and value and value[0] in FORMULA_START else value
+    quote, which makes Excel and Sheets show it as text instead of running it. NUL characters are dropped: Python before 3.11 cannot
+    write them to a CSV at all, so one in a stranger's message used to make the whole export fail. Numbers and None pass through."""
+    if isinstance(value, str):
+        value = value.replace("\x00", "")
+        if value and value[0] in FORMULA_START:
+            return "'" + value
+    return value
 
 
 class Audit:

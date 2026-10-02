@@ -25,6 +25,35 @@ with `start_bridge.ps1` (Windows) or `./start_bridge.sh` (Linux / macOS); both u
 If `./setup.sh` says `bad interpreter` or similar, the file picked up Windows line endings on the way over; run
 `python3 setup_env.py` instead - it repairs the `.sh` files itself.
 
+## Connecting over Wi-Fi or Bluetooth
+
+USB serial is the default and needs nothing. The bridge can also reach a radio without a cable. Choose one way; they cannot be combined.
+All three keep the same behaviour: a lost link is noticed, the bridge keeps running (the dashboard says it is searching), messages
+queued for the radio wait up to `--reconnect-hold` seconds, and it reconnects by itself when the radio is back, including after a power
+cycle. If a different radio answers at the same address the "different radio" banner appears, as for USB.
+
+**Wi-Fi (TCP).** On the radio, switch Wi-Fi on and give it your network's name and password (Meshtastic app or web client, Network
+settings). The radio's API then listens on port 4403. Find its address on your router, then:
+
+    python -m meshllm --tcp 192.168.1.50        # or a host name, or HOST:PORT for another port
+
+Give the radio a fixed address (a DHCP reservation in the router) so it does not move. If the connection is refused, another program may already hold the
+radio's connection (a phone app or web client attached over Wi-Fi): close it. When a radio vanishes from Wi-Fi without closing the
+connection, the bridge asks the operating system to probe the idle connection, so it notices after a minute or so on Linux (longer on
+other systems) and reconnects.
+
+**Bluetooth (BLE).** Run `python -m meshllm --ble-scan` to list nearby radios, then `python -m meshllm --ble ADDRESS` using the address
+(or name) exactly as the scan printed it. The radio accepts one Bluetooth connection at a time, so disconnect the phone first. Pair the
+radio with the computer if the operating system asks for the PIN the radio shows. Bluetooth is host-only: it uses the computer's own
+Bluetooth adapter and does not work inside a container or a virtual machine without the adapter passed through. On **Linux** it needs BlueZ
+(the `bluetooth` service running, D-Bus available) and your user allowed to use it; if the scan fails, check `systemctl status bluetooth`
+and that `bluetoothctl show` lists a powered adapter. Each connection attempt scans for about ten seconds first, and a radio that is not
+found is retried every 30 seconds. Bluetooth support comes with the `meshtastic` package (it installs `bleak`); if it is missing the bridge says so in one line and
+you can reinstall with `pip install -r requirements.txt`. Not yet tried on Windows or macOS.
+
+Not yet verified on real hardware (the code is tested against faked connections only): treat the first Wi-Fi or Bluetooth run as a trial and
+report what happens.
+
 ## Start at login (optional)
 
     python setup_env.py --autostart       # start the bridge every time you log in (asks first; --yes skips the question)

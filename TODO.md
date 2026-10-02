@@ -22,15 +22,15 @@ radios, no crew groups, no job calculators. The AI stays read-only on a fixed to
   - [x] Then take README screenshots of the demo dashboard (Home, Nodes, Map, AI log) into `docs/screenshots/` and reference them from the README.
   - Done when: `--demo` starts with nothing plugged in, every dashboard page renders, tests cover it.
 - [ ] **2. Connect over Wi-Fi and Bluetooth, not only USB**
-  - The `meshtastic` library has `TCPInterface` (a radio on the LAN, by host name or IP) and `BLEInterface` (by address). `bleak` is installed
-    only because `meshtastic` depends on it; it is not listed in `requirements.txt`.
-  - Today the bridge opens a serial port (search for `SerialInterface` in `meshllm/bridge.py`; `--port auto|COMx`). Add a connection choice
-    (`--tcp HOST`, `--ble ADDRESS`, still defaulting to USB auto-detect) and keep the reconnect behaviour.
+  - [x] The `meshtastic` library has `TCPInterface` (a radio on the LAN, by host name or IP) and `BLEInterface` (by address). `bleak` is installed
+    only because `meshtastic` depends on it; it is not listed in `requirements.txt`. (BLE is imported lazily; see `meshllm/connection.py`.)
+  - [x] Today the bridge opens a serial port (search for `SerialInterface` in `meshllm/bridge.py`; `--port auto|COMx`). Add a connection choice
+    (`--tcp HOST`, `--ble ADDRESS`, still defaulting to USB auto-detect) and keep the reconnect behaviour. (Done, plus `--ble-scan`.)
   - Choosing or scanning from the dashboard adds a web route that changes which radio the bridge talks to. That is an `admin` route (see
     item 3) and scanning is a host-side action, so build the command-line options first and the dashboard part together with or after item 3.
-  - Bluetooth is host-only: on Linux it needs BlueZ and D-Bus and will not work inside a container (item 4).
-  - Done when: each mode connects, drops and reconnects in tests with the interface classes faked; the docs explain each mode. A
-    real-hardware check needs a radio with Wi-Fi or Bluetooth enabled; ask the owner first.
+  - [x] Bluetooth is host-only: on Linux it needs BlueZ and D-Bus and will not work inside a container (item 4). (Documented in `docs/setup.md`.)
+  - [x] Done when: each mode connects, drops and reconnects in tests with the interface classes faked; the docs explain each mode.
+  - [ ] Real-hardware check: needs a radio with Wi-Fi or Bluetooth enabled; ask the owner first.
 - [ ] **3. Headless / LAN mode with a login** (so a phone or another PC can use the dashboard). **Needs an independent security review before merge.**
   - **Behaviour today to preserve:** on a loopback bind with no password configured, nothing changes (no login). A password becomes mandatory
     on any non-loopback bind (`0.0.0.0`, `::`, or any address outside `127.0.0.0/8` and `::1`); the bridge refuses to start without one.

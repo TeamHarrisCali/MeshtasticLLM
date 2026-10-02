@@ -90,6 +90,20 @@ Then open <http://127.0.0.1:8080/> and, from another node, send a direct message
 remembered in the database. Command-line flags exist as optional overrides ([docs/flags.md](docs/flags.md)). To run in the
 foreground instead: `.venv/bin/python -m meshllm`.
 
+### Connect over Wi-Fi or Bluetooth
+
+USB is the default. A radio can also be reached without a cable (pick one; the AI's read-only toolbox and the reconnect behaviour are the same):
+
+```bash
+.venv/bin/python -m meshllm --tcp 192.168.1.50        # Wi-Fi: the radio's address or host name (port 4403 unless you add :PORT)
+.venv/bin/python -m meshllm --ble-scan                # Bluetooth: list nearby radios (name and address), then exit
+.venv/bin/python -m meshllm --ble AA:BB:CC:DD:EE:FF   # Bluetooth: connect to one of them (address or name, as the scan printed it)
+```
+
+Wi-Fi needs the radio's Wi-Fi switched on and joined to your network; Bluetooth needs a Bluetooth adapter on the computer running the
+bridge, so it works on the host only and not inside a container. Either way the bridge reconnects by itself after a drop or a power cycle,
+and the dashboard shows the connection as `tcp://host:4403` or `ble:ADDRESS`. Details and tips in [docs/setup.md](docs/setup.md#connecting-over-wi-fi-or-bluetooth).
+
 ### Try it without hardware
 
 No radio and no Ollama? Run the whole bridge and dashboard against a simulated mesh:

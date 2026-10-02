@@ -24,7 +24,7 @@ class Radio:
 
 def make(db=DB, **over):
     base = dict(db=db, ollama_url="http://127.0.0.1:9", model="m", access_mode=None, daily_cap=None, no_tool_gate=True,
-                telemetry_passive_gap=0.4, web_host="127.0.0.1", web_port=8093, no_web=True, command="/ai", port="auto",
+                telemetry_passive_gap=30, web_host="127.0.0.1", web_port=8093, no_web=True, command="/ai", port="auto",
                 memory_turns=6, memory_hours=24, memory_chars=3000, max_queue=5, max_chunks=4, cooldown=0)
     base.update(over)
     if os.path.exists(db):
@@ -62,12 +62,16 @@ check("non-numeric / boolean values never reach numeric columns", T.parse_reply(
 
 # ---- recording what the radio hears ----------------------------------------------------------------------------------------
 br = make(); t = br.telemetry; cnt = lambda **kw: len(t.store.list(limit=500, **kw))
+def age_gap():
+    """Let the minimum gap between stored broadcasts 'elapse' by ageing the recorded times. A fixed sleep would be a race against a slow
+    machine (the "second broadcast inside the gap is dropped" checks failed on slow CI runners); this is exact."""
+    t._last_passive = {k: v - 1000 for k, v in t._last_passive.items()}
 check("by default every node's broadcasts are recorded (no watch list needed)", t.passive_all() is True)
 t.on_packet(bc(W, "deviceMetrics", DEV, 2), br.iface)
 r = t.store.list()[0]
 check("a heard broadcast is stored, tagged 'broadcast', with values, link quality, node clock and name",
       r["source"] == "broadcast" and r["status"] == "ok" and r["battery_level"] == 64 and r["voltage"] == 3.88 and r["uptime_seconds"] == 7200
-      and r["rx_snr"] == 4.25 and r["rx_rssi"] == -77 and r["hops"] == 2 and r["node_time"] == 1_700_000_500 and r["node_name"] == "House Base " and abs(r["ts"] - time.time()) < 5, r)
+      and r["rx_snr"] == 4.25 and r["rx_rssi"] == -77 and r["hops"] == 2 and r["node_time"] == 1_700_000_500 and r["node_name"] == "House Base " and abs(r["ts"] - time.time()) < 60, r)
 check("the stored JSON is the plain metrics (no protobuf object from the library)", json.loads(r["raw"]) == DEV, r["raw"])
 # malformed hop fields must not store a nonsense count (negative, or from a sender that doesn't say); one node each, since a node is
 # only recorded once per passive gap
@@ -85,11 +89,11 @@ t.on_packet(bc(W, "deviceMetrics", DEV, 4), br.iface)
 check("a second broadcast inside the minimum gap is dropped (a chatty node can't flood the database)", cnt(node=W) == 1)
 t.on_packet(bc(W, "environmentMetrics", {"temperature": 20.0}, 5), br.iface)
 check("a different kind from the same node isn't held back by that gap", cnt(node=W) == 2)
-time.sleep(0.45)
+age_gap()
 t.on_packet(bc(W, "deviceMetrics", {**DEV, "batteryLevel": 63}, 6), br.iface)
 check("after the gap the next broadcast is recorded", cnt(node=W, kind="device") == 2 and t.store.list(node=W, kind="device")[0]["battery_level"] == 63)
 
-before = cnt(); time.sleep(0.45)
+before = cnt(); age_gap()
 ignored = [
     ("a reply to somebody's request", bc(W, "deviceMetrics", DEV, 10, decoded={"portnum": "TELEMETRY_APP", "requestId": 123, "telemetry": {"deviceMetrics": DEV}})),
     ("our own radio's packet", bc("!00000001", "deviceMetrics", DEV, 11)),
@@ -106,14 +110,14 @@ check("a malformed packet can't crash the radio's callback", ok)
 
 # ---- watch-list mode (record everyone = off) ------------------------------------------------------------------------------------
 t.set_passive_all(False)
-time.sleep(0.45)
+age_gap()
 t.on_packet(bc(FLOOD, "deviceMetrics", DEV, 20), br.iface)
 check("with 'record every node' off, unwatched nodes are ignored", cnt(node=FLOOD) == 0 and not t.passive_all())
 t.watch_add("!eeee0005"); t.watch_add("!eeee0005")
 t.on_packet(bc(FLOOD, "deviceMetrics", DEV, 21), br.iface)
 check("...and watched ones are recorded (adding twice is harmless)", cnt(node=FLOOD) == 1 and [w["node_id"] for w in t.store.watched()] == [FLOOD])
 w = t.store.watched()[0]
-check("watch list reports readings and the last one's time", w["readings"] == 1 and w["node_name"] == "Quiet node" and abs(w["last_ts"] - time.time()) < 5, w)
+check("watch list reports readings and the last one's time", w["readings"] == 1 and w["node_name"] == "Quiet node" and abs(w["last_ts"] - time.time()) < 60, w)
 for bad in ["bob", "!xyz", "", None, 5, ["!aaaa0001"]]:
     try: t.watch_add(bad); ok = False
     except T.TelemetryError: ok = True

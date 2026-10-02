@@ -17,11 +17,17 @@ is also the key of the retry back-off table (`Bridge.bad_until`), so a failing e
 Nothing here transmits anything; it only opens and watches the link."""
 import socket
 import os
+import re
+import threading
 
 import meshtastic.serial_interface
 from serial.tools import list_ports
 
 DEFAULT_TCP_PORT = 4403     # the meshtastic TCP API port
+BLE_CONNECT_TIMEOUT = 90    # seconds for the whole Bluetooth connect (scan, connect, settings download); tests shorten it
+BLE_SCAN_TIMEOUT = 25       # seconds for one Bluetooth scan (the library's own discovery runs 10)
+BLE_CONFIG_TIMEOUT = 60     # seconds the library waits for the radio's settings (its own default is 300)
+MAC_RE = re.compile(r"^[0-9A-Fa-f]{2}([:-][0-9A-Fa-f]{2}){5}$")
 
 # USB vendor IDs of the serial chips Meshtastic boards use. Auto-detection only tries ports from these
 # vendors (plus a real Meshtastic handshake), so it never pokes at headsets, dongles, modems, etc.
@@ -35,6 +41,10 @@ KNOWN_RADIO_VIDS = {
     0x1915: "Nordic",
     0x2E8A: "Raspberry Pi (RP2040)",
 }
+
+
+class BleTimeout(Exception):
+    """A Bluetooth step took longer than its time limit. The message says which step it was stuck in."""
 
 
 class BleUnavailable(Exception):
@@ -107,6 +117,45 @@ def load_ble():
     return _ble_module().BLEInterface
 
 
+def _call_with_timeout(fn, timeout, stuck_in, on_abandon=None, on_late_result=None):
+    """Run `fn()` on a daemon helper thread and return its result, or raise BleTimeout after `timeout` seconds.
+
+    The Bluetooth libraries have no timeouts of their own in several places (the connect, the discovery), and a hang there would block
+    the bridge's reconnect loop silently. `stuck_in()` names the step that was running, for the message. After a timeout `on_abandon()`
+    is called (to close what is half open), and if the helper ever finishes its result goes to `on_late_result` instead of being lost.
+    The thread is a daemon, so a stuck call never holds up Ctrl+C or exit."""
+    done, lock, box = threading.Event(), threading.Lock(), {}
+
+    def work():
+        try:
+            result = fn()
+        except BaseException as e:      # handed back to the caller's thread
+            with lock:
+                box["error"] = e
+            done.set()
+            return
+        with lock:
+            late = box.get("abandoned", False)
+            if not late:
+                box["result"] = result
+        done.set()
+        if late and on_late_result:
+            on_late_result(result)
+
+    threading.Thread(target=work, daemon=True, name="ble-helper").start()
+    if not done.wait(timeout):
+        with lock:
+            if not done.is_set():
+                box["abandoned"] = True
+        if box.get("abandoned"):
+            if on_abandon:
+                on_abandon()
+            raise BleTimeout(f"Bluetooth connect timed out after {timeout:g} s while {stuck_in()}")
+    if "error" in box:
+        raise box["error"]
+    return box["result"]
+
+
 def safe_ble_scan(timeout=10):
     """Nearby Meshtastic Bluetooth devices as the library's BLEDevice objects, found with an UNFILTERED discovery.
 
@@ -115,13 +164,36 @@ def safe_ble_scan(timeout=10):
     everything and do the same filtering the library does afterwards: keep devices whose advertisement lists the Meshtastic service.
     Never pass `service_uuids` to a discover call here. Raises BleUnavailable if Bluetooth support cannot be loaded."""
     module = _ble_module()
-    with module.BLEClient() as client:      # the library's wrapper: owns the event loop thread bleak needs, and closes it again
-        response = client.discover(timeout=timeout, return_adv=True)
+
+    def discover():
+        with module.BLEClient() as client:      # the library's wrapper: owns the event loop thread bleak needs, and closes it again
+            return client.discover(timeout=timeout, return_adv=True)
+    try:
+        response = _call_with_timeout(discover, BLE_SCAN_TIMEOUT, lambda: "scanning")
+    except BleTimeout as e:
+        raise BleTimeout(str(e).replace("connect", "scan", 1)) from None
     wanted = module.SERVICE_UUID.lower()
     return [device for device, adv in response.values() if wanted in [u.lower() for u in (adv.service_uuids or [])]]
 
 
-def _closing_on_error(cls):
+def _quiet(iface):
+    """Close an interface, ignoring errors (it may be half built or already gone)."""
+    try:
+        iface.close()
+    except Exception:
+        pass
+
+
+def _make_device(mac):
+    """A minimal bleak BLEDevice for an address we did not scan for. The library only reads `.address` from it (to build its client)."""
+    device_class = _ble_module().BLEDevice
+    try:
+        return device_class(mac, None, None)
+    except TypeError:           # older bleak versions also wanted a signal strength
+        return device_class(mac, None, None, 0)
+
+
+def _closing_on_error(cls, note=None, state=None):
     """A subclass of the library's BLEInterface that closes itself when its constructor fails for ANY reason.
 
     The library starts its receive thread first and only calls close() when the failure is its own BLEError. A bleak error or a timeout
@@ -129,11 +201,39 @@ def _closing_on_error(cls):
     every retry. (A BLE client created inside a failed connect() is still out of reach and is left to the library.)
 
     It also replaces the library's `find_device`, which scans with the service-UUID filter that crashed bluetoothd (see `safe_ble_scan`).
-    The matching and the error messages are the library's own, so `BleEndpoint.failure_reason` keeps working."""
+    The matching and the error messages are the library's own, so `BleEndpoint.failure_reason` keeps working.
+
+    A MAC address is connected to directly, with no scan: a radio that the computer's Bluetooth already holds stops advertising, so a scan
+    cannot see it, yet connecting by address works because the OS knows the device. `note(phase, text)` (optional) is told about each phase
+    so it can be logged; `state` (optional) receives this object as state["iface"] so a timed-out connect can close it."""
+    say = note or (lambda phase, text: None)
     class ClosingOnError(cls):
         """BLEInterface that cleans up after a failed constructor and finds its device with the unfiltered scan."""
+        def __init__(self, *args, **kwargs):
+            if state is not None:
+                state["iface"] = self
+            try:
+                super().__init__(*args, **kwargs)
+            except Exception:
+                try:
+                    self.close()
+                except Exception:
+                    pass
+                raise
+
+        def _startConfig(self):
+            """The library calls this once connected, right before it downloads the radio's settings."""
+            say("config", "connected, waiting for the radio to send its settings")
+            return super()._startConfig()
+
         def find_device(self, address):
-            """Same as the library's: the device whose name or address equals `address` (any device if None); exactly one must match."""
+            """Same as the library's: the device whose name or address equals `address` (any device if None); exactly one must match.
+            A MAC address skips the scan entirely (see above)."""
+            if address and MAC_RE.match(address):
+                mac = address.replace("-", ":").upper()
+                say("connect", f"connecting to {mac}")
+                return _make_device(mac)
+            say("scan", f"scanning for {address or 'any Meshtastic radio'}")
             devices = safe_ble_scan()
             if address:
                 devices = [d for d in devices if address in (d.name, d.address)]
@@ -145,17 +245,9 @@ def _closing_on_error(cls):
                 raise cls.BLEError(
                     f"More than one Meshtastic BLE peripheral with identifier or address '{address}' found.",
                     cls.BLEError.MULTIPLE_DEVICES)
+            say("connect", f"found {devices[0].address}, connecting")
             return devices[0]
 
-        def __init__(self, *args, **kwargs):
-            try:
-                super().__init__(*args, **kwargs)
-            except Exception:
-                try:
-                    self.close()
-                except Exception:
-                    pass
-                raise
     return ClosingOnError
 
 
@@ -376,7 +468,8 @@ class BleEndpoint(Endpoint):
     cannot work inside a container.
 
     The library does not reconnect a dropped BLE link: its disconnect callback closes the interface. The bridge notices (the client is gone) and
-    opens a fresh one. Each open scans for about 10 seconds first, which is one more reason the retry back-off is 30 seconds."""
+    opens a fresh one. A name is looked up with a scan of about 10 seconds; a MAC address is connected to directly. Every phase is logged and the whole
+    connect has a time limit (BLE_CONNECT_TIMEOUT), because the Bluetooth stack can hang without an error."""
     kind = "ble"
 
     def __init__(self, target):
@@ -397,7 +490,25 @@ class BleEndpoint(Endpoint):
         return [self.label]
 
     def open(self, label):
-        return _closing_on_error(load_ble())(self.target)
+        """Connect over Bluetooth, logging each phase and giving up after BLE_CONNECT_TIMEOUT seconds instead of hanging silently."""
+        cls = load_ble()
+        state = {"phase": "starting", "iface": None, "ready": False}
+
+        def note(phase, text):
+            if not state["ready"]:      # the library re-runs its config step after a radio reboot; that is not a connect phase
+                state["phase"] = text
+                print(f"[radio] Bluetooth: {text}", flush=True)
+
+        def abandon():
+            """Timed out: close whatever the constructor had built so far (best effort, on its own thread in case close hangs)."""
+            if state["iface"] is not None:
+                threading.Thread(target=_quiet, args=(state["iface"],), daemon=True, name="ble-cleanup").start()
+
+        iface = _call_with_timeout(lambda: _closing_on_error(cls, note, state)(self.target, timeout=BLE_CONFIG_TIMEOUT),
+                                   BLE_CONNECT_TIMEOUT, lambda: state["phase"], on_abandon=abandon, on_late_result=_quiet)
+        state["ready"] = True
+        print("[radio] Bluetooth: radio ready", flush=True)
+        return iface
 
     def alive(self, iface):
         thread = getattr(iface, "_receiveThread", None)
@@ -407,6 +518,12 @@ class BleEndpoint(Endpoint):
     def failure_reason(self, label, error):
         if isinstance(error, BleUnavailable):
             return 600, str(error)
+        if isinstance(error, BleTimeout):
+            return 60, str(error)
         if getattr(error, "kind", None) == "device_not_found":
             return 30, "radio not found nearby (Bluetooth on? in range? not connected to a phone? --ble-scan lists what is visible)"
+        text = str(error)
+        if "was not found" in text and "address" in text.lower():     # bleak: the OS does not know this address (never paired / not seen)
+            return 30, ("that address is not paired or not known to Bluetooth yet; pair the radio once in the system Bluetooth settings, "
+                        "or run --ble-scan to find it")
         return 60, f"could not connect over Bluetooth ({str(error)[:90]})"

@@ -48,6 +48,8 @@ class World:
     def __init__(self):
         self.fail = None            # exception the next opens raise
         self.fail_late = None       # BLE only: raise after the object (and its threads) exist
+        self.block = None           # BLE only: an Event the constructor waits on after "connecting" (a hung connect)
+        self.block_scan = None      # BLE only: an Event the discovery waits on (a hung scan)
         self.node = "!00000a01"     # id of the radio answering at the endpoint
         self.made = []              # every fake interface created
         self.attempts = 0
@@ -77,12 +79,17 @@ class FakeBleError(Exception):
 
 class FakeBle:
     SCAN = []
-    def __init__(self, address=None, **kw):
+    def __init__(self, address=None, noProto=False, timeout=300, **kw):
         W.attempts += 1
         if W.fail: raise W.fail
         self.address, self.client, self._want_receive, self._receiveThread, self.closed, self.node = address, object(), True, FakeThread(), False, W.node
         W.made.append(self)
         if W.fail_late: raise W.fail_late       # fails after the receive thread exists, like a bleak error inside the library's constructor
+        self.timeout = timeout
+        self.device = self.find_device(address)  # the library's connect() does this first
+        if W.block: W.block.wait()               # a connect that never returns
+        self._startConfig()                      # ...then it downloads the radio's settings
+    def _startConfig(self): pass
     @staticmethod
     def scan(): raise AssertionError("the library's filtered BLEInterface.scan() must never be called")
     class BLEError(Exception):
@@ -99,9 +106,13 @@ class FakeBleClient:
     def __exit__(self, *a): return False
     def discover(self, **kw):
         DISCOVER_CALLS.append(kw)
+        if W.block_scan: W.block_scan.wait()
         return {d.address: (d, SimpleNamespace(service_uuids=getattr(d, "uuids", [FAKE_SERVICE.upper()]))) for d in FakeBle.SCAN}
 FAKE_BLE_MODULE = types.ModuleType("meshtastic.ble_interface")
 FAKE_BLE_MODULE.BLEInterface, FAKE_BLE_MODULE.BLEClient, FAKE_BLE_MODULE.SERVICE_UUID = FakeBle, FakeBleClient, FAKE_SERVICE
+class FakeDevice:
+    def __init__(self, address, name, details): self.address, self.name, self.details = address, name, details
+FAKE_BLE_MODULE.BLEDevice = FakeDevice
 sys.modules["meshtastic.ble_interface"] = FAKE_BLE_MODULE
 
 def args(**over):
@@ -122,7 +133,7 @@ def start(**over):
 def reset_world():
     for br in BRIDGES: br.stop()
     BRIDGES.clear(); time.sleep(0.3)
-    W.fail, W.fail_late, W.node, W.attempts = None, None, "!00000a01", 0
+    W.fail, W.fail_late, W.block, W.block_scan, W.node, W.attempts = None, None, None, None, "!00000a01", 0
     W.made.clear()
 
 # ---- command line ----------------------------------------------------------------------------------------------------
@@ -299,7 +310,10 @@ check("safe scan: discover is called without a service filter, with advertisemen
 check("safe scan: devices that do not advertise the Meshtastic service are dropped (even with no advertised services)", sorted(d.address for d in found) == ["11:22:33:44:55:66", "AA:BB:CC:00:00:01"], [d.address for d in found])
 Closing = conn._closing_on_error(FakeBle)
 finder = Closing.__new__(Closing)        # find_device does not need a constructed object
-check("find_device: matches by address", finder.find_device("AA:BB:CC:00:00:01").name == "Meshtastic_aa22")
+del DISCOVER_CALLS[:]
+dev = finder.find_device("aa-bb-cc-00-00-01")
+check("find_device: a MAC address (any case, ':' or '-') is used directly with no scan", dev.address == "AA:BB:CC:00:00:01" and DISCOVER_CALLS == [], (dev.address, DISCOVER_CALLS))
+check("find_device: a name that is not a MAC goes through the scan", finder.find_device("Meshtastic_aa22").address == "AA:BB:CC:00:00:01" and len(DISCOVER_CALLS) == 1)
 check("find_device: matches by name", finder.find_device("Meshtastic_zz11").address == "11:22:33:44:55:66")
 try: finder.find_device("nobody"); err_ = None
 except FakeBle.BLEError as e: err_ = e
@@ -310,6 +324,76 @@ except FakeBle.BLEError as e: err_ = e
 check("find_device: no address with several radios nearby is the library's 'more than one' error", err_ is not None and err_.kind == "multiple_devices" and "More than one Meshtastic BLE peripheral" in str(err_), err_)
 FakeBle.SCAN = FakeBle.SCAN[:1]
 check("find_device: no address with exactly one radio nearby picks it (as the library does)", finder.find_device(None).address == "AA:BB:CC:00:00:01")
+
+# ---- direct MAC connect, phase logging, time limits ------------------------------------------------------------------------
+FakeBle.SCAN = [SimpleNamespace(name="Meshtastic_aa22", address="AA:BB:CC:00:00:01")]
+ep = conn.BleEndpoint("AA:BB:CC:00:00:01")
+del DISCOVER_CALLS[:]
+out = io.StringIO()
+with contextlib.redirect_stdout(out):
+    iface_ = ep.open(ep.label)
+log = out.getvalue()
+check("BLE MAC: the interface is created with that address and no scan runs at all", iface_.address == "AA:BB:CC:00:00:01" and DISCOVER_CALLS == [] and iface_.timeout == conn.BLE_CONFIG_TIMEOUT, (iface_.address, DISCOVER_CALLS))
+pos = [log.find(x) for x in ("connecting to AA:BB:CC:00:00:01", "connected, waiting for the radio to send its settings", "radio ready")]
+check("BLE: each phase is logged, in order", all(p >= 0 for p in pos) and pos == sorted(pos) and "scanning" not in log, log)
+ep = conn.BleEndpoint("Meshtastic_aa22")
+out = io.StringIO()
+with contextlib.redirect_stdout(out):
+    iface_ = ep.open(ep.label)
+log = out.getvalue()
+pos = [log.find(x) for x in ("scanning for Meshtastic_aa22", "found AA:BB:CC:00:00:01, connecting", "waiting for the radio to send its settings", "radio ready")]
+check("BLE name: scanned (unfiltered) then connected, phases in order", len(DISCOVER_CALLS) == 1 and all(p >= 0 for p in pos) and pos == sorted(pos), (log, DISCOVER_CALLS))
+# the OS does not know a MAC: bleak's own error becomes advice, with the usual back-off
+err_ = RuntimeError("Device with address AA:BB:CC:00:00:99 was not found.")
+wait_, msg_ = conn.BleEndpoint("AA:BB:CC:00:00:99").failure_reason("x", err_)
+check("BLE MAC unknown to the OS: clear 'pair it' advice and the 30 s back-off", wait_ == 30 and "not paired" in msg_ and "--ble-scan" in msg_, (wait_, msg_))
+W.fail = err_; W.attempts = 0
+br = start(ble="AA:BB:CC:00:00:99")
+time.sleep(0.5)
+check("BLE MAC unknown: tried once and parked", W.attempts == 1 and br.bad_until["ble:AA:BB:CC:00:00:99"] > time.time() + 25, (W.attempts, br.bad_until))
+reset_world()
+# a hung connect: the endpoint gives up, names the phase, closes what it built, and the helper thread is a daemon
+saved = conn.BLE_CONNECT_TIMEOUT
+conn.BLE_CONNECT_TIMEOUT = 0.5
+W.block = threading.Event()
+ep = conn.BleEndpoint("AA:BB:CC:00:00:01")
+out = io.StringIO()
+try:
+    with contextlib.redirect_stdout(out):
+        ep.open(ep.label)
+    stuck = None
+except conn.BleTimeout as e:
+    stuck = str(e)
+check("BLE hung connect: raises a timeout that names the phase it was stuck in", stuck is not None and "timed out after 0.5 s while connecting to AA:BB:CC:00:00:01" in stuck, stuck)
+check("...and the failure wording/back-off is the existing path", conn.BleEndpoint("x").failure_reason("x", conn.BleTimeout(stuck or "t"))[0] == 60)
+helpers = [t_ for t_ in threading.enumerate() if t_.name == "ble-helper"]
+check("...the helper thread is a daemon (it can never hold up Ctrl+C or exit)", helpers and all(t_.daemon for t_ in helpers), helpers)
+hung = W.made[-1]
+check("...the half-built interface is closed best-effort", until(lambda: hung.closed), hung.closed)
+W.block.set()
+check("...and once the connect finally returns, the helper thread ends (its late interface is closed too)", until(lambda: not [t_ for t_ in threading.enumerate() if t_.name == "ble-helper"]) and hung.closed)
+# the same hang through a running bridge: the connect thread is released after the limit and backs off
+W.block = threading.Event()
+br = start(ble="AA:BB:CC:00:00:01")
+check("BLE hung connect in a bridge: the connect loop is released and the endpoint is parked", until(lambda: br.bad_until.get("ble:AA:BB:CC:00:00:01", 0) > time.time() + 25) and br.iface is None, br.bad_until)
+W.block.set()
+reset_world()
+conn.BLE_CONNECT_TIMEOUT = saved
+# a hung discovery
+saved = conn.BLE_SCAN_TIMEOUT
+conn.BLE_SCAN_TIMEOUT = 0.4
+W.block_scan = threading.Event()
+try:
+    conn.safe_ble_scan(); stuck = None
+except conn.BleTimeout as e:
+    stuck = str(e)
+check("BLE hung scan: bounded by its own timeout", stuck is not None and "scan timed out after 0.4 s" in stuck, stuck)
+out, err = io.StringIO(), io.StringIO()
+with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+    code = b.ble_scan_main()
+check("--ble-scan with a hung discovery reports the timeout and exits 1", code == 1 and "timed out" in err.getvalue(), (code, err.getvalue()))
+W.block_scan.set(); conn.BLE_SCAN_TIMEOUT = saved
+W.block_scan = None
 
 # ---- --ble-scan ----------------------------------------------------------------------------------------------------------
 FakeBle.SCAN = [SimpleNamespace(name="Meshtastic_zz11", address="11:22:33:44:55:66"), SimpleNamespace(name="Meshtastic_aa22", address="AA:BB:CC:00:00:01")]

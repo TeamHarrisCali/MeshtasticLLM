@@ -43,14 +43,37 @@ connection, the bridge asks the operating system to probe the idle connection, s
 other systems) and reconnects. That probe only runs while the connection is idle: if the radio vanishes while a reply is still unsent, the operating
 system's retransmission timeout (about 15 minutes on Linux) applies. On Windows, Ctrl+C may lag by up to the OS connect timeout during a connection attempt to an unreachable address (untested).
 
-**Bluetooth (BLE).** Run `python -m meshllm --ble-scan` to list nearby radios, then `python -m meshllm --ble ADDRESS` using the address
-(or name) exactly as the scan printed it. The radio accepts one Bluetooth connection at a time, so disconnect the phone first. Pair the
-radio with the computer if the operating system asks for the PIN the radio shows. Bluetooth is host-only: it uses the computer's own
-Bluetooth adapter and does not work inside a container or a virtual machine without the adapter passed through. On **Linux** it needs BlueZ
-(the `bluetooth` service running, D-Bus available) and your user allowed to use it; if the scan fails, check `systemctl status bluetooth`
-and that `bluetoothctl show` lists a powered adapter. Each connection attempt scans for about ten seconds first (an unfiltered scan, then the bridge picks out Meshtastic radios itself: with BlueZ 5.87 and bleak 3.0.2 the library's own scan, which asks BlueZ to filter by service, crashed the Bluetooth daemon), and a radio that is not
-found is retried every 30 seconds. Bluetooth support comes with the `meshtastic` package (it installs `bleak`); if it is missing the bridge says so in one line and
-you can reinstall with `pip install -r requirements.txt`. Not yet tried on Windows or macOS.
+**Bluetooth (BLE).** Get the radio's address, then pass it:
+
+    python -m meshllm --ble-scan                  # nearby radios that are advertising (name and address)
+    bluetoothctl devices Paired                   # Linux: radios the computer already knows
+    python -m meshllm --ble AA:BB:CC:DD:EE:FF     # connect by ADDRESS (a name from the scan also works)
+
+**If the computer's own Bluetooth already holds the radio** (a desktop Bluetooth manager connected it after pairing), the radio stops
+advertising and will not appear in a scan. Pass the **address** then: a Bluetooth address (six hex pairs) is connected to directly, with no scan,
+and the bridge logs `Bluetooth: connecting to ...`. A **name** always needs a scan. If the address is not known to the system yet, the bridge says
+to pair the radio once in the system Bluetooth settings.
+
+Only one Bluetooth client can hold the radio at a time: disconnect the phone app first. A radio in the "No PIN" Bluetooth mode pairs with
+anyone in range, so set a PIN in the Meshtastic app. Bluetooth is host-only: it uses the computer's own Bluetooth adapter and does not work inside
+a container or a virtual machine without the adapter passed through. On **Linux** it needs BlueZ (the `bluetooth` service running, D-Bus available)
+and your user allowed to use it; if the scan fails, check `systemctl status bluetooth` and that `bluetoothctl show` lists a powered adapter.
+
+*Pairing pitfall (BlueZ).* A desktop pairing can be recorded as classic Bluetooth (BR/EDR) instead of Low Energy, and then every connect, even from
+a bare `bleak` script, fails with `org.bluez.Error.Failed br-connection-canceled`. Re-pair as Low Energy only:
+
+    bluetoothctl remove AA:BB:CC:DD:EE:FF
+    bluetoothctl --timeout 22 scan le             # leave this running ...
+    bluetoothctl pair AA:BB:CC:DD:EE:FF           # ... and run these in a second terminal
+    bluetoothctl trust AA:BB:CC:DD:EE:FF
+    bluetoothctl disconnect AA:BB:CC:DD:EE:FF     # let go, so the bridge can connect
+
+*How it connects.* Names are looked up with an unfiltered scan of about ten seconds (the bridge picks out Meshtastic radios itself: with
+BlueZ 5.87 and bleak 3.0.2 the library's own scan, which asks BlueZ to filter by service, crashed the Bluetooth daemon). Every phase is logged
+(`Bluetooth: scanning`, `connecting`, `waiting for the radio to send its settings`, `radio ready`), and the whole connect gives up after 90 seconds
+with a message naming the phase it was stuck in, then retries after a back-off (30 to 60 seconds) instead of hanging silently. Bluetooth support
+comes with the `meshtastic` package (it installs `bleak`); if it is missing the bridge says so in one line and you can reinstall with
+`pip install -r requirements.txt`. Not yet tried on Windows or macOS.
 
 Not yet verified on real hardware (the code is tested against faked connections only): treat the first Wi-Fi or Bluetooth run as a trial and
 report what happens.

@@ -28,6 +28,8 @@ radios, no crew groups, no job calculators. The AI stays read-only on a fixed to
     (`--tcp HOST`, `--ble ADDRESS`, still defaulting to USB auto-detect) and keep the reconnect behaviour. (Done, plus `--ble-scan`.)
   - Choosing or scanning from the dashboard adds a web route that changes which radio the bridge talks to. That is an `admin` route (see
     item 3) and scanning is a host-side action, so build the command-line options first and the dashboard part together with or after item 3.
+  - [x] Bluetooth hardening from the first hardware runs: unfiltered scan (the library's filtered one crashed bluetoothd), direct connect by MAC
+    address (a radio the OS already holds does not advertise), a log line per phase and a 90 s limit on the whole connect.
   - [x] Bluetooth is host-only: on Linux it needs BlueZ and D-Bus and will not work inside a container (item 4). (Documented in `docs/setup.md`.)
   - [x] Done when: each mode connects, drops and reconnects in tests with the interface classes faked; the docs explain each mode.
   - [ ] Real-hardware check: needs a radio with Wi-Fi or Bluetooth enabled; ask the owner first.

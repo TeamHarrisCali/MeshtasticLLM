@@ -101,7 +101,9 @@ USB is the default. A radio can also be reached without a cable (pick one; the A
 ```
 
 Wi-Fi needs the radio's Wi-Fi switched on and joined to your network; Bluetooth needs a Bluetooth adapter on the computer running the
-bridge, so it works on the host only and not inside a container. Either way the bridge reconnects by itself after a drop or a power cycle,
+bridge, so it works on the host only and not inside a container. If your computer already holds the radio's Bluetooth connection it stops advertising and won't show in a scan; pass its address
+(`bluetoothctl devices Paired` on Linux) and the bridge connects directly. Only one Bluetooth client can hold the radio, so close the phone app,
+and set a PIN in the Meshtastic app (a radio in "No PIN" mode pairs with anyone in range). Either way the bridge reconnects by itself after a drop or a power cycle,
 and the dashboard shows the connection as `tcp://host:4403` or `ble:ADDRESS`. Details and tips in [docs/setup.md](docs/setup.md#connecting-over-wi-fi-or-bluetooth).
 
 ### Try it without hardware

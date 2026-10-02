@@ -95,7 +95,8 @@ def pin(n, tier):
 dm(N0, "/ai sneaky recent please"); settle()
 check("no actions enabled: tools not offered to the model", tools_in(-1) is None, tools_in(-1))
 check("no actions enabled: a tool call the model makes anyway is ignored",
-      last_row(N0)["status"] == "answered" and last_row(N0)["action"] is None and all(m == "plain answer" for m in sent_to(N0)), last_row(N0))
+      last_row(N0)["status"] == "answered" and last_row(N0)["action"] is None
+      and all(m == "plain answer" or "couldn't come up with an answer" in m for m in sent_to(N0)), last_row(N0))   # nothing ran; the asker is told rather than left waiting
 check("no actions enabled: system prompt denies tool access", "cannot run commands" in seen[-1]["messages"][0]["content"])
 
 # ---- verified node, read-only tier -------------------------------------------------------------

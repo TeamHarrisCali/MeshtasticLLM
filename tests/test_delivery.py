@@ -105,6 +105,14 @@ check("single-part reply is retried too and delivered", br.iface.count["hello"] 
 br.outbox.put((None, "!aaaaaaaa", ["Queued (#2, about 40s)."], 0)); time.sleep(0.3)
 check("courtesy notice (no request id) is sent once without tracking", br.iface.count["Queued (#2, about 40s)."] == 1)
 
+# 4b. an empty or blank result still gets a reply (it used to send nothing while the log said "answered")
+br = make(lambda msg, n, dest: "ack")
+for blank in ("", "   \n", None):
+    rid = br.audit.new_request("!aaaaaaaa", None, "q", status="answered", response=blank or "")
+    br.queue_reply(rid, "!aaaaaaaa", blank)
+    r = wait(br, rid, lambda r: r["delivered"] >= 1)
+    check(f"a blank reply ({blank!r}) is replaced by a short notice that is really sent", r["chunks"] == 1 and r["delivered"] == 1 and "couldn't come up with an answer" in " ".join(br.iface.sent), (r["chunks"], br.iface.sent[-1:]))
+
 # 5. ack semantics unchanged: implicit ack from a neighbour counts as relayed
 br = make(lambda msg, n, dest: "relay")
 rid = br.audit.new_request("!aaaaaaaa", None, "q", status="answered", response="hi")

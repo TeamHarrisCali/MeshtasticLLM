@@ -105,6 +105,22 @@ check("single-part reply is retried too and delivered", br.iface.count["hello"] 
 br.outbox.put((None, "!aaaaaaaa", ["Queued (#2, about 40s)."], 0)); time.sleep(0.3)
 check("courtesy notice (no request id) is sent once without tracking", br.iface.count["Queued (#2, about 40s)."] == 1)
 
+# 4b. an empty or blank result still gets a reply (it used to send nothing while the log said "answered")
+br = make(lambda msg, n, dest: "ack")
+for blank in ("", "   \n", None):
+    rid = br.audit.new_request("!aaaaaaaa", None, "q", status="answered", response="")
+    n_before = len(br.iface.sent)
+    br.queue_reply(rid, "!aaaaaaaa", blank)
+    r = wait(br, rid, lambda r: r["delivered"] >= 1)
+    check(f"a blank reply ({blank!r}) sends exactly the short notice", r["chunks"] == 1 and r["delivered"] == 1 and br.iface.sent[n_before:] == [b.BLANK_REPLY_ANSWER], (r["chunks"], br.iface.sent[n_before:]))
+    check(f"...and the log row records what was sent ({blank!r})", r["response"] == b.BLANK_REPLY_ANSWER, r["response"])
+rid = br.audit.new_request(b.WEB_SENDER, None, "q", status="answered", response="")
+n_before = len(br.iface.sent)
+br.queue_reply(rid, b.WEB_SENDER, "")
+time.sleep(0.2)
+web_row = row(br, rid)
+check("a blank answer to the browser chat transmits nothing and its log row is left alone", br.iface.sent[n_before:] == [] and web_row["response"] == "" and web_row["chunks"] == 0, (br.iface.sent[n_before:], web_row["response"], web_row["chunks"]))
+
 # 5. ack semantics unchanged: implicit ack from a neighbour counts as relayed
 br = make(lambda msg, n, dest: "relay")
 rid = br.audit.new_request("!aaaaaaaa", None, "q", status="answered", response="hi")

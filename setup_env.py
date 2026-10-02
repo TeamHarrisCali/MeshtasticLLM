@@ -37,10 +37,12 @@ import urllib.request
 MIN_PY = (3, 9)                                   # the code uses str.removeprefix; it is tested on 3.12 and 3.13
 OLLAMA_URL = "http://127.0.0.1:11434"
 IMPORTS = [("meshtastic", "meshtastic"), ("requests", "requests"), ("serial", "pyserial"), ("pubsub", "pypubsub")]
+# USB vendor ids of the chips on Meshtastic boards (Adafruit/Nordic, Espressif, Silicon Labs CP210x, WCH CH340, FTDI, ...)
 RADIO_VIDS = {0x239A, 0x303A, 0x10C4, 0x1A86, 0x0403, 0x2886, 0x1915, 0x2E8A}     # the chips Meshtastic boards use (the bridge has the authoritative list)
 ROOT = os.path.dirname(os.path.abspath(__file__))
 
 
+# ---- console output -------------------------------------------------------------------------------------------------------------------------
 class Report:
     """Prints a checklist and remembers how it went. ASCII only, so any console shows it."""
 
@@ -49,26 +51,32 @@ class Report:
         self.out = out or sys.stdout
 
     def _p(self, text=""):
+        """Write one line and flush at once, so progress shows up even when output is piped."""
         self.out.write(text + "\n")
         self.out.flush()
 
     def step(self, title):
+        """Start a new section of the checklist."""
         self._p("\n" + title)
 
     def ok(self, msg):
+        """Print a passed check."""
         self._p("  [ok] " + msg)
 
     def info(self, msg):
+        """Print plain detail lines (indented under the last check); does not count as a warning or failure."""
         for line in str(msg).splitlines():
             self._p("       " + line)
 
     def warn(self, msg, hint=None):
+        """Print a problem that does not stop setup, and count it (reported in the final summary)."""
         self.warns += 1
         self._p("  [!!] " + msg)
         if hint:
             self.info(hint)
 
     def fail(self, msg, hint=None):
+        """Print a problem that stops setup, and count it (main() returns 1 if any were counted)."""
         self.fails += 1
         self._p("  [xx] " + msg)
         if hint:
@@ -77,6 +85,7 @@ class Report:
 
 # ---- what kind of computer is this? ---------------------------------------------------------------------------------------------------------
 def parse_os_release(text):
+    """/etc/os-release text as a dict (KEY=value lines, quotes removed); blank and comment lines are skipped."""
     out = {}
     for line in (text or "").splitlines():
         if "=" in line and not line.startswith("#"):
@@ -110,6 +119,7 @@ def detect_os(system=None, release=None, machine=None, os_release_text=None, pro
                     proc_version = f.read()
             except OSError:
                 proc_version = ""
+        # WSL kernels put "microsoft" in /proc/version and in the kernel release string; either one is enough
         info["wsl"] = "microsoft" in (proc_version or "").lower() or "microsoft" in (release or platform.release()).lower()
     return info
 
@@ -123,6 +133,7 @@ def package_manager(info, which=shutil.which):
     return next((m for m in ("apt-get", "dnf", "yum", "pacman", "zypper", "apk") if which(m)), None)
 
 
+# package manager -> command that installs Python (shown to the user, never run by this script)
 PYTHON_INSTALL = {
     "winget": "winget install -e --id Python.Python.3.12",
     "choco": "choco install python",
@@ -137,12 +148,14 @@ PYTHON_INSTALL = {
 
 
 def python_install_hint(info, which=shutil.which):
+    """One-line instruction for installing a new enough Python on this computer."""
     cmd = PYTHON_INSTALL.get(package_manager(info, which) or "")
     if cmd:
         return "Install Python " + ".".join(map(str, MIN_PY)) + " or newer with:  " + cmd
     return "Install Python " + ".".join(map(str, MIN_PY)) + " or newer from https://www.python.org/downloads/"
 
 
+# Ollama has no package-manager route on every Linux distro, so Linux uses Ollama's own install script.
 OLLAMA_INSTALL = {"winget": "winget install -e --id Ollama.Ollama", "brew": "brew install ollama",
                   "linux": "curl -fsSL https://ollama.com/install.sh | sh"}
 
@@ -160,6 +173,7 @@ def ollama_install_command(info, which=shutil.which):
 
 # ---- the private Python environment ---------------------------------------------------------------------------------------------------------
 def venv_python(root, system=None):
+    """Path of the python inside <root>/.venv. The layout differs: Windows uses Scripts/python.exe, Linux and macOS bin/python."""
     sub = ("Scripts", "python.exe") if (system or platform.system()) == "Windows" else ("bin", "python")
     return os.path.join(root, ".venv", *sub)
 
@@ -189,8 +203,10 @@ def venv_state(root, system=None):
         return "missing", "no environment yet"
     py = venv_python(root, system)
     if not os.path.isfile(py):
+        # the other platform's folder exists: the project folder was copied between Windows and Linux/macOS
         other = os.path.isdir(os.path.join(venv, "bin" if (system or platform.system()) == "Windows" else "Scripts"))
         return "stale", "it was made on a different kind of computer" if other else "its Python is missing"
+    # pyvenv.cfg records the base interpreter's folder; if that is gone (copied folder, uninstalled Python) the venv cannot start
     cfg = os.path.join(venv, "pyvenv.cfg")
     try:
         with open(cfg, encoding="utf-8") as f:
@@ -208,11 +224,13 @@ def venv_state(root, system=None):
 
 
 def create_venv(rep, root, python_exe, info, which=shutil.which):
+    """Build <root>/.venv with `python_exe`. Reports a failure (and removes the partial folder) and returns False on error."""
     venv = os.path.join(root, ".venv")
     code, out = run([python_exe, "-m", "venv", venv], timeout=300)
     if code != 0 or not os.path.isfile(venv_python(root, info["system"])):
         shutil.rmtree(venv, ignore_errors=True)            # never leave a half-made environment behind
         hint = out.strip()[-400:]
+        # Debian/Ubuntu ship Python without the venv module unless python3-venv is installed
         if "ensurepip" in out or "python3-venv" in out or "No module named venv" in out:
             hint = "Python's venv module is not installed.  " + (PYTHON_INSTALL["apt-get"] if package_manager(info, which) == "apt-get" else python_install_hint(info, which))
         rep.fail("could not create the environment", hint)
@@ -221,6 +239,7 @@ def create_venv(rep, root, python_exe, info, which=shutil.which):
 
 
 def deps_hash(root, py_version, system):
+    """Fingerprint of requirements.txt plus the Python version and OS; when it changes the dependencies are reinstalled."""
     try:
         with open(os.path.join(root, "requirements.txt"), "rb") as f:
             data = f.read()
@@ -229,6 +248,7 @@ def deps_hash(root, py_version, system):
     return hashlib.sha256(data + ("|%d.%d|%s" % (py_version[0], py_version[1], system)).encode()).hexdigest()
 
 
+# Run inside the venv (not here) so it reports what the environment itself can import; one JSON line on stdout.
 IMPORT_CHECK = r"""
 import importlib, json, sys
 try:
@@ -256,6 +276,7 @@ def check_imports(vpy):
 
 
 def install_deps(rep, root, vpy, info, force=False):
+    """pip-install requirements.txt into the venv unless a stamp file says it is already current. Returns True on success."""
     v = python_version_of(vpy) or (0, 0)
     stamp = os.path.join(root, ".venv", ".deps.sha256")
     want = deps_hash(root, v, info["system"])
@@ -286,13 +307,14 @@ def install_deps(rep, root, vpy, info, force=False):
 
 
 def verify(rep, root, vpy):
+    """Confirm every required package imports and that meshllm.bridge loads. Returns True if both pass."""
     got = check_imports(vpy)
     missing = [m for m, v in got.items() if not v]
     if missing:
         rep.fail("these packages still can't be imported: " + ", ".join(missing), "Run:  python setup_env.py --recreate")
         return False
     rep.ok("packages: " + ", ".join("%s %s" % (m, got[m]) for m, _ in IMPORTS))
-    code, out = run([vpy, "-c", "import mesh_llm_bridge"], cwd=root, timeout=120)
+    code, out = run([vpy, "-c", "import meshllm.bridge"], cwd=root, timeout=120)
     if code != 0:
         rep.fail("the bridge itself doesn't load", out.strip()[-500:])
         return False
@@ -302,6 +324,7 @@ def verify(rep, root, vpy):
 
 # ---- Ollama ------------------------------------------------------------------------------------------------------------------------------------
 def find_ollama(info, which=shutil.which, env=None):
+    """Path of the ollama program: on PATH if possible, else the usual install locations for this OS; None if not found."""
     env = env if env is not None else os.environ
     found = which("ollama")
     if found:
@@ -344,7 +367,7 @@ def configured_model(root):
         except sqlite3.Error:
             pass
     try:
-        with open(os.path.join(root, "mesh_llm_bridge.py"), encoding="utf-8") as f:
+        with open(os.path.join(root, "meshllm", "bridge.py"), encoding="utf-8") as f:
             m = re.search(r'^DEFAULT_MODEL\s*=\s*"([^"]+)"', f.read(), re.M)
         if m:
             return m.group(1), "the built-in default"
@@ -354,6 +377,7 @@ def configured_model(root):
 
 
 def same_model(a, b):
+    """True if two model names are the same to Ollama ('llama3.2' equals 'llama3.2:latest')."""
     norm = lambda n: n if ":" in n else n + ":latest"
     return norm(a) == norm(b)
 
@@ -373,6 +397,8 @@ def ask_yes(question, yes=False, interactive=None):
 
 
 def check_ollama(rep, root, info, opts, which=shutil.which):
+    """Report whether Ollama is installed, running, and has the configured model; optionally install it or pull the model
+    (only with the matching option, only outside --check, and only after ask_yes). Never fails the run: problems are warnings."""
     binary = find_ollama(info, which)
     models = ollama_models(opts.ollama_url)
     model, why = configured_model(root)
@@ -405,6 +431,7 @@ def check_ollama(rep, root, info, opts, which=shutil.which):
 
 
 # ---- the radio ---------------------------------------------------------------------------------------------------------------------------------
+# Run inside the venv because pyserial is installed there, not necessarily in the Python running this script.
 PORT_SNIPPET = r"""
 import json
 from serial.tools import list_ports
@@ -413,6 +440,7 @@ print(json.dumps([{"device": p.device, "vid": p.vid, "pid": p.pid, "desc": p.des
 
 
 def list_serial(vpy):
+    """Serial ports as dicts (device, vid, pid, desc, maker), as seen by the venv's pyserial; [] on any error."""
     code, out = run([vpy, "-c", PORT_SNIPPET], timeout=60)
     try:
         return json.loads(out.strip().splitlines()[-1]) if code == 0 else []
@@ -428,6 +456,7 @@ def linux_serial_advice(device, groups_of_user, group_of_device):
 
 
 def check_radio(rep, info, vpy):
+    """Report whether a Meshtastic radio is plugged in, plus OS-specific causes of "radio not found" (permissions, ModemManager, brltty, WSL)."""
     ports = list_serial(vpy)
     radios = [p for p in ports if p.get("vid") in RADIO_VIDS]
     if not radios:
@@ -445,9 +474,11 @@ def check_radio(rep, info, vpy):
                 mine = {grp.getgrgid(g).gr_name for g in os.getgroups()}
             except (ImportError, KeyError, OSError):
                 gname, mine = "", set()
+            # on Linux the serial device is owned by a group (often dialout/uucp) the user must belong to
             if not os.access(p["device"], os.R_OK | os.W_OK):
                 rep.warn("this user can't open %s" % p["device"], linux_serial_advice(p["device"], mine, gname) or "Check the permissions of the device.")
     if info["system"] == "Linux":
+        # ModemManager and brltty probe new USB serial devices and can hold them open, which blocks the bridge
         active = run(["systemctl", "is-active", "ModemManager"], timeout=5)
         if active[0] == 0 and active[1].strip() == "active":
             rep.warn("ModemManager is running and can grab Meshtastic radios", "If the radio isn't found or keeps disconnecting:  sudo systemctl disable --now ModemManager")
@@ -459,7 +490,8 @@ def check_radio(rep, info, vpy):
 
 # ---- the rest --------------------------------------------------------------------------------------------------------------------------------
 def fix_line_endings(path):
-    """Turn Windows line endings (CRLF) into Unix ones in a shell script. True if the file was changed."""
+    """Turn Windows line endings (CRLF) into Unix ones in a shell script. True if the file was changed.
+    A script copied from Windows fails on Linux/macOS ("bad interpreter") because the shebang line ends in a carriage return."""
     with open(path, "rb") as f:
         data = f.read()
     crlf, lf = bytes([13, 10]), bytes([10])
@@ -471,6 +503,7 @@ def fix_line_endings(path):
 
 
 def prepare_folder(rep, root, info):
+    """Create logs/, make the .sh scripts runnable on Linux/macOS, and say whether an existing audit.db is usable. Reads the database read-only."""
     os.makedirs(os.path.join(root, "logs"), exist_ok=True)
     if info["system"] != "Windows":
         for name in ("setup.sh", "start_bridge.sh", "stop_bridge.sh"):
@@ -494,6 +527,7 @@ def prepare_folder(rep, root, info):
 
 
 def start_command(info):
+    """The command a user types to start the bridge on this OS (shown in the final message)."""
     return r"powershell -NoProfile -ExecutionPolicy Bypass -File .\start_bridge.ps1" if info["system"] == "Windows" else "./start_bridge.sh"
 
 
@@ -530,15 +564,16 @@ def systemd_arg(text, is_exec=True):
 
 
 def systemd_unit_text(root, python_exe):
+    """Text of the systemd user unit. Restart=on-failure so a deliberate stop is not undone; WantedBy=default.target is the user-level 'at login'."""
     return "\n".join([
         "[Unit]",
-        "Description=Meshtastic to Ollama bridge (mesh_llm_bridge.py)",
+        "Description=Meshtastic to Ollama bridge (python -m meshllm)",
         "After=network.target",
         "",
         "[Service]",
         "Type=simple",
         "WorkingDirectory=" + systemd_arg(root, False),
-        "ExecStart=%s -u mesh_llm_bridge.py" % systemd_arg(python_exe),
+        "ExecStart=%s -u -m meshllm" % systemd_arg(python_exe),
         "Restart=on-failure",
         "RestartSec=10",
         "",
@@ -551,7 +586,7 @@ def launchd_plist_text(root, python_exe):
     """The launchd agent as XML (plistlib escapes &, < and > in paths). Restarts only after a failure; logs go under <root>/logs."""
     import plistlib
     data = {"Label": LAUNCHD_LABEL,
-            "ProgramArguments": [python_exe, "-u", "mesh_llm_bridge.py"],
+            "ProgramArguments": [python_exe, "-u", "-m", "meshllm"],
             "WorkingDirectory": root,
             "RunAtLoad": True,
             "KeepAlive": {"SuccessfulExit": False},
@@ -609,6 +644,7 @@ def autostart_plan(info, root, python_exe, home, uid):
 
 def autostart_blocker(plan, which=shutil.which, isdir=os.path.isdir):
     """(message, hint) if the machinery this plan needs isn't here, else None."""
+    # /run/systemd/system exists only when systemd is actually running as init (not in most containers or older WSL)
     if plan["kind"] == "none":
         return plan["problem"] or "start at login isn't supported here", ""
     if plan["kind"] == "systemd" and (not which("systemctl") or not isdir("/run/systemd/system")):
@@ -635,6 +671,7 @@ def autostart_state(plan, runner=run, exists=os.path.isfile):
     return "not installed", ("the file %s exists but isn't active" % present[0]) if present else ""
 
 
+# ---- applying the plan (these run commands and write files) ---------------------------------------------------------------------------------
 def autostart_install(rep, plan, runner=run, ask=ask_yes, yes=False, which=shutil.which, isdir=os.path.isdir):
     """Turn start-at-login on. Asks first unless yes. False only if something went wrong (declining is not a failure)."""
     blocked = autostart_blocker(plan, which, isdir)
@@ -658,7 +695,7 @@ def autostart_install(rep, plan, runner=run, ask=ask_yes, yes=False, which=shuti
     except OSError as e:
         rep.fail("couldn't write the start-at-login file", str(e))
         return False
-    for cmd in plan["pre_cmds"]:
+    for cmd in plan["pre_cmds"]:     # best-effort cleanup (e.g. unloading an older launchd copy); failures are expected and ignored
         runner(cmd, timeout=60)
     for cmd in plan["install_cmds"]:
         code, out = runner(cmd, timeout=120)
@@ -715,6 +752,7 @@ def run_autostart(rep, root, info, opts, runner=run, ask=ask_yes, which=shutil.w
     return 0 if autostart_install(rep, plan, runner, ask, opts.yes, which, isdir) else 1
 
 
+# ---- command line ---------------------------------------------------------------------------------------------------------------------------
 def main(argv=None, root=None, out=None, which=shutil.which, runner=run, ask=ask_yes, home=None, uid=None, info=None, isdir=os.path.isdir):
     """runner, ask, home, uid, info and isdir are for the tests (they stand in for the machine); the defaults are the real thing."""
     ap = argparse.ArgumentParser(description="Set this project up on this computer.", formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__.split("\n", 1)[1])
@@ -731,6 +769,7 @@ def main(argv=None, root=None, out=None, which=shutil.which, runner=run, ask=ask
     ap.add_argument("--dir", help="the project folder (default: where this script is)")
     ap.add_argument("--ollama-url", default=OLLAMA_URL, help=argparse.SUPPRESS)
     opts = ap.parse_args(argv)
+    # the sections below are checks first, changes second: --check must never modify anything
     if opts.autostart and opts.no_autostart:
         ap.error("--autostart and --no-autostart can't be used together")
     root = os.path.abspath(opts.dir or root or ROOT)
@@ -739,8 +778,8 @@ def main(argv=None, root=None, out=None, which=shutil.which, runner=run, ask=ask
 
     rep.step("This computer")
     rep.ok("%s (%s), folder %s" % (info["pretty"], info["arch"], root))
-    if not os.path.isfile(os.path.join(root, "mesh_llm_bridge.py")):
-        rep.fail("this isn't the project folder (mesh_llm_bridge.py is missing)", "Run this script from the project folder, or pass --dir.")
+    if not os.path.isfile(os.path.join(root, "meshllm", "bridge.py")):
+        rep.fail("this isn't the project folder (meshllm/bridge.py is missing)", "Run this script from the project folder, or pass --dir.")
         return 1
 
     if (opts.autostart or opts.no_autostart) and not opts.check:          # its own job: the rest of the setup is not run (that is python setup_env.py)
@@ -765,6 +804,7 @@ def main(argv=None, root=None, out=None, which=shutil.which, runner=run, ask=ask
         else:
             rep.warn("%s: %s" % (state, reason), "Run:  python setup_env.py")
     else:
+        # a venv cannot delete itself while its own python is running this script (on Windows the files are locked)
         if (state == "stale" or (opts.recreate and state != "missing")) and os.path.abspath(sys.prefix).startswith(os.path.join(root, ".venv")):
             rep.fail("this script is running from inside the environment it needs to rebuild",
                      "Run it with the system Python instead:  python setup_env.py --recreate   (not the Python inside the .venv folder)")
@@ -829,6 +869,7 @@ def main(argv=None, root=None, out=None, which=shutil.which, runner=run, ask=ask
     rep.info("Start the bridge:   " + start_command(info))
     rep.info("Then open:         http://127.0.0.1:8080/")
     rep.info("Optional:          python setup_env.py --autostart   (start the bridge at every login)")
+    # --start runs the platform's own launcher script, which detaches the bridge; Windows needs powershell to run a .ps1
     if opts.start:
         script = os.path.join(root, "start_bridge.ps1" if info["system"] == "Windows" else "start_bridge.sh")
         cmd = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script] if info["system"] == "Windows" else [script]
@@ -839,6 +880,7 @@ def main(argv=None, root=None, out=None, which=shutil.which, runner=run, ask=ask
 
 
 if __name__ == "__main__":
+    # replace characters the console cannot show instead of crashing (older Windows consoles are not UTF-8)
     try:
         sys.stdout.reconfigure(errors="replace")            # any console can show the output
     except (AttributeError, ValueError):

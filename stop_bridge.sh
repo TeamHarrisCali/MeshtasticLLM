@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 # Stops the background bridge, if one is running (Linux / macOS). The Windows equivalent is stop_bridge.ps1.
 #   ./stop_bridge.sh [--quiet]
-pids=$(pgrep -f 'mesh_llm_bridge\.py' 2>/dev/null)
+pids=$(pgrep -f ' -m meshllm( |$)' 2>/dev/null)
 if [ -n "$pids" ]; then
   kill $pids 2>/dev/null
   sleep 1

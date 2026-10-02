@@ -19,6 +19,7 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 
 
 def main(argv):
+    """Run the selected test files one by one and print a summary; returns the process exit code (1 if anything failed)."""
     verbose = "-v" in argv
     words = [a for a in argv if not a.startswith("-")]
     files = sorted(glob.glob(os.path.join(ROOT, "tests", "test_*.py")))
@@ -27,6 +28,8 @@ def main(argv):
     if not files:
         print("No matching tests.")
         return 1
+    # Point every temp-dir variable (Windows uses TEMP/TMP, POSIX uses TMPDIR) at a throwaway folder so the tests
+    # never write into the real data folders; PYTHONIOENCODING keeps non-ASCII output from crashing on Windows consoles.
     scratch = tempfile.mkdtemp(prefix="meshtests_")
     env = dict(os.environ, TEMP=scratch, TMP=scratch, TMPDIR=scratch, PYTHONIOENCODING="utf-8", PYTHONDONTWRITEBYTECODE="1")
     total_pass = total_fail = 0
@@ -47,7 +50,7 @@ def main(argv):
             bad = [l for l in lines if l.startswith("FAIL ")]
             total_pass += ok
             total_fail += len(bad)
-            crashed = code != 0 and not bad
+            crashed = code != 0 and not bad   # non-zero exit without any FAIL line: the script died before reporting
             status = "ok  " if code == 0 and not bad else "FAIL"
             print(f"{status} {name:<16} {ok:>4} passed{'' if not bad else f', {len(bad)} failed'}{'  (crashed)' if crashed else ''}   {time.time() - t1:5.1f}s")
             if bad or crashed:

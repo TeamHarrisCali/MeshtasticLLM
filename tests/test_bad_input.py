@@ -23,7 +23,7 @@ class Fake(BaseHTTPRequestHandler):       # just enough Ollama for the model end
         self._j({"done": True, "message": {"content": "ok"}})
 threading.Thread(target=ThreadingHTTPServer(("127.0.0.1", 11493), Fake).serve_forever, daemon=True).start()
 
-import mesh_llm_bridge as b, webui
+from meshllm import bridge as b, webui
 import requests as rq
 
 A = "!aaaa0001"
@@ -111,7 +111,9 @@ for path in GETS:
                 badg.append((path, k, v[:12], type(e).__name__))
 check(f"{len(GETS) * len(QKEYS) * len(QVALS)} odd query strings: none answered 5xx", not badg, badg[:6])
 check("server still alive after the GET barrage", rq.get(URL + "/api/status", timeout=10).status_code == 200)
-check("path traversal on static files still refused", rq.get(URL + "/..%2f..%2faudit.py", timeout=10).status_code in (403, 404))
+# static/ lives at meshllm/static, so ../audit.py is a real file next to it and ../../README.md is a real file in the project folder:
+# a refused request here proves the guard works, not just that the file is missing
+check("path traversal on static files still refused", all(rq.get(URL + u, timeout=10).status_code in (403, 404) for u in ("/..%2faudit.py", "/..%2f..%2fREADME.md")))
 
 print("\n%d failure(s)" % len(fails))
 try: os.remove(DB)

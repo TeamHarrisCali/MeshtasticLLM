@@ -32,7 +32,7 @@ class Fake(BaseHTTPRequestHandler):
     def do_GET(self): self._out({"models": [{"name": "fake"}]})
 threading.Thread(target=ThreadingHTTPServer(("127.0.0.1", 11498), Fake).serve_forever, daemon=True).start()
 
-import mesh_llm_bridge as b, webui
+from meshllm import bridge as b, webui
 import requests as rq
 
 args = argparse.Namespace(db=DB, port="STUB", model="fake", command="/ai", ollama_url="http://127.0.0.1:11498", max_tokens=50, num_ctx=4096, max_chunks=4, chunk_delay=0,

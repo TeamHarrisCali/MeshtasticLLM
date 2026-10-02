@@ -3,7 +3,7 @@ import io, os, shutil, sys, tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 import setup_env as S
-import actions
+from meshllm import actions
 
 fails = []
 def check(name, cond, detail=""):

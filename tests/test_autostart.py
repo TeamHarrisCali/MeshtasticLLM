@@ -56,9 +56,9 @@ unit = "/home/sam/.config/systemd/user/mesh-llm-bridge.service"
 check("Linux: one unit file under ~/.config/systemd/user", p["kind"] == "systemd" and list(p["files"]) == [unit], list(p["files"]))
 text = p["files"][unit]
 check("unit has the required settings", all(s in text for s in ("[Unit]", "[Service]", "[Install]", "Type=simple", "Restart=on-failure", "RestartSec=10", "WantedBy=default.target")), text)
-check("unit quotes paths with spaces in WorkingDirectory and ExecStart", 'WorkingDirectory="%s"' % linroot in text and 'ExecStart="%s" -u mesh_llm_bridge.py' % lpy in text, text)
+check("unit quotes paths with spaces in WorkingDirectory and ExecStart", 'WorkingDirectory="%s"' % linroot in text and 'ExecStart="%s" -u -m meshllm' % lpy in text, text)
 plain = S.systemd_unit_text("/opt/mesh", "/opt/mesh/.venv/bin/python")
-check("unit leaves simple paths unquoted", "WorkingDirectory=/opt/mesh\n" in plain and "ExecStart=/opt/mesh/.venv/bin/python -u mesh_llm_bridge.py\n" in plain, plain)
+check("unit leaves simple paths unquoted", "WorkingDirectory=/opt/mesh\n" in plain and "ExecStart=/opt/mesh/.venv/bin/python -u -m meshllm\n" in plain, plain)
 check("systemd quoting escapes %, $, quotes and backslashes", S.systemd_arg("/a%b$c") == "/a%%b$$c" and S.systemd_arg('/a "b"') == '"/a \\"b\\""' and S.systemd_arg("/a b\\c") == '"/a b\\\\c"' and S.systemd_arg("/a$b", False) == "/a$b")
 check("unit has no CR and ends with a newline", "\r" not in text and text.endswith("\n"))
 uni_l = S.systemd_unit_text("/home/s\u00e9/\u00fcber", "/home/s\u00e9/\u00fcber/.venv/bin/python")
@@ -76,7 +76,7 @@ check("macOS: one plist under ~/Library/LaunchAgents", p["kind"] == "launchd" an
 xml = p["files"][plist]
 check("plist XML-escapes &, < and >", "&amp;" in xml and "&lt;LLM&gt;" in xml and "& <" not in xml, xml)
 d = plistlib.loads(xml.encode("utf-8"))
-check("plist parses back to the exact paths (spaces, &, <>, quotes)", d["WorkingDirectory"] == macroot and d["ProgramArguments"] == [mpy, "-u", "mesh_llm_bridge.py"], d)
+check("plist parses back to the exact paths (spaces, &, <>, quotes)", d["WorkingDirectory"] == macroot and d["ProgramArguments"] == [mpy, "-u", "-m", "meshllm"], d)
 check("plist: RunAtLoad, KeepAlive only after failure, label, logs under <root>/logs", d["RunAtLoad"] is True and d["KeepAlive"] == {"SuccessfulExit": False} and d["Label"] == "com.meshllm.bridge" and d["StandardOutPath"] == macroot + "/logs/bridge.log" and d["StandardErrorPath"] == macroot + "/logs/bridge.err.log", d)
 check("macOS: the logs folder is created before loading", p["dirs"] == [macroot + "/logs"])
 check("macOS install: bootstrap gui/<uid> <plist>", p["install_cmds"] == [["launchctl", "bootstrap", "gui/501", plist]], p["install_cmds"])
@@ -186,7 +186,8 @@ try:
     # ---- main(): --check, flags, nothing runs on a plain invocation
     fake_root = os.path.join(tmp, "project")
     os.makedirs(fake_root)
-    open(os.path.join(fake_root, "mesh_llm_bridge.py"), "w").write("")
+    os.makedirs(os.path.join(fake_root, "meshllm"))
+    open(os.path.join(fake_root, "meshllm", "bridge.py"), "w").write("")
     fr, buf = FakeRunner(default=(1, "not found")), io.StringIO()
     rc = S.main(["--autostart", "--dir", fake_root], out=buf, runner=fr, ask=no, home=os.path.join(tmp, "h2"), uid=7, info=LIN, which=lambda n: "/bin/" + n, isdir=lambda d: True)
     text = buf.getvalue()

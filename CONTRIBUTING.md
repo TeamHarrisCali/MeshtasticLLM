@@ -7,6 +7,7 @@ Thanks for helping. Bug reports, hardware reports (radio model, OS, what happene
 ```bash
 ./setup.sh            # Linux / macOS  (Windows: setup.bat)
 python run_tests.py   # about a minute; no radio or Ollama needed, both are faked
+python -m meshllm     # run the bridge in the foreground
 ```
 
 `python run_tests.py channel backup` runs only the test files whose names contain those words. `-v` prints more detail for failures.
@@ -19,8 +20,10 @@ python run_tests.py   # about a minute; no radio or Ollama needed, both are fake
 - **Treat everything from the mesh as untrusted**, including node names.
 - **Add a test.** Tests are ordinary scripts in `tests/` that print `PASS` / `FAIL` lines (see `tests/fixture.py`). They fake the
   radio and Ollama and use a temporary folder, so they never touch a real `audit.db`.
-- **Match the surrounding code.** The modules are flat, each with a docstring saying what it is for. The dashboard is plain
-  HTML, CSS and JavaScript in `static/`, with no build step.
+- **Match the surrounding code.** The Python lives in the `meshllm/` package, one module per concern, each with a docstring saying
+  what it is for ([docs/files.md](docs/files.md) is the map). The dashboard is plain HTML, CSS and JavaScript in `meshllm/static/`
+  with no build step; the script files are joined in the order listed in `meshllm/static/js/order.txt`.
+- **Document as you go.** Give new functions and classes a docstring, and comment the *why* of anything non-obvious.
 - **Update the docs** in `docs/` (and the README if it is user-facing) when behaviour changes.
 - **Do not measure against the held-out set to tune a prompt.** `eval_tools.py` keeps a development set and a held-out set
   apart on purpose.

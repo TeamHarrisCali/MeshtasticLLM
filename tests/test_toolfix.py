@@ -8,7 +8,7 @@ DB = os.path.join(HERE, "toolfix_test.db")
 for ext in ("", "-wal", "-shm"):
     try: os.remove(DB + ext)
     except OSError: pass
-import mesh_llm_bridge as b, webui
+from meshllm import bridge as b, webui
 import requests as rq
 
 log = []      # (kind, forced, user text)
@@ -108,8 +108,8 @@ check("grounded(): numbers that are in the facts pass (also time written differe
 check("grounded(): an invented number fails, even next to real ones", not g("Humidity is 82%", ctx) and not g("6 nodes and 731 packets", ctx) and not g("88 F and 91% humidity", ctx))
 check("grounded(): words with no number, empty and None are not grounded", not g("No.", ctx) and not g("", ctx) and not g(None, ctx) and not g("6 nodes", None) and not g("6 nodes", ""))
 check("grounded(): the question's own numbers count as given, but a computed result does not (it cannot be checked against the facts)", g("You asked about 3/4 inch", "what is 3/4 inch in decimal") and not g("It is 0.75 inch", "what is 3/4 inch in decimal"))
-import eval_tools as E
-tuned = (b.GATE_PROMPT + b.TOOL_PROMPT + b.SYSTEM_PROMPT + b.FORCE_PROMPT + " ".join(a.description for a in __import__("actions").ACTIONS.values())).lower()
+from meshllm.tools import eval_tools as E
+tuned = (b.GATE_PROMPT + b.TOOL_PROMPT + b.SYSTEM_PROMPT + b.FORCE_PROMPT + " ".join(a.description for a in __import__("meshllm.actions", fromlist=["x"]).ACTIONS.values())).lower()
 leaks = [pr for _, pr, _ in E.HELDOUT_CASES if pr.lower().rstrip("?.!") in tuned]
 check("evaluation integrity: no held-out prompt appears verbatim in the gate, tool prompt, system prompt or any tool description", leaks == [], leaks)
 leaks2 = [pr for _, pr, _ in E.HELDOUT_CASES if any(pr.lower().rstrip("?.!") == q.lower().rstrip("?.!") for _, q, _ in E.CASES)]

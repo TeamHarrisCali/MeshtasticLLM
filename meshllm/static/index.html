@@ -1,0 +1,601 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mesh LLM</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="app">
+<aside class="side" aria-label="Pages">
+  <div class="brand">Mesh LLM<small>radio mesh + local AI</small></div>
+  <nav id="nav" style="display:contents">
+    <div class="grp">Messages</div>
+    <button data-view="channel"><span class="ic">📣</span>Public channel<span class="navbadge" data-badge="channel" hidden></span></button>
+    <button data-view="dm"><span class="ic">✉️</span>Direct messages<span class="navbadge" data-badge="dm" hidden></span></button>
+    <button data-view="chat"><span class="ic">💬</span>AI conversations</button>
+    <div class="grp">Network</div>
+    <button data-view="home"><span class="ic">🏠</span>Home<span class="navbadge warn" data-badge="alerts" hidden></span></button>
+    <button data-view="nodes"><span class="ic">📡</span>Nodes</button>
+    <button data-view="map"><span class="ic">🗺️</span>Map</button>
+    <button data-view="coverage"><span class="ic">📶</span>Coverage</button>
+    <button data-view="activity"><span class="ic">🕒</span>Activity</button>
+    <button data-view="trends"><span class="ic">📈</span>Trends</button>
+    <div class="grp">Tools</div>
+    <button data-view="traceroute"><span class="ic">🧭</span>Traceroute</button>
+    <button data-view="telemetry"><span class="ic">📊</span>Telemetry</button>
+    <button data-view="radio"><span class="ic">📻</span>Radio settings</button>
+    <button data-view="data"><span class="ic">📚</span>Data</button>
+    <button data-view="report"><span class="ic">📝</span>Report</button>
+    <button data-view="diagnostics"><span class="ic">🩺</span>Diagnostics</button>
+    <button data-view="settings"><span class="ic">⚙️</span>Settings</button>
+    <div class="grp">AI</div>
+    <button data-view="ai"><span class="ic">🤖</span>Overview</button>
+    <button data-view="model"><span class="ic">🧠</span>Model</button>
+    <button data-view="access"><span class="ic">🔐</span>Access &amp; actions</button>
+    <button data-view="audit"><span class="ic">📋</span>AI log</button>
+    <button data-view="eval"><span class="ic">🧪</span>Evaluation</button>
+  </nav>
+</aside>
+<main class="main">
+  <header class="top">
+    <h1 id="pageTitle">Home</h1>
+    <form id="searchForm" class="searchform" role="search"><input id="searchBox" type="search" placeholder="Search everything  ( / )" aria-label="Search everything" autocomplete="off" maxlength="80"></form>
+    <span class="pill"><span class="dot" id="radioDot"></span><span id="radioTxt">Radio…</span></span>
+    <span class="pill"><span class="dot" id="llmDot"></span><span id="llmTxt">Ollama…</span></span>
+    <button id="distBtn" title="Show distances in kilometres or miles" aria-label="Distance unit">km</button>
+    <button id="unitBtn" title="Show temperatures in Celsius or Fahrenheit" aria-label="Temperature unit">°C</button>
+    <button id="pauseBtn">…</button>
+  </header>
+
+  <section id="radioBanner" class="banner" aria-live="polite" hidden></section>
+
+  <div id="viewHome">
+    <div id="homeAlerts"></div>
+    <div class="card" id="starCard" hidden><h3>Starred nodes</h3><div id="homeStars"></div></div>
+    <section class="card" id="sensorCard" aria-label="Temperature and humidity">
+      <h3>Temperature &amp; humidity <span class="hint" id="sensorNote"></span>
+        <select id="sensorWindow" class="morelink" aria-label="Average readings from the last"><option value="0.25">last 15 min</option><option value="1">last hour</option><option value="6">last 6 h</option><option value="24">last 24 h</option></select></h3>
+      <div class="sensorstrip"><div id="sensorHead"></div><div id="sensorNodes" class="sensornodes"></div></div>
+    </section>
+    <section class="tiles" id="homeTiles" aria-label="Overview"></section>
+    <div class="hgrid">
+      <div class="card">
+        <h3>Map <span class="hint" id="homeMapInfo"></span><button class="morelink" data-go="map">Open the full map →</button></h3>
+        <svg id="homeMap" class="mapsvg" viewBox="0 0 680 420" role="img" aria-label="Map of the nodes with a captured position"></svg>
+        <div class="legend"><span><i class="sw us"></i>us</span><span><i class="sw h0"></i>direct</span><span><i class="sw h1"></i>1 hop</span><span><i class="sw h2"></i>2+ hops</span><span><i class="sw hx"></i>hops unknown</span><span><i class="sw st"></i>remembered (radio forgot it)</span></div>
+      </div>
+      <div class="stack">
+        <div class="card"><h3>New nodes <span class="hint">first heard lately</span><button class="morelink" data-go="nodes">All nodes →</button></h3><div id="homeNew"></div></div>
+        <div class="card"><h3>Closest nodes</h3><div id="homeNear"></div></div>
+      </div>
+    </div>
+    <div class="hgrid even">
+      <div class="card">
+        <h3>Packets heard per hour <span class="hint">last 24 h</span></h3>
+        <svg id="homeTraffic" class="chartsvg" viewBox="0 0 680 220" role="img" aria-label="Packets heard per hour by type"></svg>
+        <div class="legend" id="homeTrafficLegend"></div>
+        <h4 class="subh">Busiest senders in the last hour</h4>
+        <div id="homeTalkers"></div>
+      </div>
+      <div class="card">
+        <h3>Mesh health <span class="hint">last 24 h, one snapshot every few minutes</span></h3>
+        <svg id="homeHealth1" class="chartsvg" viewBox="0 0 680 190" role="img" aria-label="Nodes heard over time"></svg>
+        <div class="legend" id="homeHealth1Legend"></div>
+        <svg id="homeHealth2" class="chartsvg" viewBox="0 0 680 190" role="img" aria-label="Channel use over time"></svg>
+        <div class="legend" id="homeHealth2Legend"></div>
+      </div>
+    </div>
+    <div class="hgrid even">
+      <div class="card"><h3>Mesh makeup</h3><h4 class="subh" style="margin-top:0">Roles</h4><div id="homeRoles"></div><h4 class="subh">Hardware</h4><div id="homeHw"></div></div>
+      <div class="card"><h3>AI assistant <button class="morelink" data-go="ai">Overview →</button></h3><div id="homeAi"></div></div>
+    </div>
+  </div>
+
+  <div id="viewNodes" class="nodespage" hidden>
+    <section class="card nlistpane" aria-label="Nodes">
+      <div class="telform">
+        <input id="nodesQ" type="search" placeholder="Search name, id, hardware or role" aria-label="Search nodes">
+        <select id="nodesFilter" aria-label="Filter nodes">
+          <option value="all">All nodes</option><option value="hour">Heard in the last hour</option><option value="day">Heard today</option>
+          <option value="direct">Direct neighbours</option><option value="telemetry">Have telemetry</option><option value="position">Have a position</option>
+          <option value="low">Low battery (20% or less)</option><option value="mqtt">Via MQTT</option><option value="stored">Remembered only (not on the radio now)</option><option value="starred">Starred by me</option>
+        </select>
+        <select id="nodesSort" aria-label="Sort nodes">
+          <option value="heard">Sort: last heard</option><option value="name">Sort: name</option><option value="hops">Sort: hops</option>
+          <option value="battery">Sort: battery (lowest)</option><option value="util">Sort: channel use (highest)</option><option value="snr">Sort: signal (best)</option>
+        </select>
+      </div>
+      <div class="nodecount" id="nodesCount"></div>
+      <div id="nodesList"></div>
+      <div class="more" style="margin:8px"><button id="nodesMore" hidden>Show more</button></div>
+    </section>
+    <section id="nodePane" aria-live="polite"></section>
+  </div>
+
+  <div id="viewMap" hidden>
+    <div class="card">
+      <div class="maptools">
+        <label>Heard <select id="mapAge" aria-label="Only nodes heard within"><option value="all">ever</option><option value="604800">in the last week</option><option value="86400">in the last day</option><option value="3600">in the last hour</option></select></label>
+        <label><input type="checkbox" id="mapStored" checked> Include remembered nodes</label>
+        <label><input type="checkbox" id="mapLabels"> Names</label>
+        <label><input type="checkbox" id="mapAll"> Fit every node (don't ignore far-away ones)</label>
+        <label><input type="checkbox" id="mapTrails"> Movement trails (last 7 days)</label>
+        <label><input type="checkbox" id="mapLinks"> Link quality (signal from us to nodes heard directly)</label>
+        <label><input type="checkbox" id="mapTiles"> OpenStreetMap background (this PC downloads the tiles you look at and keeps them)</label>
+      </div>
+      <svg id="mapBig" class="mapsvg" viewBox="0 0 900 560" role="img" aria-label="Map of every node with a captured position"></svg>
+      <div class="legend"><span><i class="sw us"></i>us</span><span><i class="sw h0"></i>direct</span><span><i class="sw h1"></i>1 hop</span><span><i class="sw h2"></i>2+ hops</span><span><i class="sw hx"></i>hops unknown</span><span><i class="sw st"></i>remembered (radio forgot it)</span><span>faded = not heard for a day</span></div>
+      <div class="legend" id="snrLegend" hidden><span><b>Link quality (SNR):</b></span><span><i class="sw" style="background:#22c55e"></i>5 dB or better</span><span><i class="sw" style="background:#84cc16"></i>0 to 5</span><span><i class="sw" style="background:#f59e0b"></i>-5 to 0</span><span><i class="sw" style="background:#f97316"></i>-10 to -5</span><span><i class="sw" style="background:#ef4444"></i>below -10</span><span>thicker = more packets</span></div>
+      <p class="hint" id="mapSummary"></p>
+      <p class="hint" id="tileInfo" hidden>Map tiles kept on this PC: <span id="tileCount"></span> <button id="tileClear" type="button" style="padding:1px 8px;font-size:12px">Delete them</button></p>
+    </div>
+    <div class="card" id="posCard">
+      <h3>Our radio's position</h3>
+      <p class="hint" id="posNow" style="margin-top:0"></p>
+      <div class="maptools"><button id="posOpen" class="primary">Set the position on a map…</button><button id="posClear" hidden>Remove the fixed position</button></div>
+      <div id="posPicker" hidden>
+        <p class="hint">Click the map to choose where the radio is. Drag to move, scroll or use + / − to zoom. This uses the OpenStreetMap background: this PC downloads the tiles you look at from openstreetmap.org and keeps a copy, so they load quickly next time and work offline.</p>
+        <div class="maptools">
+          <label>Latitude <input id="posLat" inputmode="decimal" size="11" aria-label="Latitude"></label>
+          <label>Longitude <input id="posLon" inputmode="decimal" size="11" aria-label="Longitude"></label>
+          <label>Altitude (m) <input id="posAlt" inputmode="numeric" size="6" placeholder="0" aria-label="Altitude in metres"></label>
+          <button id="posZoomIn" type="button" aria-label="Zoom in">+</button><button id="posZoomOut" type="button" aria-label="Zoom out">−</button>
+          <button id="posSet" class="primary" type="button">Set on the radio</button><button id="posCancel" type="button">Cancel</button>
+        </div>
+        <svg id="pickMap" class="mapsvg" viewBox="0 0 900 520" role="img" aria-label="Map for choosing the radio's position" style="touch-action:none;cursor:crosshair"></svg>
+        <div id="posNote" class="sendnote" role="status"></div>
+        <p class="hint">This writes a fixed position to the radio. The radio then shares it with the mesh on its normal position schedule, so anyone in range can see where it is. It stays until you remove it here.</p>
+      </div>
+    </div>
+    <div class="card" id="linkCard">
+      <h3>Direct neighbours <span class="hint" id="linkNote"></span>
+        <select id="linkHours" class="morelink" aria-label="Signal measured over the last"><option value="24">last 24 h</option><option value="168">last 7 days</option><option value="720">last 30 days</option></select></h3>
+      <div class="linkgrid">
+        <div><svg id="linkScatter" class="chartsvg" viewBox="0 0 680 250" role="img" aria-label="Signal strength against distance for each directly heard node"></svg></div>
+        <div><div class="lrow colhead"><div>Node</div><div>SNR</div><div class="hide-sm">RSSI</div><div>Packets</div><div>Distance</div><div class="hide-sm">Heard</div></div><div id="linkTable"></div></div>
+      </div>
+      <p class="hint">Only nodes heard <em>directly</em> are listed: for a relayed packet the radio measures the relay's signal, not the sender's. SNR is how far the signal is above the noise (LoRa can still decode down to about -17 dB on LongFast); RSSI is raw strength. A node with no known position is listed but can't be drawn.</p>
+    </div>
+    <div class="card" id="mapPicked" hidden></div>
+    <div class="card"><h3>No position captured <span class="hint" id="mapNoPosCount"></span></h3><div id="mapNoPos"></div>
+      <p class="hint">Positions come from two places: the radio's node list, and position broadcasts this bridge hears and stores itself. A node only appears on the map once it has shared a position.</p></div>
+  </div>
+
+  <div id="viewTrends" hidden>
+    <div class="trendgrid">
+      <section class="card roomy">
+        <div class="chead">
+          <div><h3>When is the mesh busiest?</h3><div class="sub" id="busyNote"></div></div>
+          <select id="busyType" class="ctl" aria-label="Kind of packet"></select>
+        </div>
+        <svg id="busyHour" class="chartsvg" viewBox="0 0 640 240" role="img" aria-label="Average packets heard per hour of the day"></svg>
+      </section>
+      <section class="card roomy">
+        <div class="chead">
+          <div><h3>How far packets travel</h3><div class="sub" id="hopNote"></div></div>
+          <select id="hopWindow" class="ctl" aria-label="Period"><option value="24">last 24 h</option><option value="168">last 7 days</option><option value="720">last 30 days</option></select>
+        </div>
+        <section class="tiles compact" id="hopTiles"></section>
+        <svg id="hopChart" class="chartsvg" viewBox="0 0 640 250" role="img" aria-label="Packets heard by number of relays over time"></svg>
+        <div class="legend" id="hopLegend"></div>
+        <p class="hint">"Direct" means nobody relayed the packet; more relays means the sender is further away, or the mesh is leaning on relays. Only packets whose sender reports hop data are counted.</p>
+      </section>
+    </div>
+    <section class="card roomy">
+      <div class="chead"><div><h3>Hour by hour, last 7 days</h3><div class="sub">Each square is one hour; darker means more packets. Uses the same packet filter as the chart above.</div></div></div>
+      <svg id="busyHeat" class="chartsvg" viewBox="0 0 640 240" role="img" aria-label="Packets heard in each hour of the last seven days"></svg>
+      <div class="legend"><span>fewer packets</span><span><i class="key" style="width:110px;background:linear-gradient(90deg, color-mix(in srgb, var(--accent) 12%, var(--idle-bg)), var(--accent))"></i></span><span>more</span><span>grey = nothing recorded</span></div>
+    </section>
+  </div>
+
+  <div id="viewData" hidden>
+    <div class="card">
+      <h3>What this bridge collects <span class="hint" id="dataTotals"></span></h3>
+      <p class="hint" style="margin-top:0">Everything stays on this PC, in the database file and the map tile folder. Message text is stored only in the AI log (messages to and from the AI and the ones you send); everything else is counts, averages and readings the nodes broadcast to anyone listening. Old data is deleted automatically after the time shown.</p>
+      <div class="drow colhead"><div>Dataset</div><div>Rows</div><div>From - to</div><div>Kept</div><div></div></div>
+      <div id="dataRows"></div>
+    </div>
+    <div class="hgrid even">
+      <div class="card"><h3>How far packets travelled <span class="hint">last 24 h, by relays passed</span></h3><div id="dataHops"></div></div>
+      <div class="card"><h3>Storage</h3><div id="dataStore"></div></div>
+    </div>
+  </div>
+
+  <div id="viewActivity" hidden>
+    <div class="bar">
+      <input type="search" id="actQ" placeholder="Search activity" aria-label="Search activity">
+      <div class="chips" id="actChips" role="group" aria-label="Show these kinds of activity"></div>
+    </div>
+    <div class="card" style="padding-top:6px;padding-bottom:6px"><div id="actRows"></div></div>
+    <div class="more"><button id="actMore" hidden>Load older</button></div>
+  </div>
+
+  <div id="viewAi" hidden>
+    <div id="aiAlerts"></div>
+    <section class="card" id="aiChatCard" aria-label="Ask the AI">
+      <h3>Ask the AI <span class="hint">same model, prompt and read-only tools as a radio message, so answers are brief; nothing is transmitted</span>
+        <button id="aiChatReset" class="morelink" type="button">New chat</button></h3>
+      <div id="aiThread" class="thread" style="height:auto;min-height:110px;max-height:360px"></div>
+      <div id="aiExamples" class="chips" style="margin-top:10px"></div>
+      <form id="aiChatForm" class="composer" style="padding:10px 0 0;border:0"><input id="aiInput" maxlength="600" autocomplete="off" placeholder="Ask about the mesh, e.g. how's the mesh doing?" aria-label="Question for the AI"><button class="primary" type="submit" id="aiSend">Ask</button></form>
+      <div id="aiChatNote" class="sendnote" role="status"></div>
+    </section>
+    <section class="tiles" id="aiTiles" aria-label="AI overview"></section>
+    <div class="linkcards">
+      <button class="linkcard" data-go="chat"><b>💬 Conversations</b><span>Read what each node asked, message a node, clear its memory</span></button>
+      <button class="linkcard" data-go="model"><b>🧠 Model</b><span>Choose or download the Ollama model</span></button>
+      <button class="linkcard" data-go="access"><b>🔐 Access &amp; actions</b><span>Who may ask, daily limits, pinned keys, AI tools</span></button>
+      <button class="linkcard" data-go="audit"><b>📋 AI log</b><span>Every request with its status, timing and delivery</span></button>
+    </div>
+    <div class="hgrid even">
+      <div class="card"><h3>Recent questions <button class="morelink" data-go="audit">Open the AI log →</button></h3><div id="aiRecent"></div></div>
+      <div class="stack">
+        <div class="card"><h3>Busiest askers <span class="hint">last 24 h</span></h3><div id="aiAskers"></div></div>
+        <div class="card"><h3>From the radio</h3>
+          <p class="hint" style="margin-top:0">A node you have enabled for AI tools (read-only is enough) can ask the same questions by direct message, for example <code>/ai how's the mesh doing?</code>. The answers come from the database this page shows, and the AI never transmits to other nodes.</p></div>
+      </div>
+    </div>
+    <div class="card"><h3>What the AI can do</h3><div id="aiActions"></div></div>
+  </div>
+
+  <div id="viewRadio" hidden>
+    <div id="radioWarn" class="warnbox" hidden></div>
+    <div class="card">
+      <h3>Settings stored on the radio <span class="hint" id="radioInfo"></span></h3>
+      <p class="hint" style="margin-top:0">"Pull" reads the radio's settings and saves a backup copy. Change values below, then "Save to the radio" writes only what changed. The settings being replaced are backed up first, and the radio restarts to apply them (the bridge reconnects by itself). Wi-Fi, keys, MQTT credentials and the Bluetooth PIN are never shown or changed here.</p>
+      <div class="maptools"><button id="radioPull">Pull from the radio</button><button id="radioSave" class="primary" disabled>Save to the radio</button><button id="radioDiscard" disabled>Discard edits</button></div>
+      <div id="radioNote" class="sendnote" role="status"></div>
+      <div id="radioPending"></div>
+    </div>
+    <div class="chips" id="radioTabs" role="group" aria-label="Settings section" style="margin-bottom:14px"></div>
+    <div class="card" id="radioForm"></div>
+    <div class="card"><h3>Saved backups <span class="hint">the newest 40 are kept</span></h3><div id="radioBackups"></div></div>
+  </div>
+
+  <div id="viewAudit" hidden>
+  <section id="queueCard" class="card" hidden aria-label="Question queue">
+    <h3>Queue <span id="queueCount"></span></h3>
+    <div id="queueRows"></div>
+  </section>
+  <section class="tiles" aria-label="Summary">
+    <div class="tile"><div class="label">Requests · 24h</div><div class="value" id="tRecent">–</div><div class="sub" id="tTotal"></div></div>
+    <div class="tile"><div class="label">Avg model time</div><div class="value" id="tLat">–</div><div class="sub" id="tErr"></div></div>
+    <div class="tile"><div class="label">Reply delivery</div><div class="value" id="tDel">–</div><div class="sub" id="tDelSub"></div></div>
+    <div class="tile"><div class="label">Nodes served</div><div class="value" id="tNodes">–</div><div class="sub" id="tTop"></div></div>
+  </section>
+
+  <div class="bar">
+    <input type="search" id="q" placeholder="Search prompts, replies, node names or IDs" aria-label="Search">
+    <select id="status" aria-label="Filter by status">
+      <option value="">All statuses</option>
+      <option value="answered">Answered</option>
+      <option value="queued">In progress</option>
+      <option value="llm_error">Model error</option>
+      <option value="rate_limited">Rate limited</option>
+      <option value="usage">Usage hint</option>
+      <option value="paused">While paused</option>
+      <option value="reset">Memory reset</option>
+      <option value="blocked">Blocked</option>
+      <option value="denied">Not on allowlist</option>
+      <option value="cap">Daily limit hit</option>
+      <option value="busy">Queue full</option>
+      <option value="cancelled">Cancelled</option>
+      <option value="expired">Expired</option>
+      <option value="action_ok">AI tool run</option>
+      <option value="action_pending">AI tool awaiting code</option>
+      <option value="action_denied">AI tool refused</option>
+      <option value="action_failed">AI tool failed</option>
+      <option value="inbound">Inbound DM (no AI)</option>
+      <option value="manual">Operator message</option>
+    </select>
+    <a class="btn" href="/api/export.csv" download>Export CSV</a>
+  </div>
+
+  <div class="toprow" id="rangeNote"></div>
+  <div class="list" id="list">
+    <div class="head colhead"><div>Time</div><div>Node</div><div>Prompt</div><div>Status</div><div>Model time</div><div>Delivery</div></div>
+    <div id="rows"><div class="empty">Loading…</div></div>
+  </div>
+  <div class="more"><button id="moreBtn" hidden>Load older</button></div>
+  </div>
+
+  <div id="viewChat" class="chat" hidden>
+    <aside class="convlist">
+      <form id="newForm" class="newmsg">
+        <input id="newTo" list="nodeOptions" placeholder="New chat: node name or !id" autocomplete="off" aria-label="Start a chat with a node">
+        <button type="submit">Open</button>
+      </form>
+      <datalist id="nodeOptions"></datalist>
+      <div id="convs"></div>
+    </aside>
+    <section class="convpane">
+      <div class="convhead">
+        <div class="who"><b id="convName">Select a conversation</b><span id="convId"></span></div>
+        <div class="mem">
+          <span id="memInfo"></span>
+          <select id="convAccess" hidden aria-label="AI access for this node">
+            <option value="default">Access: default</option><option value="allow">Access: allowed</option><option value="block">Access: blocked</option>
+          </select>
+          <span id="convUsage"></span>
+          <button id="clearMem" hidden>Clear AI memory</button>
+        </div>
+      </div>
+      <div id="thread" class="thread"><div class="empty">Pick a node on the left, or open a new chat.</div></div>
+      <div id="dmSnips" class="snipbar" hidden></div>
+      <form id="sendForm" class="composer" hidden>
+        <input id="msg" maxlength="700" autocomplete="off" placeholder="Message this node directly (sent as you, not the AI)" aria-label="Message">
+        <button type="button" id="dmSaveSnip" title="Save what you typed as a snippet for next time">+ Save</button>
+        <button class="primary" type="submit">Send</button>
+      </form>
+      <div id="sendNote" class="sendnote" role="status"></div>
+    </section>
+  </div>
+
+  <div id="viewAccess" hidden>
+    <div class="card accbar">
+      <label>Who can use the AI
+        <select id="accMode">
+          <option value="open">Anyone except blocked nodes</option>
+          <option value="allowlist">Only allowed nodes</option>
+        </select>
+      </label>
+      <label>Default daily limit
+        <span class="inline"><input id="accCap" type="number" min="0" step="1" inputmode="numeric"><button id="accCapSave" type="button">Save</button></span>
+        <span class="hint">questions per node per 24 h, 0 = unlimited</span>
+      </label>
+    </div>
+    <details class="card" id="actCard">
+      <summary>What the AI can look up</summary>
+      <p class="hint">Only nodes you enable below, with a pinned key and a PKI-encrypted DM, are offered these. The AI picks from this fixed menu; it never gets a shell.</p>
+      <div id="actList"></div>
+    </details>
+    <div id="accWarn" class="warnbox" hidden></div>
+    <div class="bar"><input type="search" id="accQ" placeholder="Filter nodes by name or ID" aria-label="Filter nodes"></div>
+    <div class="list">
+      <div class="head colhead acchead"><div>Node</div><div>Access</div><div>Daily limit</div><div>Used · 24h</div><div>Last question</div></div>
+      <div id="accRows"></div>
+    </div>
+    <p class="toprow">Blocked and not-allowed nodes get no reply at all (the attempt is only logged). Your own direct messages always go through.</p>
+  </div>
+
+  <div id="viewModel" hidden>
+    <div id="modelWarn" class="warnbox" hidden></div>
+    <div class="card">
+      <h3>Model in use</h3>
+      <div id="modelNow" class="modelnow"></div>
+      <p class="hint" id="modelNote"></p>
+    </div>
+    <div class="list">
+      <div class="mrow colhead"><div>Installed models</div><div>Size</div><div>Details</div><div>Status</div><div></div></div>
+      <div id="modelRows"></div>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <h3>Download a model</h3>
+      <form id="pullForm" class="inline">
+        <input id="pullName" list="modelSuggest" placeholder="e.g. qwen2.5:7b" autocomplete="off" aria-label="Model name to download" style="flex:1; min-width:0; padding:8px 10px; border-radius:8px; border:1px solid var(--line); background:var(--bg)">
+        <button class="primary" type="submit">Download</button>
+      </form>
+      <datalist id="modelSuggest">
+        <option value="llama3.2:1b"><option value="llama3.2:3b"><option value="llama3.1:8b"><option value="qwen2.5:3b">
+        <option value="qwen2.5:7b"><option value="gemma2:2b"><option value="phi3:mini"><option value="mistral:7b">
+      </datalist>
+      <div id="pullNote" class="sendnote" role="status"></div>
+      <div id="pullBox"></div>
+      <p class="hint">Downloads come from ollama.com through your local Ollama and can be several GB. The suggestions are just examples; any name from ollama.com/library works. A download can be cancelled and resumed later.</p>
+    </div>
+  </div>
+
+  <div id="viewTelemetry" hidden>
+    <div class="card">
+      <h3>Recorded telemetry</h3>
+      <p class="hint" style="margin-top:0">Nodes with the telemetry module on broadcast their battery, voltage, channel use and sensor readings every so often, and your radio hears them without asking. Everything it hears is saved here with a timestamp. Nothing is transmitted.</p>
+      <div id="telStats" class="telresult"></div>
+      <form id="retForm" class="telform">
+        <label class="every">Keep readings for <input id="retDays" type="number" min="0" max="3650" step="1" aria-label="Days to keep readings"> days</label>
+        <button type="submit">Save</button>
+        <button type="button" id="pruneNow">Prune now</button>
+        <a class="btn" href="/api/telemetry/export.csv" download>Export CSV</a>
+      </form>
+      <label class="every tilesopt"><input type="checkbox" id="recordAll"> Record every node's broadcasts (untick to record only the watch list below)</label>
+      <div id="retNote" class="sendnote" role="status"></div>
+      <p class="hint">Old readings are deleted automatically once an hour (0 days keeps everything). At most one reading per node and kind is kept per minute.</p>
+    </div>
+    <div class="card"><h3>Latest values</h3><div id="telLatest" class="latest"></div></div>
+    <div class="card">
+      <h3>Chart</h3>
+      <div class="telform"><select id="chartNode" aria-label="Node to chart"></select><select id="chartMetric" aria-label="Metric to chart"></select><span class="hint" id="chartInfo"></span></div>
+      <svg id="telChart" class="metricchart" viewBox="0 0 640 210" role="img" aria-label="Chosen metric over time"></svg>
+    </div>
+    <div class="telform" style="margin-bottom:10px">
+      <select id="fltNode" aria-label="Filter by node"><option value="">All nodes</option></select>
+      <select id="fltKind" aria-label="Filter by kind"><option value="">All kinds</option></select>
+    </div>
+    <div class="list">
+      <div class="trow colhead"><div>Time</div><div>Node</div><div>Kind</div><div>Heard via</div><div>Values</div><div>Link</div></div>
+      <div id="telRows"></div>
+    </div>
+    <div class="more"><button id="telMore" hidden>Load older</button></div>
+    <div class="card" style="margin-top:14px">
+      <h3>Watch list</h3>
+      <p class="hint" style="margin-top:0">Only used when "Record every node" is off: then just these nodes' broadcasts are kept.</p>
+      <form id="watchForm" class="telform">
+        <input id="watchNode" list="nodeOptions" placeholder="Node name or !id" autocomplete="off" aria-label="Node to watch">
+        <button class="primary" type="submit">Watch</button>
+      </form>
+      <div id="watchNote" class="sendnote" role="status"></div>
+      <div id="watchList"></div>
+    </div>
+  </div>
+
+  <div id="viewChannel" hidden>
+    <section class="convpane chanpane">
+      <div class="convhead">
+        <div class="who"><b id="chanName">Public channel</b><span id="chanSub">default channel everyone in range can read</span></div>
+        <div class="mem">
+          <span class="noai" title="Nothing on this channel is given to the AI, and the AI cannot post here">AI not involved</span>
+          <button id="chanClear" type="button">Clear history</button>
+        </div>
+      </div>
+      <div id="chanBanner" class="chanbanner" hidden></div>
+      <div id="chanThread" class="thread"><div class="empty">Loading…</div></div>
+      <div id="chanSnips" class="snipbar"></div>
+      <form id="chanForm" class="composer">
+        <input id="chanMsg" autocomplete="off" placeholder="Post to everyone on the public channel" aria-label="Message for the public channel">
+        <span id="chanCount" class="chancount" aria-live="polite"></span>
+        <button type="button" id="chanSaveSnip" title="Save what you typed as a snippet for next time">+ Save</button>
+        <button class="primary" type="submit" id="chanSend">Post</button>
+      </form>
+      <div id="chanNote" class="sendnote" role="status"></div>
+    </section>
+    <p class="hint chanhint">Everyone in range of any radio on this channel can read what you post, and it uses shared airtime, so each post is one short message and posts are spaced out. Only you can post here: the AI never reads or answers this channel, and a <code>/ai</code> typed on it is ignored. Messages heard on the channel are kept on this PC for 30 days (clear them any time). Direct messages to a person are on the Direct messages page.</p>
+  </div>
+
+  <div id="viewSearch" hidden>
+    <div class="card"><h3>Results <span id="searchFor" class="hint"></span></h3><div id="searchBody"></div></div>
+  </div>
+
+  <div id="viewCoverage" hidden>
+    <div class="card">
+      <h3>Where this radio reaches <span class="hint" id="covNote"></span></h3>
+      <div class="telform">
+        <label class="every">period <select id="covDays" aria-label="Period"><option value="7">7 days</option><option value="30" selected>30 days</option></select></label>
+        <label class="every tilesopt"><input type="checkbox" id="covTiles"> Map background</label>
+      </div>
+      <svg id="covMap" class="mapsvg" viewBox="0 0 680 440" role="img" aria-label="Map of the nodes this radio hears directly"></svg>
+      <div class="legend"><span><i class="sw us"></i>this radio</span><span><i class="snrdot" style="background:#22c55e"></i>strong</span><span><i class="snrdot" style="background:#f59e0b"></i>fair</span><span><i class="snrdot" style="background:#ef4444"></i>weak</span><span>shaded area: furthest heard in each direction &middot; rings: distance</span></div>
+      <p class="hint" id="covMapNote"></p>
+    </div>
+    <div class="trendgrid">
+      <div class="card"><h3>Signal against distance</h3><svg id="covScatter" class="chartsvg" viewBox="0 0 680 260" role="img" aria-label="Signal against distance"></svg><p class="hint" id="covTrend"></p></div>
+      <div class="card"><h3>Reach by direction</h3><div id="covSectors"></div><p class="hint">The furthest node heard directly (nobody relaying it) in each compass direction. A direction with no node may simply have nobody out there.</p></div>
+    </div>
+    <div class="card">
+      <h3>Walk test</h3>
+      <p class="hint">Pick a node that someone will carry around. While the test runs, every packet this radio hears from it is logged with its signal and how far away it was, so you can see where the signal fades. It only listens; it sends nothing. The node's position is the latest it has shared, so the carrier needs position sharing on.</p>
+      <form id="walkForm" class="telform">
+        <input id="walkNode" list="nodeOptions" placeholder="Node name or !id" autocomplete="off" aria-label="Node to follow">
+        <button class="primary" type="submit" id="walkStart">Start</button>
+        <button type="button" id="walkStop" hidden>Stop</button>
+      </form>
+      <div id="walkStatus" class="telresult" role="status"></div>
+      <svg id="walkChart" class="chartsvg" viewBox="0 0 680 240" role="img" aria-label="Walk test signal against distance" hidden></svg>
+      <p class="hint" id="walkSummary"></p>
+      <h3 class="subh">Earlier tests</h3>
+      <div id="walkList"></div>
+    </div>
+  </div>
+
+  <div id="viewReport" hidden>
+    <div class="card">
+      <div class="telform">
+        <label class="every">period <select id="repDays" aria-label="Report period"><option value="1">Last day</option><option value="7" selected>Last 7 days</option><option value="30">Last 30 days</option></select></label>
+        <button id="repDownload" type="button">Download (.md)</button>
+        <button id="repCopy" type="button">Copy text</button>
+        <button id="repPrint" type="button">Print</button>
+        <span id="repNote" class="hint"></span>
+      </div>
+      <div id="repBody" class="md"></div>
+    </div>
+  </div>
+
+  <div id="viewDiagnostics" hidden>
+    <div class="card"><h3>Health check <span id="diagWhen" class="hint"></span></h3><div id="diagList"></div></div>
+    <div class="card">
+      <h3>Logs</h3>
+      <div class="telform">
+        <select id="logWhich" aria-label="Which log"><option value="out">Activity log</option><option value="err">Error log</option></select>
+        <select id="logLines" aria-label="How many lines"><option>100</option><option selected>200</option><option>500</option></select>
+        <label class="every"><input type="checkbox" id="logFollow" checked> follow the end</label>
+        <button id="logCopy" type="button">Copy</button>
+      </div>
+      <pre id="logBox" class="logbox" tabindex="0" aria-label="Log lines"></pre>
+      <p class="hint" id="logNote"></p>
+    </div>
+  </div>
+
+  <div id="viewSettings" hidden>
+    <div class="card">
+      <h3>Display</h3>
+      <div class="setrow"><span>Temperature</span><span class="seg" id="setTemp"><button data-v="C">°C</button><button data-v="F">°F</button></span></div>
+      <div class="setrow"><span>Distance</span><span class="seg" id="setDist"><button data-v="km">km</button><button data-v="mi">miles</button></span></div>
+    </div>
+    <div class="card">
+      <h3>Notifications</h3>
+      <p class="hint">Counts appear next to the pages in the sidebar and in the browser tab's title. These switches are kept in this browser only.</p>
+      <label class="setrow"><span>Tell me about new public-channel posts</span><input type="checkbox" id="ntChannel"></label>
+      <label class="setrow"><span>Tell me about new direct messages</span><input type="checkbox" id="ntDm"></label>
+      <label class="setrow"><span>Tell me about alerts (low battery, a watched node gone quiet, radio or AI problems)</span><input type="checkbox" id="ntAlerts"></label>
+      <label class="setrow"><span>Play a short sound</span><input type="checkbox" id="ntSound"></label>
+      <label class="setrow"><span>Show desktop notifications while this tab is in the background</span><input type="checkbox" id="ntDesktop"></label>
+      <label class="setrow"><span>Include the message text in a desktop notification (anyone looking at the screen can read it)</span><input type="checkbox" id="ntText"></label>
+      <p class="hint" id="ntNote"></p>
+    </div>
+    <div class="card">
+      <h3>Backups</h3>
+      <p class="hint">A backup is a complete copy of everything this bridge stores (settings, AI log, messages, node data). It contains message text, so keep the file private. The map cache isn't included; it refills by itself.</p>
+      <label class="setrow"><span>Make a backup automatically once a day (the newest 7 are kept)</span><input type="checkbox" id="bkAuto"></label>
+      <div class="telform" style="margin:10px 0">
+        <button id="bkNow" type="button" class="primary">Back up now</button>
+        <a class="btn" href="/api/backups/download" id="bkDownload">Download current data</a>
+        <label class="btn" for="bkUpload">Restore from a file…</label><input type="file" id="bkUpload" accept=".db,application/octet-stream" hidden>
+      </div>
+      <div id="bkStaged" class="warnbox" hidden></div>
+      <div id="bkList"></div>
+      <p class="hint" id="bkNote"></p>
+    </div>
+    <div class="card">
+      <h3>Storage and retention</h3>
+      <div class="setrow"><span>Map background cache</span><span id="stTiles" class="hint"></span><button id="stTilesClear" type="button">Clear</button></div>
+      <div class="setrow"><span>Keep telemetry readings for</span><span><input type="number" id="stRetention" min="0" max="3650" style="width:80px"> days <button id="stRetentionSave" type="button">Save</button></span></div>
+      <p class="hint">0 keeps telemetry forever. Public-channel messages are kept 30 days; other data follows the times listed on the Data page.</p>
+      <p class="hint" id="stNote"></p>
+    </div>
+    <div class="card">
+      <h3>Start at login</h3>
+      <p id="autoState" class="hint">Checking…</p>
+      <p class="hint">To have the bridge start by itself when you log in to this computer, run <code>python setup_env.py --autostart</code> in the project folder (and <code>--no-autostart</code> to undo it). It needs no administrator rights.</p>
+    </div>
+  </div>
+
+  <div id="viewEval" hidden>
+    <div class="card">
+      <h3>Models side by side</h3>
+      <div id="evalCompare"></div>
+      <p class="hint">Each row is the newest run for that model and prompt variant. <b>Development</b> questions are what the prompts were improved against; <b>held-out</b> questions are only ever used to measure, never tuned to, so that score is the honest one. A question counts as right when the model picked the right tool (or rightly none), or answered only from the live facts it was given.</p>
+      <p class="hint">To add a model: <code>python -m meshllm.tools.eval_tools --model llama3.2:3b --variant gated_retry --set heldout --out eval_results/my_run.csv</code> (see the README), then reload this page. It takes several minutes and uses Ollama, so it isn't started from here.</p>
+    </div>
+    <div class="card"><h3>Every tool-choice run</h3><div id="evalRuns"></div></div>
+    <div class="card"><h3>Usefulness audits</h3><div id="evalUse"></div></div>
+    <div class="card"><h3>Write-ups</h3><div class="chips" id="docChips"></div><div id="docBody" class="md"></div></div>
+  </div>
+
+  <div id="viewTraceroute" hidden>
+    <div class="card">
+      <h3>Trace the route to a node</h3>
+      <form id="traceForm" class="telform">
+        <input id="traceNode" list="nodeOptions" placeholder="Node name or !id" autocomplete="off" aria-label="Node to trace">
+        <label class="every">max hops <select id="traceHops" aria-label="Maximum hops"><option>3</option><option>5</option><option selected>7</option></select></label>
+        <button class="primary" type="submit">Trace</button>
+      </form>
+      <div id="traceStatus" class="telresult" role="status"></div>
+      <p class="hint">Sends one packet that the nodes along the way pass on, and waits up to a minute for the answer. Each trace loads the mesh, so the same node can only be traced about once every 30 s, and nothing is ever traced automatically.</p>
+    </div>
+    <div class="card">
+      <h3>Route <span id="traceTitle" class="hint"></span></h3>
+      <div id="tracePaths"></div>
+      <label class="every tilesopt"><input type="checkbox" id="traceTiles"> Show an OpenStreetMap background (this PC downloads the tiles you look at and keeps a copy)</label>
+      <svg id="traceMap" class="mapsvg" viewBox="0 0 680 400" role="img" aria-label="Map of the route"></svg>
+      <div class="legend"><span><i class="sw us"></i>us</span><span><i class="sw rl"></i>relay</span><span><i class="sw tg"></i>target</span>
+        <span><i class="ln t"></i>there</span><span><i class="ln b"></i>back</span><span><i class="ln gap"></i>through a node with no known position</span></div>
+      <p class="hint" id="mapNote"></p>
+    </div>
+    <div class="card"><h3>Past traceroutes</h3><div id="traceHistory"></div></div>
+  </div>
+</main>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>

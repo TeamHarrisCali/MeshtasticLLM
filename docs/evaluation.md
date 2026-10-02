@@ -4,7 +4,7 @@ Runs a fixed set of prompts (indirect, plain chat, out-of-scope, questions about
 Ollama with the same system prompt and tool list the bridge uses, and scores each result as
 correct / missed / wrong tool / hallucinated tool / false positive. Writes `eval_results.csv`.
 
-    python eval_tools.py --model llama3.2:3b --model qwen2.5:7b --runs 3
+    python -m meshllm.tools.eval_tools --model llama3.2:3b --model qwen2.5:7b --runs 3
 
 Two prompt sets: `dev` (used while tuning) and `heldout` (fresh prompts written beforehand and never
 used for tuning; `--set heldout`).

@@ -6,8 +6,8 @@ import tempfile; HERE = tempfile.mkdtemp(prefix="meshtest_")   # scratch databas
 DB = os.path.join(HERE, "deliv_test.db")
 if os.path.exists(DB): os.remove(DB)
 
-import mesh_llm_bridge as b
-from audit import Audit
+from meshllm import bridge as b
+from meshllm.audit import Audit
 
 fails = []
 def check(name, cond, detail=""):

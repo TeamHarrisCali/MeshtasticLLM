@@ -2,7 +2,7 @@
 import io, os, shutil, sqlite3, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from fixture import make, Checker
-import backup as B
+from meshllm import backup as B
 import requests as rq
 
 check = Checker()

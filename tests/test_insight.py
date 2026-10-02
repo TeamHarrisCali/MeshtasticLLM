@@ -2,8 +2,8 @@
 import json, os, sys, time, math
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from fixture import make, Checker
-import reach as R, diagnostics as D, report
-import mesh_llm_bridge as b
+from meshllm import reach as R, diagnostics as D, report
+from meshllm import bridge as b
 import requests as rq
 
 check = Checker()
@@ -119,7 +119,7 @@ br.coverage._active["started"] = time.time() - R.WALK_MAX_SECONDS - 5
 br.coverage.on_packet(pkt(300), radio)
 check("a walk test ends itself after four hours", br.coverage._active is None)
 br.coverage.start_walk("!0000bbbb"); br.coverage._active = None              # simulate a restart with a session left open
-import reach as R2
+from meshllm import reach as R2
 c2 = R2.Coverage(br)
 check("a session left open by a restart is closed when the bridge starts again", br.audit.db.execute("SELECT COUNT(*) FROM walk_sessions WHERE ended IS NULL").fetchone()[0] == 0)
 check("a walk test transmits nothing", radio.sent == [])

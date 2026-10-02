@@ -6,7 +6,7 @@ sys.path.insert(0, ROOT)
 import tempfile; HERE = tempfile.mkdtemp(prefix="meshtest_")   # scratch databases and caches go in a temp folder, never in the project
 DB = os.path.join(HERE, "conn_test.db")
 
-import mesh_llm_bridge as b
+from meshllm import bridge as b
 
 PORTS = []                      # what "Windows" currently lists: SimpleNamespace(device, vid)
 FAIL = {}                       # port -> exception to raise when opening it

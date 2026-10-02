@@ -21,7 +21,7 @@ class Fake(BaseHTTPRequestHandler):
         self.send_response(200); self.send_header("Content-Length", str(len(out))); self.end_headers(); self.wfile.write(out)
 threading.Thread(target=ThreadingHTTPServer(("127.0.0.1", 11497), Fake).serve_forever, daemon=True).start()
 
-import mesh_llm_bridge as b, webui, channel as C, actions
+from meshllm import bridge as b, webui, channel as C, actions
 import requests as rq
 
 args = argparse.Namespace(db=DB, port="STUB", model="fake", command="/ai", ollama_url="http://127.0.0.1:11497", max_tokens=50, num_ctx=4096, max_chunks=4, chunk_delay=0,
@@ -173,7 +173,7 @@ br.mesh.prune()
 check("old channel messages are pruned with the other data (30 days)", "ancient" not in [r["text"] for r in rows()] and len(rows()) > 3)
 n = post("/api/channel/clear", {}).json()["deleted"]
 check("clearing deletes every saved channel message", n > 3 and rows() == [] and rq.get(base + "/api/channel", timeout=5).json()["messages"] == [])
-check("the page exists in the dashboard", b"viewChannel" in open(os.path.join(ROOT, "static", "index.html"), "rb").read() and b"refreshChannel" in open(os.path.join(ROOT, "static", "js", "channel.js"), "rb").read())
+check("the page exists in the dashboard", b"viewChannel" in open(os.path.join(ROOT, "meshllm", "static", "index.html"), "rb").read() and b"refreshChannel" in open(os.path.join(ROOT, "meshllm", "static", "js", "channel.js"), "rb").read())
 
 print(f"\n{len(fails)} failed" if fails else "\nall passed")
 sys.stdout.flush(); os._exit(1 if fails else 0)

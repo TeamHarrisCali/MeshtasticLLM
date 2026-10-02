@@ -2,7 +2,7 @@
 import csv, json, os, sys, tempfile
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from fixture import make, Checker
-import evals as E
+from meshllm import evals as E
 import requests as rq
 
 check = Checker()

@@ -10,7 +10,7 @@ py="$dir/.venv/bin/python"                       # the environment made by setup
 [ -x "$py" ] || py=$(command -v python3 || command -v python)
 [ -n "$py" ] || { echo "No Python found. Run ./setup.sh first." >&2; exit 1; }
 mkdir -p logs
-nohup "$py" -u mesh_llm_bridge.py "$@" > logs/bridge.log 2> logs/bridge.err.log &
+nohup "$py" -u -m meshllm "$@" > logs/bridge.log 2> logs/bridge.err.log &
 pid=$!
 echo $pid > logs/bridge.pid
 sleep 2

@@ -3,7 +3,7 @@ import argparse, os, shutil, sys, threading, time
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 import tempfile; HERE = tempfile.mkdtemp(prefix="meshtest_")   # scratch databases and caches go in a temp folder, never in the project
-import tiles as T, webui, mesh_llm_bridge as b
+from meshllm import tiles as T, webui, bridge as b
 import requests as rq
 
 fails = []

@@ -75,9 +75,9 @@ class Fake(BaseHTTPRequestHandler):
             pass
 threading.Thread(target=ThreadingHTTPServer(("127.0.0.1", 11496), Fake).serve_forever, daemon=True).start()
 
-import mesh_llm_bridge as b, webui
+from meshllm import bridge as b, webui
 import requests as rq
-from ollama_models import ModelManager, OllamaError, MODEL_NAME_RE, same_model
+from meshllm.ollama_models import ModelManager, OllamaError, MODEL_NAME_RE, same_model
 
 def args(**over):
     base = dict(db=DB, ollama_url="http://127.0.0.1:11496", model=None, access_mode=None, daily_cap=None, no_tool_gate=True,

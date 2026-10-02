@@ -4,7 +4,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 import tempfile; HERE = tempfile.mkdtemp(prefix="meshtest_")   # scratch databases and caches go in a temp folder, never in the project
 
-import mesh_llm_bridge as b, webui, radio_config as RC
+from meshllm import bridge as b, webui, radio_config as RC
 import requests as rq
 from meshtastic.protobuf import localonly_pb2, config_pb2
 
@@ -134,7 +134,7 @@ check("a tampered backup is validated like any other change", refuses(lambda: rc
 with br.audit.lock:
     br.audit.db.execute("UPDATE radio_config_backups SET config=? WHERE id=?", (json.dumps({"network": {"wifi_psk": "x"}, "security": {"private_key": "y"}}), bid)); br.audit.db.commit()
 check("secret sections in a backup are ignored on restore", (node.log.clear(), rc.restore(bid))[1]["changed"] == [] and node.log == [])
-check("the AI has no way to reach this module", not any("config" in a or "radio" in a for a in __import__("actions").ACTIONS))
+check("the AI has no way to reach this module", not any("config" in a or "radio" in a for a in __import__("meshllm.actions", fromlist=["x"]).ACTIONS))
 br.audit.db.close()
 
 # ---- HTTP -----------------------------------------------------------------------------------------------------------------------------------------------------------

@@ -44,4 +44,4 @@ Every request records how the sender was verified ("Sender check" in the audit d
 phone carries a valid key; unpin it (or set its level to Off) in the Access tab. Keep the menu to things
 you'd be comfortable a stolen key could trigger, and put anything more sensitive behind the tier-1 code.
 
-Measure how reliably a model picks the right tool with `python eval_tools.py` (see `evaluation.md`).
+Measure how reliably a model picks the right tool with `python -m meshllm.tools.eval_tools` (see `evaluation.md`).

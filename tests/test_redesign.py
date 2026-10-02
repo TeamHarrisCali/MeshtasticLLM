@@ -5,7 +5,7 @@ sys.path.insert(0, ROOT)
 import tempfile; HERE = tempfile.mkdtemp(prefix="meshtest_")   # scratch databases and caches go in a temp folder, never in the project
 DB = os.path.join(HERE, "redesign_test.db")
 
-import mesh_llm_bridge as b, webui, mesh as M, actions as A
+from meshllm import bridge as b, webui, mesh as M, actions as A
 import requests as rq
 
 NOW = time.time()
@@ -209,7 +209,7 @@ except A.ActionError: ok = True
 check("enum parameters are still enforced", ok)
 specs = {s["function"]["name"]: s for s in A.tool_specs(0)}
 check("tool specs: free-text parameter has no enum; sort has one", "enum" not in specs["node_info"]["function"]["parameters"]["properties"]["node"] and specs["list_nodes"]["function"]["parameters"]["properties"]["sort"]["enum"] == A.SORTS)
-check("the tool prompt and eval prompt stay in step", b.TOOL_PROMPT == __import__("eval_tools").STRICT_PROMPT)
+check("the tool prompt and eval prompt stay in step", b.TOOL_PROMPT == __import__("meshllm.tools.eval_tools", fromlist=["x"]).STRICT_PROMPT)
 
 # ---- pruning of old nodes -----------------------------------------------------------------------------------------------------
 with br.audit.lock:
@@ -544,7 +544,7 @@ rb = make(db=os.path.join(HERE, "restore_guard.db")); rb.iface.localNode = FakeL
 from meshtastic.protobuf import localonly_pb2
 rb.iface.localNode.localConfig = localonly_pb2.LocalConfig(); rb.iface.localNode.moduleConfig = localonly_pb2.LocalModuleConfig()
 rb.iface.localNode.localConfig.lora.hop_limit = 3
-import radio_config as RCm
+from meshllm import radio_config as RCm
 rb.iface.localNode.beginSettingsTransaction = lambda: None; rb.iface.localNode.commitSettingsTransaction = lambda: None; rb.iface.localNode.writeConfig = lambda n: None
 bid = rb.radio_config.backup("pulled")
 with rb.audit.lock:

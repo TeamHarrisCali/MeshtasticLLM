@@ -67,7 +67,7 @@ Then open <http://127.0.0.1:8080/> and, from another node, send a direct message
 
 **No flags are needed.** The radio is found automatically, and the model and every setting you change in the dashboard are
 remembered in the database. Command-line flags exist as optional overrides ([docs/flags.md](docs/flags.md)). To run in the
-foreground instead: `.venv/bin/python mesh_llm_bridge.py`.
+foreground instead: `.venv/bin/python -m meshllm`.
 
 **Linux:** your user needs permission to open the serial port. Setup checks this and tells you which group to join (`dialout` on
 Debian and Ubuntu, `uucp` on Arch). Close any other program using the radio's serial port first; only one program can hold it.
@@ -129,9 +129,17 @@ The tests use a throwaway temporary folder, so your real `audit.db`, `tile_cache
 
 ## Project layout
 
-The code is a flat set of modules, each with a docstring that says what it is for; [docs/files.md](docs/files.md) lists them all.
-The entry point is `mesh_llm_bridge.py`. `actions.py` is the AI's tool menu, `webroutes.py` is the dashboard's JSON API, `static/`
-is the dashboard itself (plain HTML, CSS and JavaScript, no build step), and `tests/` holds the suite.
+```text
+meshllm/           the package: bridge.py (entry point), actions.py (the AI's tool menu), webroutes.py (dashboard API), ...
+meshllm/static/    the dashboard: plain HTML, CSS and JavaScript, no build step
+meshllm/tools/     developer tools: tool-choice evaluation and the usefulness audit
+tests/             the suite (radio and Ollama are faked)
+docs/              documentation          eval_results/   saved evaluation runs
+setup_env.py       installer (launched by setup.sh / setup.bat)       start_bridge.* / stop_bridge.*   run in the background
+```
+
+Every module starts with a docstring that says what it is for; [docs/files.md](docs/files.md) lists them all. Run the bridge in the
+foreground with `python -m meshllm`.
 
 ## Contributing
 

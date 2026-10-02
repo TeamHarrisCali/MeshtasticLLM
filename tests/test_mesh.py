@@ -6,7 +6,7 @@ import tempfile; HERE = tempfile.mkdtemp(prefix="meshtest_")   # scratch databas
 DB = os.path.join(HERE, "mesh_test.db")
 if os.path.exists(DB): os.remove(DB)
 
-import mesh_llm_bridge as b, webui, mesh as M
+from meshllm import bridge as b, webui, mesh as M
 import requests as rq
 
 NOW = time.time()

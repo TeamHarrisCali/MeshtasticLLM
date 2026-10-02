@@ -7,7 +7,7 @@ $dir = $PSScriptRoot
 & "$dir\stop_bridge.ps1" -Quiet
 Start-Sleep -Milliseconds 500
 New-Item -ItemType Directory -Force -Path "$dir\logs" | Out-Null
-$argList = @('-u', 'mesh_llm_bridge.py') + @($BridgeArgs | Where-Object { $_ })
+$argList = @('-u', '-m', 'meshllm') + @($BridgeArgs | Where-Object { $_ })
 $py = if (Test-Path "$dir\.venv\Scripts\python.exe") { "$dir\.venv\Scripts\python.exe" } else { 'python' }   # the environment made by setup.ps1 if there is one
 $p = Start-Process -FilePath $py -ArgumentList $argList -WorkingDirectory $dir -WindowStyle Hidden -PassThru `
         -RedirectStandardOutput "$dir\logs\bridge.log" -RedirectStandardError "$dir\logs\bridge.err.log"

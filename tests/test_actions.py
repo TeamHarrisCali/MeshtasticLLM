@@ -33,9 +33,9 @@ class Fake(BaseHTTPRequestHandler):
     def do_GET(self): self._out({"models": [{"name": "fake"}]})
 threading.Thread(target=ThreadingHTTPServer(("127.0.0.1", 11497), Fake).serve_forever, daemon=True).start()
 
-import mesh_llm_bridge as b, actions, webui
+from meshllm import bridge as b, actions, webui
 import requests as rq
-from audit import Audit
+from meshllm.audit import Audit
 
 args = argparse.Namespace(
     db=DB, port="STUB", model="fake", command="/ai", ollama_url="http://127.0.0.1:11497", max_tokens=50,

@@ -2,7 +2,7 @@
 import collections, os, re, sys, threading, time, argparse, tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
-import webui
+from meshllm import webui
 import requests as rq
 
 fails = []
@@ -10,7 +10,7 @@ def check(name, cond, detail=""):
     print(("PASS " if cond else "FAIL ") + name + ("" if cond else f"  -> {detail}"))
     if not cond: fails.append(name)
 
-S = os.path.join(ROOT, "static")
+S = os.path.join(ROOT, "meshllm", "static")
 order = [l.strip() for l in open(os.path.join(S, "js", "order.txt"), encoding="utf-8").read().splitlines() if l.strip() and not l.startswith("#")]
 on_disk = sorted(f for f in os.listdir(os.path.join(S, "js")) if f.endswith(".js"))
 check("order.txt lists every script file exactly once", sorted(order) == on_disk and len(set(order)) == len(order), (order, on_disk))
@@ -38,8 +38,8 @@ check("index.html loads one script and one stylesheet", html.count('<script src=
 check("the stylesheet is not empty and keeps the colour variables", "--accent" in open(os.path.join(S, "style.css"), encoding="utf-8").read())
 
 # over HTTP
-from mesh_llm_bridge import Bridge
-import mesh_llm_bridge as b
+from meshllm.bridge import Bridge
+from meshllm import bridge as b
 tmp = tempfile.mkdtemp(prefix="static_test_")
 args = argparse.Namespace(db=os.path.join(tmp, "s.db"), port="STUB", model="m", command="/ai", ollama_url="http://127.0.0.1:9", max_tokens=50, num_ctx=4096, max_chunks=4, chunk_delay=0, cooldown=0,
     timeout=2, memory_turns=6, memory_hours=24, memory_chars=3000, no_log_inbound=False, web_host="127.0.0.1", web_port=8101, no_web=False, max_queue=3, queue_ttl=600, no_queue_notice=False,

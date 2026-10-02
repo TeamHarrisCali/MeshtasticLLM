@@ -33,7 +33,7 @@ class Fake(BaseHTTPRequestHandler):
         self.send_response(200); self.send_header("Content-Length", str(len(out))); self.end_headers(); self.wfile.write(out)
 threading.Thread(target=HTTPServer(("127.0.0.1", 11499), Fake).serve_forever, daemon=True).start()
 
-import mesh_llm_bridge as b
+from meshllm import bridge as b
 import requests as rq
 
 args = argparse.Namespace(
@@ -54,7 +54,7 @@ class Stub:
 br.iface = Stub()
 threading.Thread(target=br.worker, daemon=True).start()
 threading.Thread(target=br.sender_loop, daemon=True).start()
-import webui; webui.start(br)
+from meshllm import webui; webui.start(br)
 
 pid = [1000]
 def dm(sender, text, to=1):

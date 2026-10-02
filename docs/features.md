@@ -40,7 +40,7 @@
   spend it all reasoning and return an empty answer. If a model still returns nothing, the bridge retries
   once and then tells the sender "The model gave no answer" and records an error instead of transmitting an
   empty message. Tool-choice reliability was measured on llama3.2:3b only, so the tab says so and
-  points to `eval_tools.py --model <name>`. Models are never deleted from the UI.
+  points to `python -m meshllm.tools.eval_tools --model <name>`. Models are never deleted from the UI.
 - **Layout.** A sidebar in four groups. **Messages:** Public channel, Direct messages, AI conversations. **Network:** Home, Nodes, Map,
   Coverage, Activity, Trends. **Tools:** Traceroute, Telemetry, Radio settings, Data, Report, Diagnostics, Settings. **AI:** Overview,
   Model, Access & actions, AI log, Evaluation. Every page has its own address (`#/nodes/!1a2b3c4d`), so refresh, back and links work;
@@ -140,7 +140,7 @@
   guess. This replaced an observed failure: qwen3.5 answered "how's the mesh doing?" with "12 nodes, 4 low on
   battery", numbers it invented. The gate and tool prompts and the tool descriptions were sharpened for the cases
   it missed (a node given by `!id`, a status question mixed with a request to change something). Evaluation:
-  `eval_tools.py --variant gated_retry` matches what the bridge now does; results in `eval_results/`.
+  `python -m meshllm.tools.eval_tools --variant gated_retry` matches what the bridge now does; results in `eval_results/`.
 - **Link-quality map** (Map page). Tick "Link quality" and a line is drawn from our radio to every node heard *directly*,
   coloured by its average SNR (green 5 dB or better, then yellow-green, amber, orange, red below -10 dB) and thicker the
   more packets it contributed; the map reframes on you and your neighbours. Below the map, **Direct neighbours** shows a

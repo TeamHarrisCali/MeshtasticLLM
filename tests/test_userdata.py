@@ -2,7 +2,7 @@
 import json, os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from fixture import make, Checker
-import userdata as U
+from meshllm import userdata as U
 import requests as rq
 
 check = Checker()
@@ -36,7 +36,7 @@ post("/api/notes/set", {"node": "!0000aaaa", "label": "a\x00b\x07c"})
 check("control characters are dropped", br.userdata.notes()["!0000aaaa"]["label"] == "abc")
 check("a label for a node the radio has never heard is allowed", post("/api/notes/set", {"node": "!12345678", "label": "Future node", "starred": True}).status_code == 200)
 check("labels are not sent over the radio", radio.sent == [])
-check("the AI's tools never see them", "label" not in json.dumps(br.audit.list(limit=50)) and all("note" not in a.name and "label" not in a.name for a in __import__("actions").ACTIONS.values()))
+check("the AI's tools never see them", "label" not in json.dumps(br.audit.list(limit=50)) and all("note" not in a.name and "label" not in a.name for a in __import__("meshllm.actions", fromlist=["x"]).ACTIONS.values()))
 
 # ---- snippets
 r = post("/api/snippets/add", {"target": "channel", "text": "Testing, one two three"})

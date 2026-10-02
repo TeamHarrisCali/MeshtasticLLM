@@ -6,7 +6,7 @@ import tempfile; HERE = tempfile.mkdtemp(prefix="meshtest_")   # scratch databas
 DB = os.path.join(HERE, "trace_test.db")
 if os.path.exists(DB): os.remove(DB)
 
-import mesh_llm_bridge as b, webui, traceroute as TR
+from meshllm import bridge as b, webui, traceroute as TR
 import requests as rq
 from meshtastic.protobuf import mesh_pb2, portnums_pb2
 

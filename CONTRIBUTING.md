@@ -12,6 +12,23 @@ python -m meshllm     # run the bridge in the foreground
 
 `python run_tests.py channel backup` runs only the test files whose names contain those words. `-v` prints more detail for failures.
 
+## How changes are made
+
+From now on, work happens on branches and lands through pull requests rather than direct commits to `main` (the early history predates this; it is a
+convention, not a GitHub-enforced rule).
+
+1. **Branch** from an up-to-date `main`, one branch per task: `feat/<topic>`, `fix/<topic>` or `docs/<topic>`. When several people or agents work at
+   once, each takes their own branch and their own topic, like team members on a small team.
+2. **Commit** in small steps with messages that say *why*. Run `python run_tests.py` first. New behaviour needs tests, and a bug fix needs a test that fails without the fix.
+3. **Publish the branch and open a pull request** using the template. Say what changed, why, and how it was checked.
+4. **Get an independent review.** A reviewer who did not write the change (another contributor, or a separate reviewer agent working from the diff alone)
+   reads it and records findings on the PR. A reviewer agent is the same model family as the author, so it is a second pair of eyes, not a guarantee.
+   Fix what they find on the same branch.
+5. **Merge** once CI is green and the review is clean (squash merge keeps `main` readable), then delete the branch.
+
+AI agents follow the same steps. Agent-authored commits carry a `Co-Authored-By` trailer and pull requests a "Generated with Claude Code" footer (the first
+commits predate that habit).
+
 ## Ground rules
 
 - **Keep the AI read-only and boxed in.** Tools are entries in `ACTIONS` in `actions.py`: a name, a validated parameter

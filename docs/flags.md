@@ -13,3 +13,12 @@
 `--web-host 0.0.0.0` exposes the dashboard - including the send box - to your LAN. There is no login,
 so only do that on a network you trust.
 `--no-warm-up` (don't load the model into Ollama's memory at start-up; by default it is loaded and kept ready for 30 minutes after each question).
+
+`--demo` runs the whole bridge and dashboard with a simulated radio and mesh: no radio and no Ollama needed, nothing transmitted, and a
+temporary database, map-tile cache, backups and log folder (deleted when you stop it with Ctrl+C, `kill` or by closing the terminal) instead of
+the real `audit.db`. `--port`, `--db` and `--model` are ignored in demo mode (a one-line note says so if you give them), and a `--web-host`
+other than `127.0.0.1`, `localhost` or `::1` is refused: the demo has a send box and settings pages and must not face a network. The banner
+says where the temporary folder is. It implies `--no-warm-up`, uses the scripted `demo-scripted` model unless a real Ollama with a
+tool-capable model is reachable at `--ollama-url`, and the web UI stays on `--web-port`. With it, `--demo-speed 5` makes the simulated
+traffic and the fake nodes' `/ai` questions run five times as fast (useful for trying things out), and `--demo-scripted` always uses the
+built-in scripted model even if Ollama is running. See [the README](../README.md#try-it-without-hardware).

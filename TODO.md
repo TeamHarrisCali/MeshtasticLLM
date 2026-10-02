@@ -12,14 +12,14 @@ radios, no crew groups, no job calculators. The AI stays read-only on a fixed to
 
 ## Queue
 
-- [ ] **1. Demo mode** (`python -m meshllm --demo`)
-  - A simulated mesh (a fake radio with a few dozen nodes, positions, batteries, sensors, links, traffic and a couple of scripted
+- [ ] **1. Demo mode** (`python -m meshllm --demo`): implemented in PR #12; only the screenshots remain
+  - [x] A simulated mesh (a fake radio with a few dozen nodes, positions, batteries, sensors, links, traffic and a couple of scripted
     `/ai` conversations) so anyone can try the dashboard with no hardware, and a built-in scripted model so it also works without
     Ollama (use the real Ollama model instead when one is available).
-  - The radio fake in `tests/fixture.py` is thin (four nodes, almost no batteries, sensors, links or traffic) and lives outside the
+  - [x] The radio fake in `tests/fixture.py` is thin (four nodes, almost no batteries, sensors, links or traffic) and lives outside the
     package. Demo mode needs its own richer fake inside `meshllm/`. Use obviously fake names and ids. Demo mode uses a temporary
     database and never touches the real `audit.db`.
-  - Then take README screenshots of the demo dashboard (Home, Nodes, Map, AI log) into `docs/screenshots/` and reference them from the README.
+  - [ ] Then take README screenshots of the demo dashboard (Home, Nodes, Map, AI log) into `docs/screenshots/` and reference them from the README.
   - Done when: `--demo` starts with nothing plugged in, every dashboard page renders, tests cover it.
 - [ ] **2. Connect over Wi-Fi and Bluetooth, not only USB**
   - The `meshtastic` library has `TCPInterface` (a radio on the LAN, by host name or IP) and `BLEInterface` (by address). `bleak` is installed

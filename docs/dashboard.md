@@ -5,6 +5,9 @@ links work. Press `/` or Ctrl+K to search everything. Only a few things on these
 something you press yourself: sending a direct message, posting on the public channel, a traceroute, setting the radio's position or
 clock, and pushing radio settings. Nothing else transmits, and the AI can never do any of them.
 
+With `python -m meshllm --demo` every page below is filled with a simulated mesh, and a **Demo mode** badge shows in the header: nothing is
+transmitted and nothing is saved ([README](../README.md#try-it-without-hardware)).
+
 ## Messages
 
 - **Public channel.** What people post on the default public channel, and a box to post yourself. One short broadcast per post (200

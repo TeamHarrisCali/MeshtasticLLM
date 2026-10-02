@@ -5,6 +5,7 @@
 ├── meshllm/                  the Python package: all of the bridge's code
 │   ├── bridge.py             the bridge: radio <-> Ollama, queue, access rules, acked replies, memory (entry point)
 │   ├── __main__.py           `python -m meshllm` starts the bridge
+│   ├── demo.py               `--demo`: a simulated radio and mesh, a traffic generator and a scripted fake Ollama, so the dashboard works with no hardware
 │   ├── actions.py            the AI's fixed menu of read-only mesh lookups, with parameter validation
 │   ├── audit.py              the SQLite database (audit.db, next to the project): requests, settings, access rules
 │   ├── mesh.py               the mesh pages' data: nodes, positions, packet counts, health history, alerts, activity feed

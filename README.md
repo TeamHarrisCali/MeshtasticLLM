@@ -79,6 +79,22 @@ Then open <http://127.0.0.1:8080/> and, from another node, send a direct message
 remembered in the database. Command-line flags exist as optional overrides ([docs/flags.md](docs/flags.md)). To run in the
 foreground instead: `.venv/bin/python -m meshllm`.
 
+### Try it without hardware
+
+No radio and no Ollama? Run the whole bridge and dashboard against a simulated mesh:
+
+```bash
+.venv/bin/python -m meshllm --demo          # then open http://127.0.0.1:8080/
+```
+
+You get about three dozen obviously fake nodes (`Demo Ridge Repeater`, `Demo Trail Tracker 3`, ...) scattered around a public park, with
+batteries, sensors, trails, a day of history and live traffic, and once a minute or so a fake node DMs the bridge an `/ai` question
+that goes through the real queue, tools and an acked reply. Without Ollama a small scripted model (shown as `demo-scripted`) answers;
+if Ollama is running with a tool-capable model, that model is used instead. A "Demo mode" badge shows in the dashboard header.
+Nothing is transmitted, nothing connects to a serial port, and everything is kept in a temporary folder that is deleted when you
+stop it (Ctrl+C, `kill`, or closing the terminal): your real `audit.db` is never opened. Demo mode listens on this computer only
+(`--web-host` must stay `127.0.0.1`), and if port 8080 is taken, for example by your real bridge, use `--web-port 8081`. (The optional map background still downloads OpenStreetMap tiles if you look at the Map page.)
+
 **Linux:** your user needs permission to open the serial port. Setup checks this and tells you which group to join (`dialout` on
 Debian and Ubuntu, `uucp` on Arch). Close any other program using the radio's serial port first; only one program can hold it.
 

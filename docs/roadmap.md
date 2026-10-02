@@ -38,8 +38,7 @@ Reports and fixes are welcome.
 - Telemetry retention controls in the UI (the setting exists as a flag).
 - A mesh-wide link-quality map (colour links by SNR), comparing two traceroutes over time, GeoJSON/GPX export of the map.
 - A "new node heard" entry on Home, per-node battery history on the node panel, "reboots seen" from uptime drops.
-- A web panel password, if the dashboard is ever meant to be exposed beyond localhost (today `--web-host` defaults to
-  loopback and the docs warn against exposing it).
+- A login for the dashboard, so it can be served on the LAN safely: planned in detail as item 3 of [TODO.md](../TODO.md).
 - Replying to one person's post on the public channel in place; more than channel 0.
 - Document Q&A with cited sources; scripts-folder actions with fixed arguments (carefully, behind tier 1).
 - Notifications that work without the tab open.

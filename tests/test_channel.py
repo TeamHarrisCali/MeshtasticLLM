@@ -27,7 +27,7 @@ import requests as rq
 args = argparse.Namespace(db=DB, port="STUB", model="fake", command="/ai", ollama_url="http://127.0.0.1:11497", max_tokens=50, num_ctx=4096, max_chunks=4, chunk_delay=0,
     cooldown=0, timeout=10, memory_turns=6, memory_hours=24, memory_chars=3000, no_log_inbound=False, web_host="127.0.0.1", web_port=8097, no_web=False, max_queue=3,
     queue_ttl=600, no_queue_notice=False, access_mode=None, daily_cap=None, confirm_seconds=60, no_tool_gate=True, chunk_bytes=160, send_retries=2, retry_delay=0.05,
-    traceroute_timeout=0.2, reconnect_hold=0.4, channel_gap=0.3, channel_per_hour=5)
+    traceroute_timeout=0.2, reconnect_hold=0.4, channel_gap=30, channel_per_hour=5)
 
 class Ch:                       # the radio's channel list entry
     def __init__(self, index, name, psk): self.index = index; self.settings = type("S", (), {"name": name, "psk": psk})()
@@ -54,6 +54,10 @@ def check(name, cond, detail=""):
     print(("PASS " if cond else "FAIL ") + name + ("" if cond else f"  -> {detail}"))
     if not cond: fails.append(name)
 def rows(): return br.channel.list(300)
+def pass_gap():
+    """Let the minimum gap between posts 'elapse' by ageing the recorded post times (still well inside the hour, so the hourly limit is
+    unaffected). A fixed sleep would be a race against a slow machine; this is exact."""
+    br.channel._posts[:] = [t - 100 for t in br.channel._posts]
 def wait(cond, t=3):
     end = time.time() + t
     while time.time() < end:
@@ -114,7 +118,7 @@ try: C.clean("x" * 250)
 except C.ChannelError as e: check("...too-long error states the size and that nothing is split", "250 of 200" in str(e) and "never split" in str(e), str(e))
 
 # ---- posting
-time.sleep(0.4)
+pass_gap()
 r = post("/api/channel/post", {"text": "  Anyone on the ridge?  "})
 check("posting works", r.status_code == 200 and "id" in r.json(), r.text)
 check("it goes out as ONE broadcast on channel 0, to everyone", wait(lambda: len(radio.sent) == 1) and radio.sent[0] == dict(text="Anyone on the ridge?", dest="^all", ack=True, ch=0), radio.sent)
@@ -127,17 +131,17 @@ check("...and it never steps back to 'sent'", rows()[-1]["status"] == "heard")
 r = post("/api/channel/post", {"text": "too soon"})
 check("a second post straight away is refused politely", r.status_code == 400 and "between posts" in r.json()["error"], r.text)
 check("...and nothing more was sent", len(radio.sent) == 1)
-time.sleep(0.4)
+pass_gap()
 post("/api/channel/post", {"text": "second"}); wait(lambda: len(radio.sent) == 2)
 radio.handlers[1]({"decoded": {"routing": {"errorReason": "MAX_RETRANSMIT"}}})
 check("a failed broadcast is marked failed", rows()[-1]["status"] == "failed", rows()[-1])
-time.sleep(0.4); radio.boom = True
+pass_gap(); radio.boom = True
 post("/api/channel/post", {"text": "third"})
 check("a radio error marks the post failed", wait(lambda: rows()[-1]["text"] == "third" and rows()[-1]["status"] == "failed"), rows()[-1])
 radio.boom = False
 for i in range(3):
-    time.sleep(0.4); post("/api/channel/post", {"text": f"msg {i}"})
-time.sleep(0.4)
+    pass_gap(); post("/api/channel/post", {"text": f"msg {i}"})
+pass_gap()
 r = post("/api/channel/post", {"text": "one too many"})
 check("the hourly limit stops a flood", r.status_code == 400 and "in the last hour" in r.json()["error"], r.text)
 check("bodies of the wrong shape are refused, not crashed on", post("/api/channel/post", {"text": ["a"]}).status_code == 400 and post("/api/channel/post", {}).status_code == 400 and post("/api/channel/post", {"text": "x" * 5000}).status_code == 400)
@@ -148,7 +152,7 @@ br.channel._posts.clear(); br.iface = None
 r = post("/api/channel/post", {"text": "nobody home"})
 check("no radio: refused up front", r.status_code == 400 and "No radio" in r.json()["error"], r.text)
 br.iface = radio
-br.channel._posts.clear(); time.sleep(0.4)
+br.channel._posts.clear(); pass_gap()
 br.iface = radio; rid = br.channel.post("queued then radio lost"); br.iface = None; br.down_since = time.time() - 60
 check("radio lost while queued: the post is marked failed, not sent", wait(lambda: [r for r in rows() if r["id"] == rid][0]["status"] == "failed", 4))
 br.iface = radio

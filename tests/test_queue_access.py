@@ -10,6 +10,7 @@ if os.path.exists(DB):
     os.remove(DB)
 
 seen = []
+gate = threading.Event()   # the 'slow' question waits here until the test has looked at the queue, so it lasts exactly as long as needed on any machine
 class Fake(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
     def _out(self, obj):
@@ -19,7 +20,7 @@ class Fake(BaseHTTPRequestHandler):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         seen.append(body)
         if "slow" in body["messages"][-1]["content"]:
-            time.sleep(1.2)
+            gate.wait(30)
         self._out({"message": {"content": f"reply#{len(seen)}"}})
     def do_GET(self): self._out({"models": [{"name": "fake"}]})
 threading.Thread(target=ThreadingHTTPServer(("127.0.0.1", 11498), Fake).serve_forever, daemon=True).start()
@@ -61,6 +62,13 @@ def settle(t=6):
         time.sleep(0.05)
         if not br.q and br.current is None and br.outbox.empty(): break
     time.sleep(0.25)
+def until(cond, t=8.0):
+    """Wait (up to t seconds) for cond() to become true; True if it did. Used instead of fixed sleeps, which a slow machine can outrun."""
+    end = time.time() + t
+    while time.time() < end:
+        if cond(): return True
+        time.sleep(0.02)
+    return cond()
 def sent_to(n): return [m for d, m in br.iface.sent if d == n]
 def status_rows(n, status): return [r for r in br.audit.conversation(n) if r["status"] == status]
 
@@ -117,12 +125,13 @@ check("cap: clearing override + default 0 leaves no access row", br.audit.get_ac
 
 # ---- queue: one per node, positions, full queue, cancel -------------------------------------
 n_calls = len(seen)
-dm(A, "/ai slow one"); time.sleep(0.35)
+dm(A, "/ai slow one"); until(lambda: br.current is not None and br.current[1] == A)
 check("queue: A is being worked on", br.current is not None and br.current[1] == A)
-dm(A, "/ai second from A"); time.sleep(0.2)
+dm(A, "/ai second from A"); until(lambda: any("still working" in m for m in sent_to(A)))
 check("queue: second question from same node refused while one is pending",
       any("still working" in m for m in sent_to(A)), sent_to(A))
-dm(B, "/ai from B"); dm(C, "/ai from C"); dm(D, "/ai from D (queue full)"); time.sleep(0.4)
+dm(B, "/ai from B"); dm(C, "/ai from C"); dm(D, "/ai from D (queue full)")
+until(lambda: any(m.startswith("Queued (#3") for m in sent_to(C)) and any(m.startswith("Busy") for m in sent_to(D)))
 check("queue: waiting nodes told their position", any(m.startswith("Queued (#2") for m in sent_to(B)) and any(m.startswith("Queued (#3") for m in sent_to(C)), (sent_to(B), sent_to(C)))
 check("queue: first in line is not told to wait", not any(m.startswith("Queued") for m in sent_to(A)))
 check("queue: full queue answered with 'busy'", any(m.startswith("Busy") for m in sent_to(D)) and len(status_rows(D, "busy")) == 1, sent_to(D))
@@ -132,6 +141,7 @@ check("queue: snapshot lists working + waiting in order",
 rid_b = snap[1]["id"]
 check("queue: cannot cancel a question already running", br.cancel(snap[0]["id"]) is False)
 check("queue: cancel a waiting question", br.cancel(rid_b) is True and status_rows(B, "cancelled"))
+gate.set()                                   # now let the slow question finish
 settle(8)
 check("queue: cancelled question never reached the model", not any("from B" in json.dumps(s) for s in seen))
 check("queue: remaining questions answered in order", status_rows(A, "answered") and status_rows(C, "answered"))

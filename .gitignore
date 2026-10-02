@@ -24,3 +24,8 @@ private/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Claude Code's machine-local state: the git worktrees reviewer agents use, and personal settings.
+# (Shared project files such as .claude/settings.json, skills and commands stay trackable.)
+.claude/worktrees/
+.claude/settings.local.json

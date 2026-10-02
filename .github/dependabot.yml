@@ -1,0 +1,11 @@
+# Keeps the GitHub Actions used by CI up to date (checkout, setup-python), so a deprecation like the Node 20 one is a pull request
+# instead of a surprise. Python dependencies are deliberately not listed: requirements.txt is unpinned on purpose, so there is
+# nothing for Dependabot to bump.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    commit-message:
+      prefix: "ci"

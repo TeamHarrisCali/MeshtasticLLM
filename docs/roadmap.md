@@ -1,5 +1,8 @@
 # Roadmap and design notes
 
+The ordered list of what to build next is in [TODO.md](../TODO.md). This page keeps the design rules, the known gaps and the ideas.
+The project is a hobby project for one person's own radios, so crew and jobsite features are out of scope.
+
 ## Design rules that should not change
 
 - **The AI never transmits on its own.** It can look things up in the bridge's database, and it can answer the node

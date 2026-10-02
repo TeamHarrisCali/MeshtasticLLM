@@ -40,7 +40,8 @@ settings). The radio's API then listens on port 4403. Find its address on your r
 Give the radio a fixed address (a DHCP reservation in the router) so it does not move. If the connection is refused, another program may already hold the
 radio's connection (a phone app or web client attached over Wi-Fi): close it. When a radio vanishes from Wi-Fi without closing the
 connection, the bridge asks the operating system to probe the idle connection, so it notices after a minute or so on Linux (longer on
-other systems) and reconnects.
+other systems) and reconnects. That probe only runs while the connection is idle: if the radio vanishes while a reply is still unsent, the operating
+system's retransmission timeout (about 15 minutes on Linux) applies. On Windows, Ctrl+C may lag by up to the OS connect timeout during a connection attempt to an unreachable address (untested).
 
 **Bluetooth (BLE).** Run `python -m meshllm --ble-scan` to list nearby radios, then `python -m meshllm --ble ADDRESS` using the address
 (or name) exactly as the scan printed it. The radio accepts one Bluetooth connection at a time, so disconnect the phone first. Pair the

@@ -140,7 +140,7 @@ async function refreshTop() {
     $("radioDot").className = "dot " + (s.connected ? "ok" : (s.searching ? "warn" : "bad"));
     $("radioTxt").textContent = s.connected
       ? `${s.node.long_name || "Node"} · ${s.port} · up ${fmtUp(s.uptime_s)}`
-      : (s.searching ? "Looking for a radio… plug one in" + (s.node.long_name ? ` (last: ${s.node.long_name})` : "") : "Radio disconnected");
+      : (s.searching ? "Looking for a radio…" + (s.node.long_name ? ` (last: ${s.node.long_name})` : "") : "Radio disconnected");
     // Units are stored on the server: adopt a change made in another browser and redraw the current page in the new unit.
     if (s.dist_unit && s.dist_unit !== distUnit) { setDistUnit(s.dist_unit); if (view) route(); }
     if (s.temp_unit && s.temp_unit !== tempUnit) { setTempUnit(s.temp_unit); if (view) route(); }     // changed from another browser

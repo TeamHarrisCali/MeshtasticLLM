@@ -102,6 +102,26 @@ def load_ble():
     return BLEInterface
 
 
+def _closing_on_error(cls):
+    """A subclass of the library's BLEInterface that closes itself when its constructor fails for ANY reason.
+
+    The library starts its receive thread first and only calls close() when the failure is its own BLEError. A bleak error or a timeout
+    would leave that thread spinning and the caller without a reference to close it, and the bridge retries, so the leak would repeat
+    every retry. (A BLE client created inside a failed connect() is still out of reach and is left to the library.)"""
+    class ClosingOnError(cls):
+        """BLEInterface that cleans up after a failed constructor."""
+        def __init__(self, *args, **kwargs):
+            try:
+                super().__init__(*args, **kwargs)
+            except Exception:
+                try:
+                    self.close()
+                except Exception:
+                    pass
+                raise
+    return ClosingOnError
+
+
 def scan_ble():
     """Scan for nearby Meshtastic Bluetooth devices (takes about 10 seconds). Returns a sorted list of (name, address).
     Raises BleUnavailable if Bluetooth cannot be used; other errors (adapter off, no BlueZ) propagate to the caller."""
@@ -111,23 +131,27 @@ def scan_ble():
 
 def check_args(parser, args):
     """Reject impossible connection flags with a clear argparse error: --tcp, --ble and a pinned --port are alternatives."""
-    chosen = [flag for flag, given in (("--port", args.port.lower() != "auto"), ("--tcp", bool(args.tcp)), ("--ble", bool(args.ble))) if given]
+    chosen = [flag for flag, given in (("--port", args.port.lower() != "auto"), ("--tcp", args.tcp is not None), ("--ble", args.ble is not None)) if given]
     if len(chosen) > 1:
         parser.error(f"{' and '.join(chosen)} cannot be used together: pick one way to reach the radio "
                      "(USB serial is the default and needs none of them)")
-    if args.tcp:
+    if args.tcp is not None:      # "is not None": an empty value (say an unset shell variable) must be an error, not a silent USB fallback
         try:
             parse_tcp(args.tcp)
         except ValueError as e:
             parser.error(f"--tcp: {e}")
+    if args.ble is not None and not args.ble.strip():
+        parser.error("--ble: an address or device name is needed (--ble-scan lists them)")
 
 
 def make_endpoint(args):
     """The Endpoint the command-line flags ask for. Tolerates an `args` without the newer flags (older tests and callers)."""
-    if getattr(args, "tcp", None):
+    if getattr(args, "demo", False):     # the simulated radio has no socket or Bluetooth client: --tcp/--ble are ignored there
+        return SerialEndpoint()
+    if getattr(args, "tcp", None) is not None:
         return TcpEndpoint(*parse_tcp(args.tcp))
-    if getattr(args, "ble", None):
-        return BleEndpoint(args.ble)
+    if getattr(args, "ble", None) is not None:
+        return BleEndpoint(args.ble.strip())
     return SerialEndpoint(getattr(args, "port", "auto"), bool(getattr(args, "probe_unknown", False)))
 
 
@@ -263,7 +287,9 @@ class TcpEndpoint(Endpoint):
     @staticmethod
     def _keepalive(iface):
         """Ask the OS to probe an idle connection. Without this, a radio that drops off Wi-Fi without closing the socket would leave the
-        library's reader blocked in recv() for hours and the bridge would believe it is connected. Best effort: not every OS has every option."""
+        library's reader blocked in recv() for hours and the bridge would believe it is connected. Best effort: not every OS has every option, and
+        keepalive only helps while the connection is idle; if the radio vanishes with unsent data queued, the OS's retransmission timeout
+        (about 15 minutes on Linux) decides instead."""
         sock = getattr(iface, "socket", None)
         if sock is None or getattr(iface, "_meshllm_keepalive_for", None) is sock:
             return
@@ -280,7 +306,18 @@ class TcpEndpoint(Endpoint):
         rx = getattr(iface, "_rxThread", None)
         return getattr(iface, "socket", None) is not None and (rx is None or rx.is_alive())
 
+    @staticmethod
+    def reconnecting(iface):
+        """True while the library is re-opening the connection itself. Its reconnect holds `reconnectLock` for the whole time and
+        deliberately leaves `socket` as None (about a second), so that state is not a dead link and must not be torn down: doing so
+        would open a second connection to the radio while the library's own one completes. If the reconnect fails the lock is released
+        and the reader thread ends, which is then reported as a lost link."""
+        lock = getattr(iface, "reconnectLock", None)
+        return getattr(iface, "socket", None) is None and lock is not None and lock.locked()
+
     def link_problem(self, iface, label):
+        if self.reconnecting(iface):
+            return None
         if not self.alive(iface):
             return "connection to the radio ended"
         self._keepalive(iface)      # re-applies after the library reconnected on a new socket
@@ -323,7 +360,7 @@ class BleEndpoint(Endpoint):
         return [self.label]
 
     def open(self, label):
-        return load_ble()(self.target)
+        return _closing_on_error(load_ble())(self.target)
 
     def alive(self, iface):
         thread = getattr(iface, "_receiveThread", None)

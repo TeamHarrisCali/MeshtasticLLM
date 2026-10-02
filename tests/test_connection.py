@@ -47,6 +47,7 @@ class World:
     """What the fake network / Bluetooth currently does. Reset per section."""
     def __init__(self):
         self.fail = None            # exception the next opens raise
+        self.fail_late = None       # BLE only: raise after the object (and its threads) exist
         self.node = "!00000a01"     # id of the radio answering at the endpoint
         self.made = []              # every fake interface created
         self.attempts = 0
@@ -62,10 +63,13 @@ class FakeTcp:
         if W.fail: raise W.fail
         self.hostname, self.portNumber, self.timeout = hostname, portNumber, timeout
         self.socket, self._rxThread, self.stream, self.closed, self.node = FakeSocket(), FakeThread(), None, False, W.node
+        self.reconnectLock, self.polls = threading.Lock(), 0
         W.made.append(self)
-    def getMyUser(self): return {"id": self.node, "longName": "Radio over Wi-Fi", "shortName": "W", "hwModel": "FAKE"}
+    def getMyUser(self): self.polls += 1; return {"id": self.node, "longName": "Radio over Wi-Fi", "shortName": "W", "hwModel": "FAKE"}   # the bridge calls this on every poll
     def close(self): self.closed = True
-    def drop(self): self._rxThread.alive = False; self.socket = None    # what the library's reader leaves behind when the link dies
+    def drop(self): self._rxThread.alive = False; self.socket = None    # the reconnect failed: socket cleared and the reader ended
+    def kill_reader(self): self._rxThread.alive = False                  # a reset / timeout: the real library ends the reader but leaves `socket` set
+    def lose_socket(self): self.socket = None                            # socket gone with nobody reconnecting
 meshtastic.tcp_interface.TCPInterface = FakeTcp
 
 class FakeBleError(Exception):
@@ -78,6 +82,7 @@ class FakeBle:
         if W.fail: raise W.fail
         self.address, self.client, self._want_receive, self._receiveThread, self.closed, self.node = address, object(), True, FakeThread(), False, W.node
         W.made.append(self)
+        if W.fail_late: raise W.fail_late       # fails after the receive thread exists, like a bleak error inside the library's constructor
     @staticmethod
     def scan(): return list(FakeBle.SCAN)
     def getMyUser(self): return {"id": self.node, "longName": "Radio over Bluetooth", "shortName": "B", "hwModel": "FAKE"}
@@ -104,7 +109,7 @@ def start(**over):
 def reset_world():
     for br in BRIDGES: br.stop()
     BRIDGES.clear(); time.sleep(0.3)
-    W.fail, W.node, W.attempts = None, "!00000a01", 0
+    W.fail, W.fail_late, W.node, W.attempts = None, None, "!00000a01", 0
     W.made.clear()
 
 # ---- command line ----------------------------------------------------------------------------------------------------
@@ -126,6 +131,9 @@ for flags, words in ((["--tcp", "h", "--ble", "x"], "--tcp and --ble"), (["--tcp
     check(f"{' '.join(flags)} is a clear argparse error", code == 2 and "cannot be used together" in err and words in err, (code, err))
 code, err, _ = run_cli(["--tcp", "h", "--port", "auto"])
 check("--port auto (the default spelled out) does not conflict with --tcp", code is None, (code, err))
+for flags, words in ((["--tcp", ""], "--tcp:"), (["--ble", ""], "--ble:"), (["--ble", "  "], "--ble:")):
+    code, err, _ = run_cli(flags)
+    check(f"{flags} is an error, not a silent fall back to USB", code == 2 and words in err, (code, err))
 for bad in ("host:0", "host:99999", "host:abc", ":4403", "[::1"):
     code, err, _ = run_cli(["--tcp", bad])
     check(f"--tcp {bad!r} is rejected with a message", code == 2 and "--tcp:" in err, (code, err))
@@ -152,6 +160,26 @@ first.drop()
 check("TCP: a dropped link is noticed, closed, and reconnected by itself", until(lambda: br.iface is not None and br.iface is not first and first.closed), (W.attempts, first.closed))
 check("TCP: ...to the same endpoint and status is connected again", br.port == "tcp://radio.test:5555" and br.status()["connected"] and br.connects == 2, (br.port, br.connects))
 check("TCP: a reconnect to the same radio is not reported as a different radio", not br.mesh.radio_change_active())
+
+# the realistic dead links: the library ends its reader on a reset/timeout but leaves the socket set
+a_ = br.iface; a_.kill_reader()
+check("TCP: a dead reader thread with the socket still set is a lost link", until(lambda: br.iface is not None and br.iface is not a_ and a_.closed))
+a_ = br.iface; a_.lose_socket()
+check("TCP: a socket that is gone with no reconnect in progress is a lost link", until(lambda: br.iface is not None and br.iface is not a_ and a_.closed))
+# the library's own clean-close reconnect: socket None for about a second while it holds reconnectLock, then it recovers
+a_ = br.iface; made, polls = len(W.made), a_.polls
+a_.reconnectLock.acquire(); a_.socket = None
+reached = until(lambda: a_.polls >= polls + 5)       # the bridge polled several times while the library was mid-reconnect
+check("TCP: the bridge polled during the library's own reconnect without giving up on it", reached and br.iface is a_ and not a_.closed and len(W.made) == made, (a_.polls - polls, a_.closed, len(W.made) - made))
+a_.socket = FakeSocket(); a_.reconnectLock.release()
+polls = a_.polls
+until(lambda: a_.polls >= polls + 3)
+check("TCP: ...and once the library has reconnected it is still the same, connected interface", br.iface is a_ and br.status()["connected"] and len(W.made) == made, (len(W.made) - made))
+check("TCP: ...with keepalive re-applied to the library's new socket", any(o[:3] == (conn.socket.SOL_SOCKET, conn.socket.SO_KEEPALIVE, 1) for o in a_.socket.opts), a_.socket.opts)
+# a failed library reconnect (lock released, reader ended) is detected
+a_.reconnectLock.acquire(); a_.socket = None; time.sleep(0.2)
+a_._rxThread.alive = False; a_.reconnectLock.release()
+check("TCP: when the library's reconnect fails (lock released, reader ended) it is a lost link", until(lambda: br.iface is not None and br.iface is not a_ and a_.closed))
 
 # the radio is power-cycled and refuses connections for a while: tried once, then backs off
 second = br.iface
@@ -211,6 +239,12 @@ check("BLE: radio not found: tried once, then parked for at least 30 s", W.attem
 W.fail = None; W.node = "!00000d04"; br.bad_until.clear()
 check("BLE: found again, and a different radio there is noticed", until(lambda: br.iface is not None and br.radio_id == "!00000d04") and br.mesh.radio_change_active(), br.radio_id)
 check("BLE: the serial ports are never looked at", SERIAL_LOOKS == [], SERIAL_LOOKS)
+W.fail_late = RuntimeError("bleak: device busy"); W.attempts = 0       # set first: the bridge reopens as soon as it sees the drop
+br.iface.drop(); until(lambda: br.iface is None)
+time.sleep(0.6)
+check("BLE: a constructor that fails with a non-BLEError is closed (no leaked reader thread) and backed off", W.attempts == 1 and W.made[-1].closed and br.bad_until["ble:AA:BB:CC:DD:EE:FF"] > time.time() + 25, (W.attempts, W.made[-1].closed, br.bad_until))
+check("BLE: ...and the bridge still got no interface from it", br.iface is None)
+W.fail_late = None
 check("BLE: failure wording", "not found" in conn.BleEndpoint("x").failure_reason("x", FakeBleError("m", "device_not_found"))[1]
       and conn.BleEndpoint("x").failure_reason("x", RuntimeError("boom"))[0] >= 30)
 reset_world()

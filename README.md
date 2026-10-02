@@ -53,8 +53,8 @@ All of these are from [demo mode](#try-it-without-hardware): simulated nodes and
 
 | | |
 |---|---|
-| ![Home: sensors, headline numbers, alerts, map and new nodes](docs/screenshots/home.png) | ![Nodes: every node the radio knows, with signal, battery and your own labels](docs/screenshots/nodes.png) |
-| **Home**: temperature and humidity from sensor nodes, headline numbers, alerts. | **Nodes**: everything heard, with signal, battery and your own labels and notes. |
+| ![Home: sensors, headline numbers, alerts, map and new nodes](docs/screenshots/home.png) | ![Nodes: every node the radio knows, with role, hops, signal and battery](docs/screenshots/nodes.png) |
+| **Home**: temperature and humidity from sensor nodes, headline numbers, alerts. | **Nodes**: everything heard, with role, hops, signal and battery; open one for its history, your label and notes. |
 | ![Map: nodes coloured by how many hops away they are](docs/screenshots/map.png) | ![AI log: each question, the tool the AI used, delivery per message part](docs/screenshots/audit.png) |
 | **Map**: nodes coloured by hops away; an optional OpenStreetMap background. | **AI log**: every question, the tool the AI ran, and per-part delivery. |
 

@@ -1,0 +1,26 @@
+# Python environment and caches
+.venv/
+__pycache__/
+*.pyc
+
+# Databases and backups: radio config, message history, node data
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+backups/
+
+# Runtime logs and pid file: real node IDs, mesh messages, local paths
+logs/
+
+# Map tile cache: shows where the radio operates, re-downloaded on demand
+tile_cache/
+
+# Private working copies (originals of anonymized results, personal notes, screenshots)
+private/
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

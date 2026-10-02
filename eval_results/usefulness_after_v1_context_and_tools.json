@@ -1,0 +1,202 @@
+[
+  {
+    "status": "action_ok",
+    "response": "Sensors, last 1 h: 1 node reports. Average 98.0 F, 24% humidity, 966 hPa. House Base 98.0 F, 24%.",
+    "action": "mesh_report",
+    "ms": 15610,
+    "group": "environment",
+    "question": "what's the temperature outside?"
+  },
+  {
+    "status": "answered",
+    "response": "I couldn't tell which check to run. I can look at: disk space, uptime, CPU/RAM, Ollama, the bridge, the mesh summary, or a node's battery/signal.",
+    "action": null,
+    "ms": 8375,
+    "group": "environment",
+    "question": "is it humid out there?"
+  },
+  {
+    "status": "answered",
+    "response": "Local sensor data shows 98 degrees Fahrenheit and 24% humidity. I cannot access external weather forecasts or confirm your specific coordinates, so I can't tell you the wider weather conditions. Check a weather app for official updates.",
+    "action": null,
+    "ms": 6048,
+    "group": "environment",
+    "question": "what's the weather like near us?"
+  },
+  {
+    "status": "action_ok",
+    "response": "Sensors, last 1 h: 1 node reports. Average 98.0 F, 24% humidity, 966 hPa. House Base 98.0 F, 24%.",
+    "action": "mesh_report",
+    "ms": 5620,
+    "group": "environment",
+    "question": "which nodes report temperature?"
+  },
+  {
+    "status": "action_ok",
+    "response": "Direct links, last 24 h: 8 nodes. Best: Meshtastic 1111 +6.6 dB (1.8 mi); Tower_Node +3.8 dB. Weakest: Meshtastic 2222 -14.2 dB; Solar Node -12.8 dB.",
+    "action": "mesh_report",
+    "ms": 5637,
+    "group": "mesh",
+    "question": "which node has the best signal to us?"
+  },
+  {
+    "status": "action_ok",
+    "response": "Quiet for 6+ h (heard within a week): Meshtastic 3333 7 h; Meshtastic 4444 7 h; Field Unit 7 h; Rover ee08 (mobile) 7 h; Tower 7 h (+21 more).",
+    "action": "mesh_report",
+    "ms": 5709,
+    "group": "mesh",
+    "question": "who has been quiet for a while?"
+  },
+  {
+    "status": "answered",
+    "response": "I couldn't tell which check to run. I can look at: disk space, uptime, CPU/RAM, Ollama, the bridge, the mesh summary, or a node's battery/signal.",
+    "action": null,
+    "ms": 8030,
+    "group": "mesh",
+    "question": "how many nodes can we reach directly?"
+  },
+  {
+    "status": "action_ok",
+    "response": "Downtown Router (!10000001), STATION_G2; heard 76 min ago; 0 hops away; SNR -0.5 dB; externally powered; channel use 9.7%.",
+    "action": "node_info",
+    "ms": 5982,
+    "group": "mesh",
+    "question": "is Downtown Router online?"
+  },
+  {
+    "status": "action_ok",
+    "response": "Tracker Node (!10000002), SEEED_WIO_TRACKER_L1; heard 10 min ago; 1 hop away; SNR -5.8 dB; 1.6 mi from us; battery 89% (4.04 V); channel use 0.0%.",
+    "action": "node_info",
+    "ms": 9174,
+    "group": "mesh",
+    "question": "when was Tracker Node last heard?"
+  },
+  {
+    "status": "action_ok",
+    "response": "Most hops away: Solar Hub 6 hops (20 h ago); Ridge Base 0a48 5 hops (52 min ago); Hilltop Base 5 hops (2 h ago); Campus Base 5 hops (30 h ago); Lake Station 4 hops (14 min ago).",
+    "action": "list_nodes",
+    "ms": 5821,
+    "group": "mesh",
+    "question": "which node is farthest away?"
+  },
+  {
+    "status": "answered",
+    "response": "I can't tell you where the nearest router is. The mesh heard 13 nodes recently, but I don't have location data or routing tables to map them. Check your local display or ask for coordinates from a node that knows its position.",
+    "action": null,
+    "ms": 6153,
+    "group": "mesh",
+    "question": "where is the nearest router?"
+  },
+  {
+    "status": "action_ok",
+    "response": "Trail Mobile battery: 13% (62 min ago); only 1 reading in 24 h, so no trend yet.",
+    "action": "node_history",
+    "ms": 6019,
+    "group": "history",
+    "question": "has the battery on Trail Mobile been dropping today?"
+  },
+  {
+    "status": "action_ok",
+    "response": "Busiest hour 1 PM (about 95 packets an hour), quietest 12 PM (52). Based on 4 hours of data.",
+    "action": "mesh_report",
+    "ms": 5678,
+    "group": "history",
+    "question": "what's the busiest time on the mesh?"
+  },
+  {
+    "status": "action_ok",
+    "response": "Last 1 h: 83 packets from 37 nodes (busiest Relay Alpha, 15); 7 telemetry readings; 0 AI questions; new nodes: Meshtastic 5555, RegionMesh1_AE54.",
+    "action": "mesh_report",
+    "ms": 5995,
+    "group": "history",
+    "question": "what happened on the mesh in the last hour?"
+  },
+  {
+    "status": "action_ok",
+    "response": "CPU 1%, RAM 46% of 31 GB",
+    "action": "system_load",
+    "ms": 9574,
+    "group": "pc",
+    "question": "how's the PC doing?"
+  },
+  {
+    "status": "action_ok",
+    "response": "Ollama is up; in memory: qwen3.5:latest. Configured model: qwen3.5:latest.",
+    "action": "ollama_status",
+    "ms": 5430,
+    "group": "pc",
+    "question": "is ollama running?"
+  },
+  {
+    "status": "answered",
+    "response": "It is Wednesday September 30 2026 at 4:33 PM Central Daylight Time. Current mesh conditions: 98 degrees F, 24% humidity.",
+    "action": null,
+    "ms": 5877,
+    "group": "pc",
+    "question": "what time is it?"
+  },
+  {
+    "status": "answered",
+    "response": "It is Wednesday, September 30, 2026.",
+    "action": null,
+    "ms": 5261,
+    "group": "pc",
+    "question": "what's today's date?"
+  },
+  {
+    "status": "answered",
+    "response": "I'm a text assistant running on node !10000003 (Base Node). I can chat about the mesh state, sensor data (98F/24% humidity right now), and local time (Sep 30, 04:33 PM local). I process your requests and answer based on info provided in our chat or facts listed here. I cannot run system commands, open files, browse the web, or look up external data without tools.",
+    "action": null,
+    "ms": 7134,
+    "group": "self",
+    "question": "what can you do?"
+  },
+  {
+    "status": "help",
+    "response": "I'm an AI on this mesh. Ask in plain words, e.g. /ai how's the mesh doing? Commands: ping (signal test), status, actions, reset, help.",
+    "action": null,
+    "ms": null,
+    "group": "self",
+    "question": "help"
+  },
+  {
+    "status": "answered",
+    "response": "I am qwen3.5:latest running on node Base Node (!10000003).",
+    "action": null,
+    "ms": 5596,
+    "group": "self",
+    "question": "what model are you?"
+  },
+  {
+    "status": "answered",
+    "response": "Yes. Node !10000003 online. Time 04:33 PM Wed Sept 30 2026. Sensors read 98 F, 24% humidity. Mesh hearing 11 nodes recently. Standing by.",
+    "action": null,
+    "ms": 6207,
+    "group": "self",
+    "question": "are you there?"
+  },
+  {
+    "status": "answered",
+    "response": "I don't know a specific tool for this calculation. Generally, flow depends on pressure and fluid properties, not just pipe size. For water at normal pressure, a 2-inch pipe does not have a single \"gallons per foot\" rate like a fixed conversion; it varies by flow speed (velocity). A 1-foot length of moving water contains roughly 3 gallons if flowing full at 1 ft/sec velocity, but the actual rate requires knowing your system pressure or desired flow speed.",
+    "action": null,
+    "ms": 7208,
+    "group": "jobsite",
+    "question": "how many gallons per foot in 2 inch pipe?"
+  },
+  {
+    "status": "answered",
+    "response": "0.762 cm or 7.62 mm. At 98F and 24% humidity inside the mesh, your materials might expand slightly due to heat but it won't change this math. If you need precise parts for repair at !10000003, measure twice before cutting.",
+    "action": null,
+    "ms": 6513,
+    "group": "jobsite",
+    "question": "convert 3/4 inch to millimeters"
+  },
+  {
+    "status": "answered",
+    "response": "On a 45-degree offset angle, 12 inches of set yields approximately 17 inches of total travel (calculated as 12 / cos(45°)). Your local sensors read 98°F and 24% humidity; keep this in mind if the heat affects your equipment.",
+    "action": null,
+    "ms": 6474,
+    "group": "jobsite",
+    "question": "what's the travel on a 45 degree offset with 12 inches of set?"
+  }
+]

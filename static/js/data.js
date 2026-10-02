@@ -1,0 +1,28 @@
+// data: part of the dashboard script (loaded in order by index.html; all files share one global scope)
+// ---- the Data page: everything this bridge collects, how much, how long it is kept ----------------------------------------------------
+let dataAt = 0;
+const fmtBytes = n => n >= 1073741824 ? (n / 1073741824).toFixed(2) + " GB" : n >= 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB";
+
+async function refreshData(force) {
+  if (!force && Date.now() - dataAt < 10000) return; dataAt = Date.now();
+  let d; try { d = await api("/api/data/overview"); } catch { return; }
+  const rows = $("dataRows"); rows.replaceChildren();
+  let total = 0;
+  for (const s of d.datasets) {
+    total += s.rows;
+    const r = el("div", "drow"), name = el("div"), range = s.oldest == null ? "nothing yet" : `${fmtTime(s.oldest)} to ${fmtTime(s.newest)}`;
+    name.append(el("b", null, s.label), el("small", null, s.what));
+    const act = el("div");
+    if (s.csv) { const a = el("a", "btn", "CSV"); a.href = `/api/data/export/${s.name}.csv`; a.download = ""; a.style.padding = "2px 10px"; act.append(a); }
+    else if (s.name === "telemetry") { const a = el("a", "btn", "CSV"); a.href = "/api/telemetry/export.csv"; a.download = ""; a.style.padding = "2px 10px"; act.append(a); }
+    else if (s.name === "requests") { const a = el("a", "btn", "CSV"); a.href = "/api/export.csv"; a.download = ""; a.style.padding = "2px 10px"; act.append(a); }
+    r.append(name, el("div", "num", s.rows.toLocaleString()), el("div", "time", range), el("div", null, s.kept), act); rows.append(r);
+  }
+  $("dataTotals").textContent = `${total.toLocaleString()} rows in ${d.datasets.length} datasets`;
+  const hops = {}; for (const [k, v] of Object.entries(d.hops)) hops[k === "0" ? "direct" : `${k} relay${k === "1" ? "" : "s"}`] = v;
+  barsInto($("dataHops"), hops);
+  const st = $("dataStore"); st.replaceChildren();
+  for (const [k, v] of [["Database file", d.db_bytes != null ? fmtBytes(d.db_bytes) : "unknown"], ["Saved map tiles", `${d.tiles.tiles} (${fmtBytes(d.tiles.bytes)} of ${fmtBytes(d.tiles.max_bytes)} allowed)`]]) {
+    const row = el("div", "irow static"); row.append(el("span", null, k), el("small", null, v)); st.append(row);
+  }
+}

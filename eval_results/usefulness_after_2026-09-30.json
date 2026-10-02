@@ -1,0 +1,202 @@
+[
+  {
+    "status": "action_ok",
+    "response": "Sensors, last 1 h: 1 node reports. Average 98.0 F, 24% humidity, 966 hPa. House Base 98.0 F, 24%.",
+    "action": "mesh_report",
+    "ms": 10849,
+    "group": "environment",
+    "question": "what's the temperature outside?"
+  },
+  {
+    "status": "answered",
+    "response": "Yes, sensor nodes report 24% humidity on average right now.",
+    "action": null,
+    "ms": 8311,
+    "group": "environment",
+    "question": "is it humid out there?"
+  },
+  {
+    "status": "answered",
+    "response": "I cannot tell you the weather. My sensors show our local node at 98°F and 24% humidity, but I don't have data on conditions outside our immediate area. Use a mesh tool or another node that is connected to public weather feeds to get that info.",
+    "action": null,
+    "ms": 6352,
+    "group": "environment",
+    "question": "what's the weather like near us?"
+  },
+  {
+    "status": "action_ok",
+    "response": "Sensors, last 1 h: 1 node reports. Average 98.0 F, 24% humidity, 966 hPa. House Base 98.0 F, 24%.",
+    "action": "mesh_report",
+    "ms": 6083,
+    "group": "environment",
+    "question": "which nodes report temperature?"
+  },
+  {
+    "status": "action_ok",
+    "response": "Direct links, last 24 h: 8 nodes. Best: Meshtastic 1111 +6.6 dB (1.8 mi); Tower_Node +3.8 dB. Weakest: Meshtastic 2222 -14.2 dB; Solar Node -12.8 dB.",
+    "action": "mesh_report",
+    "ms": 5718,
+    "group": "mesh",
+    "question": "which node has the best signal to us?"
+  },
+  {
+    "status": "action_ok",
+    "response": "Quiet for 6+ h (heard within a week): Meshtastic 3333 7 h; Meshtastic 4444 7 h; Field Unit 7 h; Rover ee08 (mobile) 7 h; Tower 7 h (+21 more).",
+    "action": "mesh_report",
+    "ms": 5790,
+    "group": "mesh",
+    "question": "who has been quiet for a while?"
+  },
+  {
+    "status": "answered",
+    "response": "8 nodes are heard directly.",
+    "action": null,
+    "ms": 8051,
+    "group": "mesh",
+    "question": "how many nodes can we reach directly?"
+  },
+  {
+    "status": "action_ok",
+    "response": "Downtown Router (!10000001), STATION_G2; heard 86 min ago; 0 hops away; SNR -0.5 dB; externally powered; channel use 9.7%.",
+    "action": "node_info",
+    "ms": 6054,
+    "group": "mesh",
+    "question": "is Downtown Router online?"
+  },
+  {
+    "status": "action_ok",
+    "response": "Tracker Node (!10000002), SEEED_WIO_TRACKER_L1; heard 4 min ago; 1 hop away; SNR 4.0 dB; 1.6 mi from us; battery 89% (4.04 V); channel use 0.0%.",
+    "action": "node_info",
+    "ms": 9035,
+    "group": "mesh",
+    "question": "when was Tracker Node last heard?"
+  },
+  {
+    "status": "action_ok",
+    "response": "Most hops away: Solar Hub 6 hops (20 h ago); Lake Station 5 hops (8 min ago); Ridge Base 0a48 5 hops (62 min ago); Hilltop Base 5 hops (2 h ago); Campus Base 5 hops (30 h ago).",
+    "action": "list_nodes",
+    "ms": 8800,
+    "group": "mesh",
+    "question": "which node is farthest away?"
+  },
+  {
+    "status": "action_ok",
+    "response": "Nearest: Relay Alpha 1.8 mi; Relay Bravo 3.5 mi; Ridge Base 0a48 14.4 mi.",
+    "action": "list_nodes",
+    "ms": 6030,
+    "group": "mesh",
+    "question": "where is the nearest router?"
+  },
+  {
+    "status": "action_ok",
+    "response": "Trail Mobile battery: 13% (72 min ago); only 1 reading in 24 h, so no trend yet.",
+    "action": "node_history",
+    "ms": 5924,
+    "group": "history",
+    "question": "has the battery on Trail Mobile been dropping today?"
+  },
+  {
+    "status": "action_ok",
+    "response": "Busiest hour 1 PM (about 95 packets an hour), quietest 12 PM (52). Based on 4 hours of data.",
+    "action": "mesh_report",
+    "ms": 5720,
+    "group": "history",
+    "question": "what's the busiest time on the mesh?"
+  },
+  {
+    "status": "action_ok",
+    "response": "Last 1 h: 91 packets from 37 nodes (busiest Relay Alpha, 16); 5 telemetry readings; 0 AI questions; 1 traceroute; new nodes: Meshtastic 5555.",
+    "action": "mesh_report",
+    "ms": 6019,
+    "group": "history",
+    "question": "what happened on the mesh in the last hour?"
+  },
+  {
+    "status": "action_ok",
+    "response": "CPU 2%, RAM 47% of 31 GB",
+    "action": "system_load",
+    "ms": 9572,
+    "group": "pc",
+    "question": "how's the PC doing?"
+  },
+  {
+    "status": "action_ok",
+    "response": "Ollama is up; in memory: qwen3.5:latest. Configured model: qwen3.5:latest.",
+    "action": "ollama_status",
+    "ms": 5570,
+    "group": "pc",
+    "question": "is ollama running?"
+  },
+  {
+    "status": "answered",
+    "response": "It is 04:42 PM Central Daylight Time on Wednesday, September 30, 2026.",
+    "action": null,
+    "ms": 5599,
+    "group": "pc",
+    "question": "what time is it?"
+  },
+  {
+    "status": "answered",
+    "response": "It is Wednesday, September 30, 2026. Time is 04:42 PM Central Daylight Time.",
+    "action": null,
+    "ms": 5680,
+    "group": "pc",
+    "question": "what's today's date?"
+  },
+  {
+    "status": "answered",
+    "response": "I am an AI on node !10000003 (Base Node). I answer text questions using facts from our chat or a provided environment snapshot. I cannot run commands, open files, browse the web, or access sensors unless you offer tools or data. My output is plain text under 400 chars. How can I help?",
+    "action": null,
+    "ms": 6750,
+    "group": "self",
+    "question": "what can you do?"
+  },
+  {
+    "status": "help",
+    "response": "I'm an AI on this mesh. Ask in plain words, e.g. /ai how's the mesh doing? Commands: ping (signal test), status, actions, reset, help.",
+    "action": null,
+    "ms": null,
+    "group": "self",
+    "question": "help"
+  },
+  {
+    "status": "answered",
+    "response": "I am qwen3.5:latest. I run on node !10000003 ('Base Node'). Current mesh stats: 98F, 24% humidity. Last message from this user was at 04:42 PM local.",
+    "action": null,
+    "ms": 6428,
+    "group": "self",
+    "question": "what model are you?"
+  },
+  {
+    "status": "answered",
+    "response": "Yes. Base Node (!10000003) online. Conditions here: 98F, 24% humidity. How can I help with your food or inventory?",
+    "action": null,
+    "ms": 6029,
+    "group": "self",
+    "question": "are you there?"
+  },
+  {
+    "status": "answered",
+    "response": "I cannot determine that value. The flow rate in gallons per foot depends on fluid velocity and pipe material friction factors, not just pipe diameter. Please provide the desired flow velocity or total GPM to calculate the length required.",
+    "action": null,
+    "ms": 6010,
+    "group": "jobsite",
+    "question": "how many gallons per foot in 2 inch pipe?"
+  },
+  {
+    "status": "answered",
+    "response": "Three-quarters of an inch is exactly 19.05 millimeters. If you need rough metric equivalents for parts: 7 mm, 8 mm, or 9 mm are all within that range depending on tolerance. Use the calculator if exact math is needed beyond this fact.",
+    "action": null,
+    "ms": 6339,
+    "group": "jobsite",
+    "question": "convert 3/4 inch to millimeters"
+  },
+  {
+    "status": "answered",
+    "response": "Can't tell. You haven't specified which mesh node or tool to use for that calculation. The radio only reports current sensor averages (98F, 24% humidity) and heard 66 nodes today. If you have a specific routing table query via a tool, say so; otherwise I cannot compute path offsets without direct access to the network topology data.",
+    "action": null,
+    "ms": 6729,
+    "group": "jobsite",
+    "question": "what's the travel on a 45 degree offset with 12 inches of set?"
+  }
+]

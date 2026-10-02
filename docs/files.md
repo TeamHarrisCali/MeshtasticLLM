@@ -1,0 +1,30 @@
+# Files in the project
+
+- `mesh_llm_bridge.py` - the bridge (radio <-> Ollama, rate limit, acked replies, memory)
+- `audit.py` - SQLite log (`audit.db`, created next to the script; old databases upgrade in place)
+- `actions.py` - the fixed menu of mesh lookups the AI may request, with validation
+- `eval_tools.py` - measures tool-selection accuracy of a model
+- `ollama_models.py` - lists/downloads Ollama models for the Model tab
+- `telemetry.py` - recording the telemetry the radio hears, retention and pruning
+- `radio_config.py` - reading, backing up, validating and writing the radio's settings (the Radio settings page)
+- `tiles.py` - the on-disk cache that serves the OpenStreetMap map background (`tile_cache/`)
+- `mesh.py` - the mesh pages' data: node snapshot and remembered nodes, positions, packet counts, mesh-health history, alerts, activity feed, radio position/clock writes
+- `channel.py` - the public channel page's data: hearing the primary channel, posting to it (operator only), limits
+- `traceroute.py` - traceroute requests, path decoding and storage
+- `setup_env.py` (with `setup.bat`, `setup.ps1`, `setup.sh`) - the one-step setup for a new computer, see `setup.md` (it also sets up start at login)
+- `start_bridge.ps1`, `stop_bridge.ps1` (Windows), `start_bridge.sh`, `stop_bridge.sh` (Linux / macOS) - run the bridge in the background / stop it
+- `webui.py` - the dashboard's web server: security checks, static files, JSON replies
+- `webroutes.py` - the dashboard's JSON API as a table of small functions (one per route)
+- `static/` - the dashboard: `index.html`, `style.css`, and `js/*.js` (one file per page, joined in the order listed in `js/order.txt`)
+- `userdata.py` - your node labels, notes and stars, and saved snippets
+- `inbox.py` - what is new since you last looked (sidebar badges, alerts) and search across everything
+- `backup.py` - backups, the daily copy, and restoring at the next start
+- `diagnostics.py` - the health check and the log viewer
+- `reach.py` - the Coverage page: reach by direction, signal against distance, the walk test
+- `report.py` - the written report (counts only, never message text)
+- `evals.py` - reads the saved evaluation results and the docs for the Evaluation page
+- `usefulness_audit.py` - asks the running bridge a fixed set of realistic questions and saves the answers
+- `run_tests.py`, `tests/` - the test suite (`python run_tests.py`)
+- `eval_results/` - saved evaluation runs; `docs/` - these pages; `logs/`, `backups/`, `tile_cache/` - made while running
+- `LICENSE` (MIT), `CONTRIBUTING.md`, `SECURITY.md`, `.github/` - the repository's licence, contribution guide, security policy, CI workflow and issue / pull request templates
+- `.gitignore` keeps your database, logs, backups, tile cache and a `private/` folder out of version control

@@ -1,0 +1,31 @@
+# The dashboard script is these files joined in this order (the server does it, so the browser makes one request).
+# Order matters: a file may use what earlier files declared when it loads.
+core.js
+radio-change.js
+nav.js
+chat.js
+queue.js
+access.js
+model.js
+telemetry.js
+mesh-common.js
+home.js
+nodes.js
+map.js
+radio.js
+trends.js
+data.js
+activity.js
+ai.js
+charts.js
+traceroute.js
+channel.js
+snippets.js
+search.js
+notify.js
+settings.js
+diagnostics.js
+report.js
+coverage.js
+eval.js
+main.js

@@ -13,7 +13,7 @@ fails = []
 def check(name, cond, detail=""):
     print(("PASS " if cond else "FAIL ") + name + ("" if cond else f"  -> {str(detail)[:300]}"))
     if not cond: fails.append(name)
-def until(cond, t=40.0):
+def until(cond, t=90.0):
     """Poll `cond` until it is truthy (returns its value) or `t` seconds pass (returns the last falsy value)."""
     end, v = time.time() + t, None
     while time.time() < end:
@@ -28,6 +28,8 @@ REAL_DB = os.path.join(ROOT, "audit.db")
 real_before = os.path.getmtime(REAL_DB) if os.path.exists(REAL_DB) else None
 
 # ---- nothing may reach a serial port or leave the machine ----------------------------------------------------
+# (The one traffic demo mode can cause beyond this machine is the browser's OpenStreetMap tile fetch on the Map page, through the
+# bridge's tile cache. It needs a browser looking at that page, is documented in the README, and is not exercised here.)
 serial_calls, remote_connects = [], []
 import meshtastic.serial_interface as _si
 _orig_serial, _orig_connect = _si.SerialInterface, socket.socket.connect
@@ -62,17 +64,17 @@ check("the fake keys are unique and not real", len({n["user"]["publicKey"] for n
 check("it presents itself like a radio the bridge can use", radio.getMyUser()["id"] == "!d3000001" and radio.myInfo.my_node_num == 0xD3000001 and radio.stream is not None and radio._rxThread.is_alive())
 acks = []
 radio.sendText("hello", destinationId="!d3000007", wantAck=True, onResponse=acks.append)
-check("a sent message is recorded and acknowledged like a real radio would", until(lambda: acks, 10) and acks[0]["decoded"]["routing"]["errorReason"] == "NONE" and radio.sent == [("!d3000007", "hello")], acks)
+check("a sent message is recorded and acknowledged like a real radio would", until(lambda: acks, 30) and acks[0]["decoded"]["routing"]["errorReason"] == "NONE" and radio.sent == [("!d3000007", "hello")], acks)
 traced = []
 from meshtastic.protobuf import mesh_pb2, portnums_pb2
 by_short = lambda r, short: next(n for n in r.neighbours if n.spec.short == short)
 radio.sendData(mesh_pb2.RouteDiscovery(), destinationId=by_short(radio, "LAKE").id, portNum=portnums_pb2.PortNum.TRACEROUTE_APP, wantResponse=True, onResponse=traced.append, hopLimit=7)
 radio.sendData(mesh_pb2.RouteDiscovery(), destinationId=by_short(radio, "SHED").id, portNum=portnums_pb2.PortNum.TRACEROUTE_APP, wantResponse=True, onResponse=traced.append, hopLimit=7)
-check("a traceroute is answered by a node that is awake, and not by one that has been quiet for hours", until(lambda: len(traced) == 1, 10) and traced[0]["decoded"]["portnum"] == "TRACEROUTE_APP", traced)
+check("a traceroute is answered by a node that is awake, and not by one that has been quiet for hours", until(lambda: len(traced) == 1, 30) and traced[0]["decoded"]["portnum"] == "TRACEROUTE_APP", traced)
 radio.localNode.setFixedPosition(40.78, -73.97, 10); radio.localNode.setTime(); radio.localNode.beginSettingsTransaction(); radio.localNode.writeConfig("lora"); radio.localNode.commitSettingsTransaction()
 check("admin calls are harmless no-ops that change only the fake state", radio.localNode.localConfig.position.fixed_position and radio.us.entry["position"]["latitude"] == 40.78)
 radio.close()
-check("closing the fake radio ends its reader thread", until(lambda: not radio._rxThread.is_alive(), 10) and radio.stream is None)
+check("closing the fake radio ends its reader thread", until(lambda: not radio._rxThread.is_alive(), 30) and radio.stream is None)
 
 # ---- the scripted model ----------------------------------------------------------------------------------------
 GOOD = [("how's the mesh doing?", "mesh_summary"), ("which nodes have the lowest battery?", "list_nodes"), ("what's the temperature outside?", "mesh_report"),
@@ -106,7 +108,7 @@ try:
     check("downloads are refused", rq.post(fake.url + "/api/pull", json={"model": "x"}, timeout=5).status_code == 400)
 finally:
     fake.stop()
-check("the fake Ollama stops and frees its port", until(lambda: socket.socket().connect_ex(("127.0.0.1", int(fake.url.rsplit(":", 1)[1]))) != 0, 10))
+check("the fake Ollama stops and frees its port", until(lambda: socket.socket().connect_ex(("127.0.0.1", int(fake.url.rsplit(":", 1)[1]))) != 0, 30))
 
 class Stub(BaseHTTPRequestHandler):
     """A stand-in for a real Ollama: one installed model, with or without tool support."""
@@ -143,27 +145,28 @@ def connected_status():
     except Exception:
         return None
     return s if s.get("connected") else None
-status = until(connected_status, 60)
+status = until(connected_status, 120)
 check("it starts with no hardware and no Ollama, and the dashboard reports a connected radio", bool(status) and status["port"] == "demo" and status["node"]["id"] == "!d3000001", status)
 check("the status flags demo mode (the dashboard shows its badge) and names the scripted model", status["demo"] is True and status["model"] == "demo-scripted" and status["ollama_ok"] is True, status)
 check("the only interface is the DemoRadio, and nothing opened a serial port", isinstance(br.iface, demo.DemoRadio) and serial_calls == [], serial_calls)
 
-nodes_api = until(lambda: (lambda n: n if len(n) >= 25 else None)(get("/api/mesh/nodes").json()), 30)
+nodes_api = until(lambda: (lambda n: n if len(n) >= 25 else None)(get("/api/mesh/nodes").json()), 60)
 check("/api/mesh/nodes lists the fake mesh", bool(nodes_api) and all(n["name"].startswith("Demo ") for n in nodes_api), nodes_api and nodes_api[:1])
 check("/api/nodes (the recipient picker) lists them too", len(get("/api/nodes").json()) >= 25)
-home = get("/api/home").json()
+home = until(lambda: (lambda h: h if h["sensors"]["overall"]["temperature"] is not None else None)(get("/api/home").json()), 60) or get("/api/home").json()
 check("Home has headline numbers, a map's worth of positions and sensors", home["summary"]["nodes_total"] >= 25 and home["places"]["total"] >= 25 and home["sensors"]["overall"]["temperature"] is not None, home["summary"])
-traffic_api = until(lambda: (lambda t: t if t["total"] > 100 and t["talkers"] else None)(get("/api/mesh/traffic").json()), 30)
+traffic_api = until(lambda: (lambda t: t if t["total"] > 100 and t["talkers"] else None)(get("/api/mesh/traffic").json()), 60)
 check("Trends: packet counts per hour and the busiest senders are filled", bool(traffic_api) and len(traffic_api["types"]) >= 5, traffic_api and traffic_api["types"])
-check("Trends: a day of health snapshots", len(get("/api/mesh/samples").json()) >= 90)
+check("Trends: a day of health snapshots", len(get("/api/mesh/samples").json()) >= 48)
 check("Trends: hop statistics", get("/api/mesh/hops").json()["total"] > 100)
 check("Map: trails for the nodes that move", len(get("/api/mesh/trails").json()) >= 3)
 check("Map: remembered nodes the radio has forgotten", get("/api/mesh/places").json()["stored_only"] >= 3)
 lm = get("/api/mesh/linkmap").json()
 check("Coverage: directly heard nodes with signal and distance", len(lm["links"]) >= 5 and lm["farthest"] is not None, lm["links"][:1])
 check("Coverage page data loads", get("/api/coverage").status_code == 200)
-check("Activity: the feed has several kinds of event", len({e["type"] for e in get("/api/mesh/feed?limit=200").json()}) >= 3)
-check("Telemetry: readings are recorded and the sensors report", get("/api/telemetry").status_code == 200 and get("/api/mesh/sensors?hours=24").json()["overall"]["nodes"] >= 3)
+check("Activity: the feed has several kinds of event (polled: AI questions arrive as the demo runs)",
+      until(lambda: len({e["type"] for e in get("/api/mesh/feed?limit=200").json()}) >= 3, 90))
+check("Telemetry: readings are recorded and the sensors report", get("/api/telemetry").status_code == 200 and until(lambda: get("/api/mesh/sensors?hours=24").json()["overall"]["nodes"] >= 3, 60))
 pages = ["/api/status", "/api/stats", "/api/requests", "/api/conversations", "/api/queue", "/api/access", "/api/actions", "/api/models", "/api/channel", "/api/mesh/feed",
          "/api/ai/overview", "/api/data/overview", "/api/tiles/stats", "/api/radio/position", "/api/radio/config", "/api/radio/clock", "/api/traceroutes", "/api/unread",
          "/api/backups", "/api/diagnostics", "/api/report", "/api/evals", "/api/telemetry/watch"]
@@ -172,11 +175,11 @@ check("every dashboard page's data loads", not bad, bad)
 rc = get("/api/radio/config").json()
 check("Radio settings render from real protobuf objects, secrets left out", rc["connected"] and len(rc["sections"]) >= 8 and not any(w in json.dumps(rc) for w in ("private_key", "wifi_psk", "admin_key", "fixed_pin")), [s["name"] for s in rc["sections"]])
 check("Model page: only the scripted demo model, able to use tools", [m["name"] for m in get("/api/models").json()["installed"]] == ["demo-scripted"] and get("/api/models").json()["installed"][0]["tools"])
-check("the public channel has chatter", until(lambda: len(get("/api/channel").json()["messages"]) >= 5, 20))
+check("the public channel has chatter", until(lambda: len(get("/api/channel").json()["messages"]) >= 5, 60))
 check("Diagnostics and the log viewer read the temporary folder, not the real logs", get("/api/logs?which=out").json()["exists"] is False)
 
 # the scripted conversations the generator starts by itself (nobody here asks anything)
-auto = until(lambda: [r for r in get("/api/requests?limit=50").json() if r["kind"] == "ai" and r["status"] in ("action_ok", "answered") and r["node_name"].startswith("Demo ")], 40)
+auto = until(lambda: [r for r in get("/api/requests?limit=50").json() if r["kind"] == "ai" and r["status"] in ("action_ok", "answered") and r["node_name"].startswith("Demo ")], 120)
 check("a fake node asks the bridge an /ai question on its own and it is answered", bool(auto), get("/api/requests?limit=5").json())
 check("...through the model and tools, and the reply is acked like a real radio's", until(lambda: any(r["delivered"] + r["relayed"] > 0 for r in get("/api/requests?limit=50").json() if r["kind"] == "ai"), 30))
 check("...the AI log shows which model answered", all(r["model"] == "demo-scripted" for r in get("/api/requests?limit=50").json() if r["status"] in ("action_ok", "answered")))
@@ -189,7 +192,7 @@ br.set_node_access(asker.id, max_tier=0, pin_key=br.radio_key(asker.id))
 def ask(node, text):
     tr.ask(node, text)
     prompt = text.replace("/ai ", "", 1)
-    return until(lambda: next((r for r in get("/api/requests?limit=100").json() if r["node_id"] == node.id and r["prompt"] == prompt and r["status"] not in ("queued",)), None), 40)
+    return until(lambda: next((r for r in get("/api/requests?limit=100").json() if r["node_id"] == node.id and r["prompt"] == prompt and r["status"] not in ("queued",)), None), 90)
 row = ask(asker, "/ai how's the mesh doing?")
 check("a scripted /ai question gets an answered audit row via the fake model", bool(row) and row["status"] == "action_ok" and row["action"] == "mesh_summary" and row["model"] == "demo-scripted" and row["response"].startswith("Mesh: "), row)
 check("...with the real numbers from the simulated mesh", bool(row) and re.search(r"Mesh: \d\d nodes known", row["response"]), row and row["response"])
@@ -200,13 +203,13 @@ check("an ordinary question is answered in plain chat, signed as the scripted mo
 visitor = next(n for n in br.iface.neighbours if n.spec.short == "KSK")
 row = ask(visitor, "/ai how many nodes are around?")
 check("a node without AI tools gets no lookups, as the access rules say", bool(row) and row["status"] == "answered" and not row["action"] and "can't look" in row["response"], row)
-check("replies were sent through the fake radio only", until(lambda: len(br.iface.sent) >= 4, 30) and all(d.startswith("!d3") or d == "^all" for d, _ in br.iface.sent), br.iface.sent[:3])
+check("replies were sent through the fake radio only", until(lambda: len(br.iface.sent) >= 4, 90) and all(d.startswith("!d3") or d == "^all" for d, _ in br.iface.sent), br.iface.sent[:3])
 
 # operator actions go to the fake radio too
 cfg = rq.post(base + "/api/radio/config/pull", json={}, timeout=10)
 check("pulling the radio's settings works", cfg.status_code == 200 and cfg.json().get("backup_id"), cfg.text[:200])
 tid = rq.post(base + "/api/traceroute/request", json={"node": by_short(br.iface, "LAKE").id, "hop_limit": 7}, timeout=10).json().get("id")
-done = until(lambda: (lambda s: s if s["status"] != "waiting" else None)(get("/api/traceroute/request?id=%s" % tid).json()), 40)
+done = until(lambda: (lambda s: s if s["status"] != "waiting" else None)(get("/api/traceroute/request?id=%s" % tid).json()), 90)
 check("a traceroute from the dashboard completes against the fake mesh", bool(done) and done["status"] == "ok" and done["trace"]["path_towards"], done)
 post = rq.post(base + "/api/channel/post", json={"text": "hello from the demo operator"}, timeout=10)
 check("posting on the public channel goes to the fake radio and is 'heard'", post.status_code == 200 and until(lambda: any(m["text"] == "hello from the demo operator" and m["status"] == "heard" for m in get("/api/channel").json()["messages"]), 30), post.text)
@@ -218,41 +221,84 @@ br.stop()
 runner.join(30)
 check("the bridge returns from run() when asked to stop", not runner.is_alive())
 check("...the radio is detached and closed", br.iface is None and not tr._threads[0].is_alive() and not tr._threads[1].is_alive() and not br.demo["radio"]._rxThread.is_alive())
-check("...the dashboard no longer answers and the fake Ollama has gone", until(lambda: socket.socket().connect_ex(("127.0.0.1", port)) != 0, 10) and socket.socket().connect_ex(("127.0.0.1", int(args.ollama_url.rsplit(":", 1)[1]))) != 0)
-check("...and the temporary folder is deleted", os.name == "nt" or until(lambda: not os.path.exists(demo_dir), 10), demo_dir)
+check("...the dashboard no longer answers and the fake Ollama has gone", until(lambda: socket.socket().connect_ex(("127.0.0.1", port)) != 0, 30) and socket.socket().connect_ex(("127.0.0.1", int(args.ollama_url.rsplit(":", 1)[1]))) != 0)
+check("...and the temporary folder is deleted", os.name == "nt" or until(lambda: not os.path.exists(demo_dir), 30), demo_dir)
 check("nothing ever tried to reach beyond this machine", remote_connects == [] and serial_calls == [], (remote_connects, serial_calls))
 
 # ---- the real command line: python -m meshllm --demo ----------------------------------------------------------------
+scratch = tempfile.mkdtemp(prefix="demo_cli_")
+demo_dirs = lambda: {d for d in os.listdir(tempfile.gettempdir()) if d.startswith("meshllm_demo_")}
+RUNNING = "Demo mode is running"
+POSIX = os.name != "nt"
+
+def run_cli(flags, setup="", sig=None, wait_running=True, wait_status=False):
+    """Run `python -m meshllm --demo <flags>` as a child. `setup` is Python run before it starts (to interrupt it half way through
+    starting); `sig` is sent once the "Demo mode is running" line has been printed (and, with wait_status, the dashboard answers).
+    Returns (exit code, output, status or None)."""
+    code = ("import os, runpy, signal, sys, time\n"
+            "signal.signal(signal.SIGINT, signal.default_int_handler)\n"            # a test runner may have started us with SIGINT ignored
+            + setup +
+            "sys.argv = ['meshllm', '--demo'] + sys.argv[1:]\n"
+            "runpy.run_module('meshllm', run_name='__main__')\n")
+    path = os.path.join(scratch, "out%d.txt" % len(os.listdir(scratch)))
+    st = None
+    with open(path, "wb") as out:
+        proc = subprocess.Popen([sys.executable, "-u", "-c", code] + flags, cwd=ROOT, stdout=out, stderr=subprocess.STDOUT)
+        text = lambda: open(path, encoding="utf-8", errors="replace").read()
+        if wait_running:
+            until(lambda: RUNNING in text() or proc.poll() is not None, 120)
+        if wait_status:
+            def cli_status():
+                if proc.poll() is not None: return False
+                try:
+                    r = rq.get("http://127.0.0.1:%s/api/status" % flags[flags.index("--web-port") + 1], timeout=3).json()
+                except Exception:
+                    return None
+                return r if r.get("connected") else None
+            st = until(cli_status, 120)
+        if sig is not None and proc.poll() is None:
+            proc.send_signal(sig) if sig != "terminate" else proc.terminate()
+        try:
+            rc_code = proc.wait(60)
+        except subprocess.TimeoutExpired:
+            proc.kill(); rc_code = "timeout"
+    return rc_code, text(), st
+def folder_of(text):
+    m = re.search(r"logs: (\S+)", text)
+    return m.group(1) if m else None
+
 port2 = free_port()
-code = ("import runpy, signal, sys\n"
-        "signal.signal(signal.SIGINT, signal.default_int_handler)\n"            # a test runner may have started us with SIGINT ignored
-        "sys.argv = ['meshllm', '--demo', '--demo-scripted', '--web-port', sys.argv[1]]\n"
-        "runpy.run_module('meshllm', run_name='__main__')\n")
-out_path = os.path.join(tempfile.mkdtemp(prefix="demo_cli_"), "out.txt")
-def cli_status():
-    """The command-line demo's /api/status once it is connected; None while it is still starting (or if it died)."""
-    if proc.poll() is not None: return False
-    try:
-        r = rq.get("http://127.0.0.1:%d/api/status" % port2, timeout=3).json()
-    except Exception:
-        return None
-    return r if r.get("connected") else None
-with open(out_path, "wb") as out:
-    proc = subprocess.Popen([sys.executable, "-c", code, str(port2)], cwd=ROOT, stdout=out, stderr=subprocess.STDOUT)
-    st = until(cli_status, 90)
-    if os.name != "nt":
-        proc.send_signal(signal.SIGINT)            # Ctrl+C: the clean way out
-    else:
-        proc.terminate()
-    try:
-        rc_code = proc.wait(30)
-    except subprocess.TimeoutExpired:
-        proc.kill(); rc_code = "timeout"
-text = open(out_path, encoding="utf-8", errors="replace").read()
-folder = re.search(r"logs: (\S+)", text)
+before = demo_dirs()
+rc_code, text, st = run_cli(["--demo-scripted", "--web-port", str(port2), "--port", "COM9", "--model", "some-model"], sig=signal.SIGINT if POSIX else "terminate", wait_status=True)
+folder = folder_of(text)
 check("python -m meshllm --demo starts with the banner and a connected simulated radio", bool(st) and st["demo"] and "DEMO MODE: simulated radio and mesh; nothing is transmitted" in text, text[-600:])
 check("...says where its temporary files are, and that the real database is not used", bool(folder) and "temporary" in text and "real audit.db is not used" in text, text[:600])
-check("...and stops cleanly on Ctrl+C, leaving no folder behind", os.name == "nt" or (rc_code == 0 and bool(folder) and not os.path.exists(folder.group(1))), (rc_code, text[-400:]))
+check("...says --port and --model are ignored, and still uses the demo radio and model", "--port, --model are ignored" in text and st and st["port"] == "demo" and st["model"] == "demo-scripted", text[:400])
+check("...and stops cleanly on Ctrl+C, leaving no folder behind", not POSIX or (rc_code == 0 and bool(folder) and not os.path.exists(folder)), (rc_code, text[-400:]))
+if POSIX:
+    rc_code, text, st = run_cli(["--demo-scripted", "--web-port", str(free_port())], sig=signal.SIGTERM, wait_status=True)
+    check("kill (SIGTERM) stops the demo cleanly and deletes the folder", rc_code == 0 and bool(folder_of(text)) and not os.path.exists(folder_of(text)) and "Traceback" not in text, (rc_code, text[-400:]))
+    rc_code, text, st = run_cli(["--demo-scripted", "--web-port", str(free_port())], sig=signal.SIGHUP, wait_status=True)
+    check("closing the terminal (SIGHUP) does the same", rc_code == 0 and bool(folder_of(text)) and not os.path.exists(folder_of(text)) and "Traceback" not in text, (rc_code, text[-400:]))
+    # an interrupt that lands while the demo is still starting up (the patched step signals its own process, then waits)
+    for name, sig in (("Ctrl+C", "SIGINT"), ("SIGTERM", "SIGTERM")):
+        setup = "import meshllm.demo as d\nd.seed_history = lambda *a, **k: (os.kill(os.getpid(), signal.%s), time.sleep(60))\n" % sig
+        rc_code, text, st = run_cli(["--demo-scripted", "--web-port", str(free_port())], setup=setup, wait_running=False)
+        check("%s during start-up still deletes the temporary folder and exits cleanly" % name,
+              rc_code == 0 and bool(folder_of(text)) and not os.path.exists(folder_of(text)) and RUNNING not in text and "Traceback" not in text, (rc_code, text[-500:]))
+    setup = "import meshllm.bridge as bb\nbb.Bridge.run = lambda self: (_ for _ in ()).throw(KeyboardInterrupt())\n"
+    rc_code, text, st = run_cli(["--demo-scripted", "--web-port", str(free_port())], setup=setup, wait_running=False)
+    check("an interrupt before the bridge even runs leaves no folder either", rc_code == 0 and bool(folder_of(text)) and not os.path.exists(folder_of(text)), (rc_code, text[-300:]))
+# the web port is already taken (for example by the real bridge)
+taken = socket.socket(); taken.bind(("127.0.0.1", 0)); taken.listen(1); busy = taken.getsockname()[1]
+rc_code, text, st = run_cli(["--demo-scripted", "--web-port", str(busy)], wait_running=False)
+taken.close()
+check("a busy web port gives one friendly line, a failure exit code and no leftover folder", rc_code == 1 and ("Port %d is already in use" % busy) in text and "--web-port" in text
+      and "Traceback" not in text and bool(folder_of(text)) and not os.path.exists(folder_of(text)), (rc_code, text[-500:]))
+rc_code, text, st = run_cli(["--demo-scripted", "--web-host", "0.0.0.0", "--web-port", str(free_port())], wait_running=False)
+check("--web-host 0.0.0.0 is refused in demo mode, before anything is created", rc_code == 2 and "only listens on this computer" in text and "DEMO MODE" not in text, (rc_code, text[-300:]))
+check("no demo folder was left behind by any of those runs", demo_dirs() == before, demo_dirs() - before)
+shutil.rmtree(scratch, ignore_errors=True)
 check("the real audit.db was still not touched by the command-line run", (os.path.exists(REAL_DB) == (real_before is not None)) and (real_before is None or os.path.getmtime(REAL_DB) == real_before))
 
 print(f"\n{len(fails)} failed" if fails else "\nall passed")

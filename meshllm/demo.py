@@ -16,6 +16,7 @@ The database, tile cache, backups and logs all live in one temporary folder that
 never opened. Every name and id below is obviously fake (!d3000001...) and the places are scattered around a public park.
 """
 import base64
+import errno
 import hashlib
 import json
 import math
@@ -23,6 +24,7 @@ import os
 import random
 import re
 import shutil
+import signal
 import tempfile
 import threading
 import time
@@ -381,6 +383,9 @@ class DemoTraffic:
         self._ids = iter(range(0x5000, 1 << 31))
         self._stop = threading.Event()
         self._threads = []
+        # The library publishes every received packet from ONE reader thread, so the bridge's handlers never run at the same time.
+        # Here packets come from several threads (traffic, questions, ack timers); one lock keeps that guarantee.
+        self._publish_lock = threading.Lock()
 
     # ---- building packets --------------------------------------------------------------------------------------
     def packet(self, node, decoded=None, to=BROADCAST, **extra):
@@ -398,11 +403,12 @@ class DemoTraffic:
 
     def publish(self, topic, packet):
         """Hand a packet to every subscriber of the topic, as the library's receive thread would. A failing listener never stops the demo."""
-        self.packets += 1
-        try:
-            pub.sendMessage(topic, packet=packet, interface=self.radio)
-        except Exception as e:                          # the real handlers catch their own errors; this is a second net
-            print(f"[demo] a listener failed on {topic}: {e}")
+        with self._publish_lock:
+            self.packets += 1
+            try:
+                pub.sendMessage(topic, packet=packet, interface=self.radio)
+            except Exception as e:                      # the real handlers catch their own errors; this is a second net
+                print(f"[demo] a listener failed on {topic}: {e}")
 
     # ---- one thing happening --------------------------------------------------------------------------------------
     def telemetry(self, node=None):
@@ -729,6 +735,7 @@ class ScriptedOllama:
 
         self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.thread = None
+        self._stopped = False
 
     @property
     def url(self):
@@ -758,8 +765,12 @@ class ScriptedOllama:
         self.thread.start()
 
     def stop(self):
-        """Stop serving and release the port."""
-        self.httpd.shutdown()
+        """Stop serving and release the port (safe to call twice)."""
+        if self._stopped:
+            return
+        self._stopped = True
+        if self.thread is not None:
+            self.httpd.shutdown()               # only valid once serve_forever is running
         self.httpd.server_close()
 
 
@@ -816,7 +827,8 @@ def pin_askers(bridge, radio):
 
 
 def run(bridge):
-    """Bridge.connect_demo(): attach the simulated radio, fill the dashboard, and block until bridge.stop() or Ctrl+C. Cleans up after."""
+    """Bridge.connect_demo(): attach the simulated radio, fill the dashboard, and block until bridge.stop() or Ctrl+C. Cleans up after,
+    including when it is interrupted half way through starting."""
     args = bridge.args
     folder = getattr(args, "demo_dir", None)
     speed = getattr(args, "demo_speed", 1.0)
@@ -825,19 +837,19 @@ def run(bridge):
     radio = DemoRadio(now, rng, speed)
     traffic = DemoTraffic(bridge, radio, speed, random.Random(11))
     bridge.demo = {"radio": radio, "traffic": traffic}                  # so tests (and the curious) can reach them
-    if folder:
-        log_dir = Path(folder) / "logs"                                  # the log viewer must not show the real logs/ folder
-        log_dir.mkdir(exist_ok=True)
-        bridge.diagnostics.log_dir = log_dir
-    seed_history(bridge, radio, now, rng)
-    bridge.attach(radio, "demo")
-    pin_askers(bridge, radio)
-    bridge.mesh.remember()
-    bridge.mesh.sample()
-    traffic.start()
-    print("Demo mode is running: simulated traffic, and a question to the AI about once a minute"
-          + ("" if speed == 1 else f" (speed x{speed:g})") + ". Press Ctrl+C to stop.", flush=True)
-    try:
+    try:                                                                  # everything below may be interrupted, so all of it is inside the try
+        if folder:
+            log_dir = Path(folder) / "logs"                                # the log viewer must not show the real logs/ folder
+            log_dir.mkdir(exist_ok=True)
+            bridge.diagnostics.log_dir = log_dir
+        seed_history(bridge, radio, now, rng)
+        bridge.attach(radio, "demo")
+        pin_askers(bridge, radio)
+        bridge.mesh.remember()
+        bridge.mesh.sample()
+        traffic.start()
+        print("Demo mode is running: simulated traffic, and a question to the AI about once a minute"
+              + ("" if speed == 1 else f" (speed x{speed:g})") + ". Press Ctrl+C to stop.", flush=True)
         while not bridge._stopping:
             time.sleep(0.2)
     finally:
@@ -848,7 +860,70 @@ def run(bridge):
         if bridge.web_server is not None:
             bridge.web_server.shutdown()
             bridge.web_server.server_close()
-        if getattr(args, "demo_ollama", None) is not None:
-            args.demo_ollama.stop()
-        if folder:
-            shutil.rmtree(folder, ignore_errors=True)
+        cleanup(args)
+
+
+def cleanup(args):
+    """Stop the scripted Ollama and delete the temporary folder. Safe to call more than once and when configure() never finished."""
+    fake = getattr(args, "demo_ollama", None)
+    if fake is not None:
+        fake.stop()
+    folder = getattr(args, "demo_dir", None)
+    if folder:
+        shutil.rmtree(folder, ignore_errors=True)
+
+
+LOOPBACK = ("127.0.0.1", "localhost", "::1")
+
+
+def _address_in_use(e):
+    """True if an OSError means the port is already taken (the error number differs per operating system)."""
+    return e.errno in (errno.EADDRINUSE, 98, 48, 10048) or "in use" in str(e).lower()
+
+
+def launch(args, bridge_class, parser):
+    """The whole demo lifecycle, called by main() for --demo; returns the process exit code.
+
+    Owns the temporary folder from the moment it exists, so Ctrl+C, kill, closing the terminal, a busy port or any other failure
+    still deletes it. Refuses to listen beyond this machine: the demo has a send box and settings pages that must not face a network."""
+    if args.web_host not in LOOPBACK:
+        print(f"Demo mode only listens on this computer (127.0.0.1); --web-host {args.web_host} is not allowed with --demo.", flush=True)
+        return 2
+    ignored = [flag for flag, given in (("--port", args.port != parser.get_default("port")), ("--db", args.db != parser.get_default("db")),
+                                        ("--model", args.model is not None)) if given]
+    if ignored:
+        print(f"Note: {', '.join(ignored)} {'is' if len(ignored) == 1 else 'are'} ignored in demo mode "
+              "(a simulated radio, a temporary database and the demo model are used).", flush=True)
+    stopping = []
+
+    def on_signal(signum, frame):
+        """kill / closing the terminal: turn it into the same clean stop as Ctrl+C (the first one only; later ones are ignored)."""
+        if not stopping:
+            stopping.append(signum)
+            raise KeyboardInterrupt
+
+    saved = {}
+    for name in ("SIGTERM", "SIGHUP"):                    # SIGHUP does not exist on Windows
+        sig = getattr(signal, name, None)
+        if sig is not None:
+            try:
+                saved[sig] = signal.signal(sig, on_signal)
+            except ValueError:                            # not the main thread: leave the signals alone
+                pass
+    try:
+        configure(args)
+        bridge_class(args).run()
+        return 0
+    except KeyboardInterrupt:
+        return 0
+    except OSError as e:
+        if _address_in_use(e):
+            print(f"Port {args.web_port} is already in use (is the real bridge running?). "
+                  f"Try: python -m meshllm --demo --web-port {args.web_port + 1}", flush=True)
+        else:
+            print(f"Demo mode could not start: {e}", flush=True)
+        return 1
+    finally:
+        cleanup(args)
+        for sig, old in saved.items():
+            signal.signal(sig, old)

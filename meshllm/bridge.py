@@ -1483,10 +1483,11 @@ def build_parser():
 
 def main():
     """Command-line entry point: parse flags, apply any staged database restore, then run the bridge."""
-    args = build_parser().parse_args()
+    parser = build_parser()
+    args = parser.parse_args()
     if args.demo:
         from meshllm import demo
-        demo.configure(args)                # temporary database and folders, and the model to use; prints the banner
+        sys.exit(demo.launch(args, Bridge, parser))     # temporary folders, signals and cleanup are all handled there
     apply_staged_restore(args.db)           # a database restore set aside from the dashboard is swapped in before anything opens it
     Bridge(args).run()
 

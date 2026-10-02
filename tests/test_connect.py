@@ -7,6 +7,9 @@ import tempfile; HERE = tempfile.mkdtemp(prefix="meshtest_")   # scratch databas
 DB = os.path.join(HERE, "conn_test.db")
 
 from meshllm import bridge as b
+from meshllm import connection as conn
+import meshtastic.serial_interface
+from serial.tools import list_ports
 
 PORTS = []                      # what "Windows" currently lists: SimpleNamespace(device, vid)
 FAIL = {}                       # port -> exception to raise when opening it
@@ -33,8 +36,8 @@ class FakeIface:
         if onResponse: threading.Timer(0.02, lambda: onResponse({"fromId": destinationId, "decoded": {"routing": {"errorReason": "NONE"}}})).start()
     def kill_reader(self): self._rxThread.alive = False; self.stream = None
 
-b.meshtastic.serial_interface.SerialInterface = FakeIface
-b.list_ports.comports = lambda: list(PORTS)
+meshtastic.serial_interface.SerialInterface = FakeIface
+list_ports.comports = lambda: list(PORTS)
 def plug(dev, vid=0x10C4, node=None):
     PORTS.append(SimpleNamespace(device=dev, vid=vid))
     if node: NODE_IDS[dev] = node
@@ -109,12 +112,12 @@ plug("COM13", node="!cccc0013"); FAIL["COM13"] = PermissionError(13, "Access is 
 time.sleep(0.6)
 check("port in use by another program: tried once, then backs off (not hammered)", ATTEMPTS.get("COM13") == 1 and br.bad_until["COM13"] - time.time() > 5, (ATTEMPTS.get("COM13"), br.bad_until.get("COM13")))
 # the wording is honest per OS: permission problems on Linux/macOS are not "another program"
-w_, m_ = b.open_failure_reason("COM13", PermissionError(13, "Access is denied"), windows=True)
+w_, m_ = conn.open_failure_reason("COM13", PermissionError(13, "Access is denied"), windows=True)
 check("Windows 'access denied' is reported as another program holding the port", (w_, m_) == (10, "in use by another program"), (w_, m_))
-w_, m_ = b.open_failure_reason("/dev/null", PermissionError(13, "Permission denied"), windows=False)
+w_, m_ = conn.open_failure_reason("/dev/null", PermissionError(13, "Permission denied"), windows=False)
 check("Linux/macOS 'permission denied' names the permission problem, not another program", w_ == 10 and m_.startswith("permission denied") and "another program" not in m_ and "group" in m_, m_)
-check("a busy port on Linux is retried soon and called busy", b.open_failure_reason("/dev/ttyUSB9", OSError("Could not exclusively lock port /dev/ttyUSB9"), windows=False) == (10, "in use by another program"))
-w_, m_ = b.open_failure_reason("COM14", RuntimeError("Timed out waiting for connection completion"), windows=False)
+check("a busy port on Linux is retried soon and called busy", conn.open_failure_reason("/dev/ttyUSB9", OSError("Could not exclusively lock port /dev/ttyUSB9"), windows=False) == (10, "in use by another program"))
+w_, m_ = conn.open_failure_reason("COM14", RuntimeError("Timed out waiting for connection completion"), windows=False)
 check("a device that never answers is retried slowly and described as not a radio", w_ == 60 and m_.startswith("no Meshtastic radio answered"), (w_, m_))
 del FAIL["COM13"]; br.bad_until.clear()
 check("once the other program lets go it connects", until(lambda: br.iface is not None and br.port == "COM13"))

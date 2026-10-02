@@ -23,12 +23,11 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from dataclasses import dataclass
 from pathlib import Path
 
-import meshtastic.serial_interface
 import requests
 from pubsub import pub
-from serial.tools import list_ports
 
 from meshllm import actions
+from meshllm import connection
 from meshllm import webui
 from meshllm.audit import Audit
 from meshllm.ollama_models import ModelManager, OllamaError, same_model
@@ -52,18 +51,6 @@ MANUAL_MAX_CHUNKS = 4
 NODE_ID_RE = re.compile(r"^![0-9a-f]{8}$")
 RESET_WORDS = {"reset", "forget", "clear"}
 HELP_WORDS = {"help", "?"}
-# USB vendor IDs of the serial chips Meshtastic boards use. Auto-detection only tries ports from these
-# vendors (plus a real Meshtastic handshake), so it never pokes at headsets, dongles, modems, etc.
-KNOWN_RADIO_VIDS = {
-    0x10C4: "Silicon Labs CP210x",   # Heltec V3, T-Beam, many ESP32 boards
-    0x1A86: "WCH CH340/CH9102",      # many clones and LilyGo boards
-    0x303A: "Espressif native USB",  # ESP32-S3 boards
-    0x239A: "Adafruit / RAK (nRF52)",
-    0x0403: "FTDI",
-    0x2886: "Seeed",
-    0x1915: "Nordic",
-    0x2E8A: "Raspberry Pi (RP2040)",
-}
 WEB_SENDER = "web-console"   # the operator asking from the browser: same pipeline as a radio DM, but never transmitted
 WEB_MAX_PROMPT = 600
 ACCESS_VALUES = {"default", "allow", "block"}
@@ -127,28 +114,6 @@ def grounded(text, *sources):
     have = [float(x) for s in sources if s for x in NUM_RE.findall(s)]
     want = [float(x) for x in NUM_RE.findall(text or "")]
     return bool(want) and all(any(abs(w - h) <= 0.51 for h in have) for w in want)
-
-
-def open_failure_reason(port, error, windows=os.name == "nt"):
-    """(seconds before retrying, message) for a serial port that could not be opened or did not answer like a radio.
-
-    "Denied" means different things per OS. On Windows it is almost always another program holding the port. On Linux and macOS it is
-    the device file's permissions (your user is not in the group that owns it), so say that and name the group, instead of blaming
-    some other program."""
-    text = str(error).lower()
-    denied = isinstance(error, PermissionError) or "denied" in text
-    if denied and not windows:
-        group = ""
-        try:
-            import grp
-            group = grp.getgrgid(os.stat(port).st_gid).gr_name
-        except (ImportError, KeyError, OSError):
-            pass
-        hint = f" - the port belongs to the '{group}' group; add your user to it and log in again" if group else ""
-        return 10, f"permission denied{hint} (python setup_env.py --check says exactly what to run)"
-    if denied or "busy" in text or "exclusively lock" in text:
-        return 10, "in use by another program"
-    return 60, f"no Meshtastic radio answered ({str(error)[:70]})"  # a device that is not a radio, or one that did not handshake
 
 
 BLANK_REPLY_ANSWER = "I couldn't come up with an answer. Try asking another way."   # sent instead of an empty reply
@@ -315,11 +280,12 @@ class Bridge:
         self.seen_ids = set()           # ids of the last SEEN_PACKETS text packets, to answer a duplicate delivery only once
         self._seen_order = deque()      # the same ids oldest first, so the window rolls instead of being cleared in one go
         self.iface = None               # the connected radio, or None while searching
-        self.port = None                # its serial port (the last one used while searching)
+        self.endpoint = connection.make_endpoint(args)   # how we reach the radio: USB serial, Wi-Fi (TCP) or Bluetooth (see connection.py)
+        self.port = None                # its label (/dev/ttyUSB0, tcp://host:4403, ble:ADDRESS); the last one used while searching
         self.radio_info = {}            # last known details of the radio (kept while it is away)
         self.radio_id = None
         self.down_since = time.time()   # when we last had no radio (outgoing messages wait up to --reconnect-hold)
-        self.bad_until = {}             # port -> time before which we won't try it again
+        self.bad_until = {}             # label -> time before which we won't try it again
         self.connects = 0
         self.web_server = None          # the dashboard's HTTP server once run() has started it (demo mode shuts it down on exit)
         self.demo = None                # --demo only: {"radio", "traffic"}, the simulated radio and its traffic generator (see demo.py)
@@ -845,19 +811,20 @@ class Bridge:
         """Live state for the web UI header and the status command. Safe to call with no radio attached."""
         self.sweep_pending()
         node = dict(self.radio_info)  # last known details, so the UI can still name the radio while it's away
+        iface = self.iface      # read once: the connect thread can set it to None at any moment
         try:
-            u = self.iface.getMyUser()
+            u = iface.getMyUser()
             node = {"id": u.get("id"), "long_name": u.get("longName"),
                     "short_name": u.get("shortName"), "hw": u.get("hwModel")}
         except Exception:
             pass
-        rx = getattr(self.iface, "_rxThread", None)
+        age = self.endpoint.silence(iface) if iface is not None else None
         return {
-            # "connected" means the serial reader thread is alive, not just that self.iface is set
-            "connected": bool(self.iface and self.iface.stream is not None
-                              and (rx is None or rx.is_alive())),
-            "searching": self.iface is None,
-            "port": self.port or getattr(self.args, "port", None), "node": node, "model": self.model,
+            # "connected" means the library's reader is alive (checked per connection mode), not just that self.iface is set
+            "connected": bool(iface and self.endpoint.alive(iface)),
+            "searching": iface is None,
+            # a plain string naming the connection: /dev/ttyUSB0, tcp://host:4403 or ble:ADDRESS ("auto" before a USB radio is found)
+            "port": self.port or self.endpoint.initial_label(), "node": node, "model": self.model,
             "command": self.args.command, "ollama_ok": self.ollama_ok(),
             "paused": self.paused, "uptime_s": int(time.time() - self.started),
             "cooldown_s": self.args.cooldown, "max_chunks": self.args.max_chunks,
@@ -866,6 +833,9 @@ class Bridge:
             "access_mode": self.mode,
             "temp_unit": self.mesh.temp_unit(), "dist_unit": self.mesh.dist_unit(),
             "radio_change": self.mesh.radio_change_active(),
+            # seconds since the radio last sent anything (None when this connection mode does not record it) and the silence that counts as dead
+            "last_rx_age_s": None if age is None else int(age),
+            "silence_limit_s": self.endpoint.silence_limit or None,
             "demo": bool(getattr(self.args, "demo", False)),   # --demo: the dashboard shows a "Demo mode" badge
         }
 
@@ -1252,40 +1222,19 @@ class Bridge:
 
     def _note_reboot(self, interface):
         """Log (only) that the node rebooted, if the link is still healthy a few seconds after the lost event."""
-        if interface is self.iface and self._link_problem(interface, self.port) is None:
+        if interface is self.iface and self.endpoint.link_problem(interface, self.port) is None:
             print("[info] node rebooted, reconnected")
 
     # ---- finding and keeping a radio -------------------------------------
-    @staticmethod
-    def _present_ports():
-        """Serial ports currently visible to the OS, as {device name: port info}."""
-        return {p.device: p for p in list_ports.comports()}
-
-    def candidate_ports(self):
-        """Serial ports worth trying right now, best first. Empty = keep waiting."""
-        present = self._present_ports()
+    def candidates(self):
+        """Labels worth trying right now, best first, leaving out the ones in back-off. Empty = keep waiting."""
         now = time.time()
-        if self.args.port.lower() != "auto":  # pinned by --port: only ever that one
-            names = [self.args.port] if self.args.port in present else []
-        else:
-            names = [d for d, p in present.items()
-                     if p.vid in KNOWN_RADIO_VIDS or (self.args.probe_unknown and p.vid is not None)]
-            names.sort(key=lambda d: (d != self.port, d))  # prefer the port we were on before
-        return [d for d in names if self.bad_until.get(d, 0) <= now]   # skip ports that recently failed (see connect_loop)
-
-    @staticmethod
-    def _link_problem(iface, port):
-        """None if the radio link looks healthy, otherwise a short reason."""
-        rx = getattr(iface, "_rxThread", None)
-        if iface.stream is None or (rx is not None and not rx.is_alive()):
-            return "serial reader stopped"
-        if port not in Bridge._present_ports():
-            return f"{port} disappeared (unplugged?)"
-        return None
+        return [t for t in self.endpoint.candidates(self.port) if self.bad_until.get(t, 0) <= now]
 
     def attach(self, iface, port):
         """Adopt a freshly opened interface as the live radio: remember its identity, log a swap for a
-        different radio or port, and reset the search state. Runs on the connect_loop thread."""
+        different radio or connection, and reset the search state. `port` is the connection's label (see connection.py).
+        Runs on the connect_loop thread."""
         info = {}
         try:
             u = iface.getMyUser()
@@ -1301,7 +1250,7 @@ class Bridge:
                 self.mesh.note_radio_change(before, new_id, self.audit.get_setting("last_radio_name"), info.get("long_name"))
             self.audit.set_setting("last_radio_id", new_id); self.audit.set_setting("last_radio_name", info.get("long_name") or "")
         if self.port and port != self.port:
-            print(f"[radio] serial port changed: {self.port} -> {port}")
+            print(f"[radio] connection changed: {self.port} -> {port}")
         self.radio_id = info.get("id") or self.radio_id
         self.radio_info, self.port, self.iface = info, port, iface
         self.connects += 1
@@ -1314,7 +1263,7 @@ class Bridge:
         radio_info and radio_id are kept so the UI can still name the radio while it is away."""
         self.iface = None
         self.down_since = time.time()
-        # release the serial handle so Windows lets us reopen the port; closing a dead port can hang,
+        # release the handle (a serial port, socket or Bluetooth link) so it can be reopened; closing a dead link can hang,
         # so do it on a throwaway thread rather than stall the reconnect loop
         threading.Thread(target=lambda: self._quiet_close(iface), daemon=True).start()
 
@@ -1334,40 +1283,52 @@ class Bridge:
         """Block while the radio is healthy; return why it stopped being."""
         while not self._stopping:
             time.sleep(self.args.scan_interval)
-            problem = self._link_problem(iface, port)
+            problem = self.endpoint.link_problem(iface, port) or self._swapped(iface)
             if problem:
                 return problem
         return "bridge stopping"
 
+    def _swapped(self, iface):
+        """A reason if the radio behind this still-open connection is not the one we attached.
+        The library can reconnect a TCP link by itself, so a different radio at the same address would otherwise go unnoticed."""
+        try:
+            now = iface.getMyUser().get("id")
+        except Exception:
+            return None     # no identity yet (the library is re-reading the config): not a verdict
+        known = self.radio_info.get("id")
+        return f"the radio behind {self.port} changed ({known} -> {now})" if now and known and now != known else None
+
     def connect_loop(self):
         """Until stopped: find a radio, connect, watch it, and start over when it goes away."""
         while not self._stopping:
-            ports = self.candidate_ports()
-            if not ports:
+            targets = self.candidates()
+            if not targets:
                 if not self._search_logged:
-                    what = "a Meshtastic radio" if self.args.port.lower() == "auto" else self.args.port
-                    print(f"[radio] waiting for {what} - plug it in (web UI is still up)")
+                    print(f"[radio] waiting for {self.endpoint.waiting_text()} - the web UI is still up")
                     self._search_logged = True
                 time.sleep(self.args.scan_interval)
                 continue
-            port = ports[0]
+            label = targets[0]
             try:
-                iface = meshtastic.serial_interface.SerialInterface(devPath=port)
+                iface = self.endpoint.open(label)
             except Exception as e:
-                # park the failing port so candidate_ports() doesn't retry it in a tight loop
-                wait, why = open_failure_reason(port, e)
-                self.bad_until[port] = time.time() + wait
-                print(f"[radio] could not use {port}: {why}; trying again in {wait}s")
+                # park the failing target so candidates() doesn't retry it in a tight loop
+                wait, why = self.endpoint.failure_reason(label, e)
+                self.bad_until[label] = time.time() + wait
+                print(f"[radio] could not use {label}: {why}; trying again in {wait}s")
                 time.sleep(self.args.scan_interval)
                 continue
-            self.attach(iface, port)
-            reason = self.wait_for_loss(iface, port)
-            print(f"[radio] lost {port}: {reason}. Searching again...")
+            self.attach(iface, label)
+            reason = self.wait_for_loss(iface, label)
+            print(f"[radio] lost {label}: {reason}. Searching again...")
             self.detach(iface)
+            wait = self.endpoint.loss_backoff(label)    # normally 0; positive after repeated silence losses that brought no data
+            if wait:
+                self.bad_until[label] = time.time() + wait
             self._search_logged = True  # already announced above
 
     def connect_demo(self):
-        """--demo: attach the simulated radio instead of searching for a serial port, and block until stop() (see demo.py)."""
+        """--demo: attach the simulated radio instead of searching for a real one, and block until stop() (see demo.py)."""
         from meshllm import demo   # imported here so a normal start never loads the simulator
         demo.run(self)
 
@@ -1387,8 +1348,7 @@ class Bridge:
             self.warm_up()
         self.mesh.start()   # counts/snapshots for Home, and the hourly prune of old telemetry
         demo_mode = getattr(self.args, "demo", False)
-        mode = ("with the simulated demo radio" if demo_mode else
-                "auto-detecting the radio" if self.args.port.lower() == "auto" else f"using {self.args.port}")
+        mode = "with the simulated demo radio" if demo_mode else self.endpoint.describe()
         print(f"Bridge starting: {mode}. Ollama model '{self.model}'. Ctrl+C to stop.")
         if not self.args.no_web:
             self.web_server = webui.start(self)
@@ -1401,8 +1361,10 @@ class Bridge:
         except KeyboardInterrupt:
             pass
         finally:
-            if self.iface:
-                self._quiet_close(self.iface)
+            if self.iface:      # on a daemon thread with a short wait: a hung Bluetooth close must not keep the process from exiting
+                closer = threading.Thread(target=self._quiet_close, args=(self.iface,), daemon=True, name="exit-close")
+                closer.start()
+                closer.join(3.0)
 
 
 def build_parser():
@@ -1413,6 +1375,15 @@ def build_parser():
                         "port number changes, and reconnect after it is unplugged")
     p.add_argument("--probe-unknown", action="store_true",
                    help="with --port auto, also try USB serial devices whose chip isn't a known Meshtastic one")
+    p.add_argument("--tcp", default=None, metavar="HOST[:PORT]",
+                   help="reach the radio over Wi-Fi instead of USB: its host name or IP address (port %d by default). "
+                        "Not combinable with --ble or a pinned --port" % connection.DEFAULT_TCP_PORT)
+    p.add_argument("--ble", default=None, metavar="ADDRESS_OR_NAME",
+                   help="reach the radio over Bluetooth instead of USB: its address or name as --ble-scan prints it "
+                        "(needs Bluetooth on this computer, not inside a container)")
+    p.add_argument("--link-silence", type=float, default=None, metavar="SECONDS", help=argparse.SUPPRESS)   # advanced: see connection.py
+    p.add_argument("--ble-scan", action="store_true",
+                   help="list nearby Meshtastic Bluetooth radios (name and address), then exit without starting the bridge")
     p.add_argument("--scan-interval", type=float, default=2.0,
                    help="seconds between checks for a radio / for the radio going away")
     p.add_argument("--reconnect-hold", type=float, default=60.0,
@@ -1481,10 +1452,45 @@ def build_parser():
     return p
 
 
+def parse_cli(argv=None):
+    """(parser, args) for the command line, with the connection flags checked against each other (--tcp, --ble and a pinned --port
+    are alternatives). Exits with an argparse error when they are not."""
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    connection.check_args(parser, args)
+    return parser, args
+
+
+def ble_scan_main():
+    """--ble-scan: print nearby Meshtastic Bluetooth radios and return the exit code. Starts no bridge and opens no database."""
+    try:
+        print("Scanning for Bluetooth radios (about 10 seconds)...", flush=True)
+        found = connection.scan_ble()
+    except connection.BleUnavailable as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    except Exception as e:      # adapter switched off, no BlueZ/D-Bus, no permission...
+        print(f"error: the Bluetooth scan failed ({type(e).__name__}: {str(e)[:100]})", file=sys.stderr)
+        return 1
+    for name, address in found:
+        print(f"{name}  {address}")
+    if found:
+        print("Start the bridge with:  python -m meshllm --ble ADDRESS")
+    else:
+        print("No Meshtastic Bluetooth radios found. Is the radio on, in range and not connected to a phone?")
+    return 0
+
+
 def main():
     """Command-line entry point: parse flags, apply any staged database restore, then run the bridge."""
-    parser = build_parser()
-    args = parser.parse_args()
+    parser, args = parse_cli()
+    if args.ble_scan:
+        sys.exit(ble_scan_main())
+    if args.ble and not args.demo:
+        try:
+            connection.load_ble()       # fail now with one friendly line instead of retrying forever in the background
+        except connection.BleUnavailable as e:
+            parser.error(str(e))
     if args.demo:
         from meshllm import demo
         sys.exit(demo.launch(args, Bridge, parser))     # temporary folders, signals and cleanup are all handled there

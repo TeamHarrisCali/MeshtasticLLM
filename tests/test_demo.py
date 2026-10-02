@@ -275,6 +275,10 @@ check("python -m meshllm --demo starts with the banner and a connected simulated
 check("...says where its temporary files are, and that the real database is not used", bool(folder) and "temporary" in text and "real audit.db is not used" in text, text[:600])
 check("...says --port and --model are ignored, and still uses the demo radio and model", "--port, --model are ignored" in text and st and st["port"] == "demo" and st["model"] == "demo-scripted", text[:400])
 check("...and stops cleanly on Ctrl+C, leaving no folder behind", not POSIX or (rc_code == 0 and bool(folder) and not os.path.exists(folder)), (rc_code, text[-400:]))
+for flag in (["--tcp", "radio.invalid"], ["--ble", "AA:BB:CC:DD:EE:FF"]):
+    # the connection flags are ignored in demo mode: the simulated radio must still be reported as connected (wait_status requires it)
+    rc_code, text, st = run_cli(["--demo-scripted", "--web-port", str(free_port())] + flag, sig=signal.SIGINT if POSIX else "terminate", wait_status=True)
+    check(f"--demo {flag[0]} is ignored with a note and the demo radio still shows connected", bool(st) and st["connected"] and st["port"] == "demo" and f"{flag[0]} is ignored" in text, (st, text[:400]))
 if POSIX:
     rc_code, text, st = run_cli(["--demo-scripted", "--web-port", str(free_port())], sig=signal.SIGTERM, wait_status=True)
     check("kill (SIGTERM) stops the demo cleanly and deletes the folder", rc_code == 0 and bool(folder_of(text)) and not os.path.exists(folder_of(text)) and "Traceback" not in text, (rc_code, text[-400:]))

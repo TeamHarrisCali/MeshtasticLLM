@@ -23,7 +23,7 @@ function renderHome(d) {
   const s = d.summary, us = d.us || {}, r = d.radio, sp = k => spark(homeSamples, k);
   const pct = v => v == null ? "–" : (Math.round(v * 10) / 10) + "%";
   tilesInto($("homeTiles"), [
-    ["Radio", r.connected ? (r.node.long_name || "Connected") : r.searching ? "Searching…" : "Disconnected", `${r.port || ""}${r.connected ? " · up " + fmtUp(r.uptime_s) : ""}`],
+    ["Radio", r.connected ? (r.node.long_name || "Connected") : r.searching ? "Searching…" : "Disconnected", `${r.port || ""}${r.connected ? " · up " + fmtUp(r.uptime_s) + lastHeard(r) : ""}`],
     ["Nodes known", s.nodes_total, `${d.places.total} on the map · ${s.with_telemetry} with telemetry`, null, "nodes"],
     ["Heard in the last hour", s.heard_1h, `15 min: ${s.heard_15m} · 24 h: ${s.heard_24h}`, sp("heard_1h"), "nodes"],
     ["Direct neighbours", s.direct, s.max_hops != null ? `furthest heard: ${s.max_hops} hops` : "heard in the last 24 h", sp("direct"), "nodes"],

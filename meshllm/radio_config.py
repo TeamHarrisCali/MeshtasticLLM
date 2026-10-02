@@ -53,7 +53,7 @@ RISKS = {
     ("lora", "hop_limit"): "More hops means more airtime used by every node on the mesh.",
     ("device", "role"): "The role changes how the radio relays and broadcasts; ROUTER-type roles should only be used on well-placed nodes.",
     ("device", "rebroadcast_mode"): "Changes which packets this radio relays.",
-    ("bluetooth", "enabled"): "With Bluetooth off the phone app cannot connect (USB still works).",
+    ("bluetooth", "enabled"): "With Bluetooth off the phone app cannot connect, and neither can this bridge if it is attached over Bluetooth (USB and Wi-Fi are not affected).",
     ("position", "gps_mode"): "Changing GPS mode affects whether this radio shares a position.",
 }
 # Short hints shown beside a field in the form, keyed like RISKS.

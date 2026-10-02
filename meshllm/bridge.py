@@ -222,6 +222,8 @@ def build_chat_body(model, prompt, history, tier, max_tokens, num_ctx,
         body["think"] = think
     return body
 
+SEEN_PACKETS = 2000                # how many recent packet ids are remembered for duplicate detection
+
 # One queued question. rid = audit row id, ts = when it was enqueued, tier = actions tier the sender
 # verified for at receive time (-1 = no tools). Restored jobs always get -1: see restore_queue().
 Job = namedtuple("Job", "rid sender prompt ts tier")
@@ -305,10 +307,12 @@ class Bridge:
         self.outbox = queue.Queue()     # (request id or None, destination, chunks) waiting for the radio
         self.pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="action")
         self.pending = {}               # sender id -> Pending confirmation
+        self.pending_lock = threading.Lock()   # guards self.pending: made on the worker thread, confirmed on the radio thread, swept by any
         self.last_request = {}          # sender id -> monotonic time
         self.last_denied = {}           # sender id -> monotonic time of last logged denial
         self.cap_notified = {}          # sender id -> monotonic time of last "daily limit" reply
-        self.seen_ids = set()
+        self.seen_ids = set()           # ids of the last SEEN_PACKETS text packets, to answer a duplicate delivery only once
+        self._seen_order = deque()      # the same ids oldest first, so the window rolls instead of being cleared in one go
         self.iface = None               # the connected radio, or None while searching
         self.port = None                # its serial port (the last one used while searching)
         self.radio_info = {}            # last known details of the radio (kept while it is away)
@@ -721,12 +725,13 @@ class Bridge:
             return self.queue_reply(job.rid, job.sender, msg)
 
         if action.tier >= 1:  # needs the operator-approved second step
-            old = self.pending.pop(job.sender, None)   # one pending confirmation per sender; a new request replaces it
-            if old:
-                self.audit.update(old.rid, status="cancelled", response="Replaced by a newer request.")
             code = str(secrets.randbelow(900000) + 100000)   # always 6 digits; secrets, not random, since it is a credential
             secs = int(self.args.confirm_seconds)
-            self.pending[job.sender] = Pending(code, action, params, job.rid, time.time() + secs)
+            with self.pending_lock:        # swap in one step: a sweep or a confirm must never see the table half-changed
+                old = self.pending.pop(job.sender, None)   # one pending confirmation per sender; a new request replaces it
+                self.pending[job.sender] = Pending(code, action, params, job.rid, time.time() + secs)
+            if old:
+                self.audit.update(old.rid, status="cancelled", response="Replaced by a newer request.")
             cmd = self.args.command
             print(f"[action] {job.sender} asked for {action.name}; waiting for confirmation")
             self.audit.update(job.rid, status="action_pending",
@@ -744,9 +749,41 @@ class Bridge:
         """Drop confirmations whose time ran out and mark their audit rows expired. Cheap; called
         before anything reads self.pending (status, and each incoming /ai command)."""
         now = time.time()
-        for sender in [s for s, p in self.pending.items() if p.expires < now]:
-            p = self.pending.pop(sender)
+        with self.pending_lock:            # the dashboard thread and the radio thread can sweep at the same moment
+            expired = [(s, p) for s, p in self.pending.items() if p.expires < now]
+            for sender, _ in expired:
+                del self.pending[sender]
+        for _, p in expired:               # database writes happen outside the lock
             self.audit.update(p.rid, status="expired", response="Confirmation expired; nothing was run.")
+
+    def drop_pending(self, sender):
+        """Remove and return `sender`'s confirmation (None if there is none). Every change to self.pending goes through the lock, because
+        a sweep iterating the dict while another thread changes it raises "dictionary changed size during iteration"."""
+        with self.pending_lock:
+            return self.pending.pop(sender, None)
+
+    def take_pending(self, sender, expected):
+        """Remove `sender`'s confirmation if it is still `expected` and has not expired. True means this caller now owns it and nobody
+        else can run it; False means it expired, was replaced or was already taken in the meantime (a sweep marks an expired one in the log)."""
+        with self.pending_lock:
+            if self.pending.get(sender) is expected and expected.expires >= time.time():
+                del self.pending[sender]
+                return True
+        return False
+
+    def remember_packet(self, pid):
+        """True the first time a packet id is seen, False for a repeat (the mesh can deliver one packet twice). Remembers the last
+        SEEN_PACKETS ids as a rolling window, so there is no moment at which everything is forgotten at once.
+        Called only from on_receive, i.e. the radio library's single receive thread, so it needs no lock."""
+        if pid is None:
+            return True                    # no id, nothing to compare
+        if pid in self.seen_ids:
+            return False
+        self.seen_ids.add(pid)
+        self._seen_order.append(pid)
+        if len(self._seen_order) > SEEN_PACKETS:
+            self.seen_ids.discard(self._seen_order.popleft())
+        return True
 
     def help_text(self):
         """Canned reply for the help command; needs no model."""
@@ -882,11 +919,8 @@ class Bridge:
             if packet.get("to") != my_num:
                 return  # channel/broadcast message, not a DM to this node (the AI never answers or reads the channel)
             pid = packet.get("id")
-            if pid in self.seen_ids:   # the mesh can deliver the same packet twice; answer it once
+            if not self.remember_packet(pid):   # the mesh can deliver the same packet twice; answer it once
                 return
-            if len(self.seen_ids) > 2000:   # crude bound on memory; a duplicate straddling the clear would be answered twice
-                self.seen_ids.clear()
-            self.seen_ids.add(pid)
 
             access, cap_override = self.audit.get_access(sender)
             tier, auth_label = self.verify_node(sender, packet)   # decided per message, never cached: the key or encryption can change
@@ -938,7 +972,7 @@ class Bridge:
             if low == "actions":
                 return canned("usage", self.actions_help(tier))
             if low == "cancel":
-                p = self.pending.pop(sender, None)
+                p = self.drop_pending(sender)
                 if p:
                     self.audit.update(p.rid, status="cancelled", response="Cancelled by the user.")
                 return canned("usage", "Cancelled." if p else "Nothing is waiting for confirmation.")
@@ -995,13 +1029,15 @@ class Bridge:
         if tier < p.action.tier:  # e.g. not PKI-encrypted this time, or key changed since
             return canned("action_denied", f"Can't confirm from this message ({auth_label}).")
         if not secrets.compare_digest(code, p.code):
-            p.attempts += 1
+            p.attempts += 1                 # only the radio thread confirms (the browser chat refuses confirm), so this counter needs no lock
             if p.attempts >= 3:
-                del self.pending[sender]
+                if not self.take_pending(sender, p):
+                    return canned("usage", "Nothing is waiting for confirmation (it may have expired).")
                 self.audit.update(p.rid, status="cancelled", response="Cancelled after 3 wrong codes.")
                 return canned("action_denied", "Wrong code three times - request cancelled.")
             return canned("action_denied", f"Wrong code ({p.attempts}/3).")
-        del self.pending[sender]  # single use, consumed before anything runs
+        if not self.take_pending(sender, p):   # single use: claimed atomically before anything runs, so it cannot run twice
+            return canned("usage", "Nothing is waiting for confirmation (it may have expired).")
         self.audit.update(p.rid, status="action_ok",
                           response=f"Confirmed by the user; {p.action.name} ran (result is in the next entry).")
         # not 'queued': a crash mid-action must not make the restart logic re-ask the model this text

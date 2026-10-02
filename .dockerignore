@@ -1,0 +1,42 @@
+# Keep the build context to what the image needs: the code, requirements, licence, docs and saved evaluation results.
+# Everything below is either private data from a real mesh or only useful on a developer's computer.
+.git
+.github
+.gitattributes
+.gitignore
+.venv
+.claude
+.vscode
+.idea
+
+# private data: the database, backups, logs, map-tile cache, anything in private/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+audit.db
+backups
+logs
+tile_cache
+private
+.env
+.env.*
+!.env.example
+
+# not needed at run time
+tests
+docs/screenshots
+screenshots
+__pycache__
+**/__pycache__
+*.pyc
+setup.sh
+setup.bat
+setup.ps1
+setup_env.py
+start_bridge.*
+stop_bridge.*
+run_tests.py
+Dockerfile
+docker-compose*.yml
+.dockerignore

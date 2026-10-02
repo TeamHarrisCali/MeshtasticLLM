@@ -1,0 +1,20 @@
+# USB radio passthrough. LINUX HOSTS ONLY: Docker Desktop on Windows and macOS cannot hand a USB serial device to a container
+# (use the Wi-Fi/TCP path there: MESHLLM_TCP in .env).
+#
+#   docker compose -f docker-compose.yml -f docker-compose.usb.yml up -d
+#
+# Before you start:
+#   1. Find the device:        ls -l /dev/ttyUSB* /dev/ttyACM*       (change the two lines marked "device" below if it is not ttyUSB0)
+#   2. Find the group that owns it (the number, not the name; it differs between distributions):
+#                              stat -c %g /dev/ttyUSB0
+#      and put it in .env as MESHLLM_SERIAL_GID=<number>  (the Debian/Ubuntu default "dialout" is 20; Arch's "uucp" is different).
+#   3. Close anything else that holds the radio's serial port (a second bridge, a serial monitor): only one program can.
+# The container stays unprivileged: it gets that one device and that one group, nothing else.
+services:
+  bridge:
+    devices:
+      - "/dev/ttyUSB0:/dev/ttyUSB0"                   # device
+    group_add:
+      - "${MESHLLM_SERIAL_GID:-20}"
+    environment:
+      MESHLLM_PORT: "/dev/ttyUSB0"                    # device

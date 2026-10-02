@@ -57,7 +57,7 @@ function renderActivity() {
   if (!actItems.length) box.append(el("div", "empty", actOn.size ? "Nothing matches yet." : "Pick at least one kind of activity above."));
   for (const f of actItems) {
     const row = el("div", "feedrow"); row.append(el("span", null, FEED_ICON[f.type] || "•"), el("span", null, f.text), el("small", null, `${fmtTime(f.ts)} · ${agoStr(Math.max(0, Date.now() / 1000 - f.ts))}`));
-    if (f.node_id) row.addEventListener("click", () => go(["ai", "dm", "you"].includes(f.type) ? "chat" : "nodes", f.node_id));
+    if (f.node_id) row.addEventListener("click", () => go(f.type === "ai" ? "chat" : ["dm", "you"].includes(f.type) ? "dm" : "nodes", f.node_id));
     box.append(row);
   }
   $("actMore").hidden = actExhausted || actItems.length < ACT_PAGE;

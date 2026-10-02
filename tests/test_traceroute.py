@@ -159,6 +159,18 @@ try: tr.start_manual("!000000a1"); ok = False
 except TR.TracerouteError as e: ok = "radio" in str(e)
 br.iface = saved
 check("a manual traceroute with the radio away is refused up front", ok)
+# the lock check and the lock grab are not atomic: if another request slips in between, the refused trace must not leave the node in its cooldown
+class _SlippedIn:
+    """Looks free to the up-front check, but is taken by the time the worker thread tries it."""
+    def locked(self): return False
+    def acquire(self, blocking=True): return False
+    def release(self): pass
+real_busy, tr._busy = tr._busy, _SlippedIn()
+tr._last.pop("!000000a3", None)
+rid3 = tr.start_manual("!000000a3")
+until(lambda: tr.manual_state(rid3)["status"] == "error")
+tr._busy = real_busy
+check("a trace refused at the lock does not leave its node in the cooldown", "!000000a3" not in tr._last and tr.manual_state(rid3)["status"] == "error", (tr._last.get("!000000a3"), tr.manual_state(rid3)))
 time.sleep(1.1)
 
 # ---- store ----------------------------------------------------------------------------------------------------------------------------

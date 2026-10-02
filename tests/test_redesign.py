@@ -652,6 +652,14 @@ csv_text = cm.export_csv("mesh_links"); lines = csv_text.strip().splitlines()
 check("CSV export has a header and one line per row", lines[0].startswith("hour,node_id,n,snr_sum") and len(lines) == 1 + byn["mesh_links"]["rows"], lines[:2])
 check("only whitelisted datasets can be exported (no requests, no settings, no SQL tricks)", all(cm.export_csv(x) is None for x in ("requests", "settings", "telemetry", "sqlite_master", "mesh_links; DROP TABLE mesh_links", "", "../x", "MESH_LINKS")))
 check("every exportable dataset exports without error", all(isinstance(cm.export_csv(x), str) for x in M.MeshService.EXPORTABLE))
+# a stranger names their node like a spreadsheet formula: the export must show it as text, not hand it to Excel to run
+cb.audit.db.execute("INSERT OR REPLACE INTO mesh_nodes (node_id, first_seen, last_seen, name) VALUES (?,?,?,?)", ("!000000f9", time.time(), time.time(), '=HYPERLINK("http://evil.example","click")'))
+cb.audit.db.commit()
+import csv as _csv, io as _io
+name_cells = [r["name"] for r in _csv.DictReader(_io.StringIO(cm.export_csv("mesh_nodes"))) if r["node_id"] == "!000000f9"]
+check("a node name that looks like a spreadsheet formula is exported as text (leading quote)", name_cells == ['\'=HYPERLINK("http://evil.example","click")'], name_cells)
+from meshllm.audit import csv_cell as _cc
+check("csv_cell leaves numbers, None and ordinary text alone and quotes =, +, -, @, tab", [_cc(5), _cc(-2.5), _cc(None), _cc(""), _cc("hello"), _cc("=1+1"), _cc("+1"), _cc("-1"), _cc("@x"), _cc("\tx")] == [5, -2.5, None, "", "hello", "'=1+1", "'+1", "'-1", "'@x", "'\tx"])
 cb.audit.db.close()
 
 # ---- link-quality map and hop series -------------------------------------------------------------------------------------------------

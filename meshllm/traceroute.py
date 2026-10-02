@@ -244,6 +244,7 @@ class TracerouteService:
         if wait > 0:
             raise TracerouteError(f"That node was traced moments ago (every traceroute makes nodes on the path "
                                   f"repeat a packet). Try again in {int(wait) + 1}s.")
+        previous = self._last.get(node_id)
         self._last[node_id] = time.monotonic()
         self._next += 1
         rid = self._next
@@ -255,6 +256,11 @@ class TracerouteService:
             """Thread body: take the radio lock, run request(), publish the outcome to self._manual[rid], release the lock."""
             # non-blocking acquire: the check above is not atomic with this, so another request may have slipped in
             if not self._busy.acquire(blocking=False):
+                # nothing was sent, so this node must not stay in its cooldown
+                if previous is None:
+                    self._last.pop(node_id, None)
+                else:
+                    self._last[node_id] = previous
                 self._manual[rid] = {**self._manual[rid], "status": "error", "detail": "another request was in progress"}
                 return
             try:

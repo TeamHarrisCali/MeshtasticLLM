@@ -115,6 +115,24 @@ check("server still alive after the GET barrage", rq.get(URL + "/api/status", ti
 # a refused request here proves the guard works, not just that the file is missing
 check("path traversal on static files still refused", all(rq.get(URL + u, timeout=10).status_code in (403, 404) for u in ("/..%2faudit.py", "/..%2f..%2fREADME.md")))
 
+# ---- request bodies: a bad or huge Content-Length must be refused quickly, not read or waited on
+import socket
+def raw_post(length_header, body=b"", wait=3):
+    """Send a hand-made POST (requests would fix up the length for us) and return the status code, or None if the server never answered."""
+    s = socket.create_connection(("127.0.0.1", 8092), timeout=wait)
+    s.sendall(b"POST /api/pause HTTP/1.1\r\nHost: 127.0.0.1:8092\r\nContent-Type: application/json\r\nContent-Length: " + length_header + b"\r\n\r\n" + body)
+    try:
+        return int(s.recv(64).split(b" ")[1])
+    except (socket.timeout, IndexError, ValueError):
+        return None
+    finally:
+        s.close()
+check("a negative Content-Length is refused with 400 (it used to hang the thread)", raw_post(b"-1") == 400)
+check("a non-numeric Content-Length is refused with 400", raw_post(b"abc") == 400)
+check("an enormous Content-Length is refused with 413 without reading it", raw_post(str(10 ** 12).encode()) == 413)
+check("a normal JSON post still works", raw_post(str(len(b'{"paused": false}')).encode(), b'{"paused": false}') == 200)
+check("server still alive after the bad bodies", rq.get(URL + "/api/status", timeout=10).status_code == 200)
+
 print("\n%d failure(s)" % len(fails))
 try: os.remove(DB)
 except OSError: pass

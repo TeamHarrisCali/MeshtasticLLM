@@ -14,6 +14,7 @@ from meshllm.webroutes import HttpError, Reply
 
 STATIC = Path(__file__).parent / "static"
 _bundle = {"stamp": None, "data": b""}
+MAX_JSON_BODY = 1024 * 1024    # the biggest JSON body any dashboard action sends is a few KB; more is a mistake or an attack
 
 
 def dashboard_script():
@@ -137,7 +138,15 @@ def make_handler(bridge):
             if "application/json" not in (self.headers.get("Content-Type") or ""):
                 return self._send(415, "json only", "text/plain")
             try:
-                body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
+                length = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                length = -1
+            if length < 0:                     # rfile.read(-1) would wait for the client to hang up, tying up a server thread
+                return self._send(400, "bad length", "text/plain")
+            if length > MAX_JSON_BODY:         # refuse before reading, so a huge body is never held in memory
+                return self._send(413, "too large", "text/plain")
+            try:
+                body = json.loads(self.rfile.read(length) or b"{}")
             except ValueError:
                 return self._send(400, "bad json", "text/plain")
             if not isinstance(body, dict):

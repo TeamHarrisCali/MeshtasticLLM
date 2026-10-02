@@ -14,6 +14,7 @@ import time
 from collections import Counter, deque
 
 from meshllm import actions
+from meshllm.audit import csv_cell
 from meshllm.traceroute import _position
 
 # Retention windows: names ending _H are hours, _S are seconds. prune() applies them; DATASETS below repeats them in words for the operator.
@@ -595,7 +596,7 @@ class MeshService:
         if b.iface is None:
             raise PositionError("The radio isn't connected.")
         if not b.radio_request_lock.acquire(timeout=5):      # a traceroute is on the air; don't talk over it
-            raise PositionError("The radio is busy with a traceroute; try again in a moment.")
+            raise PositionError("The radio is busy with another request (a traceroute or a settings change); try again in a moment.")
         try:
             call(b.iface.localNode)
         except Exception as e:
@@ -847,7 +848,7 @@ class MeshService:
             rows = cur.fetchall()
         buf = io.StringIO(); w = csv.writer(buf); w.writerow(cols)
         for r in rows:
-            w.writerow([r[c] for c in cols])
+            w.writerow([csv_cell(r[c]) for c in cols])
         return buf.getvalue()
 
     def prune(self):

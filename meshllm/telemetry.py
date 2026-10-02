@@ -16,6 +16,8 @@ import re
 import threading
 import time
 
+from meshllm.audit import csv_cell
+
 NODE_ID_RE = re.compile(r"^![0-9a-f]{8}$")
 DEFAULT_RETENTION_DAYS = 30
 MAX_RETENTION_DAYS = 3650
@@ -172,8 +174,7 @@ class TelemetryStore:
         w = csv.writer(buf)
         w.writerow(COLUMNS)
         for r in rows:  # neutralise spreadsheet formulas in text that came from the mesh
-            w.writerow([("'" + v) if isinstance(v, str) and v and v[0] in "=+-@\t\r" else v
-                        for v in (r[c] for c in COLUMNS)])
+            w.writerow([csv_cell(r[c]) for c in COLUMNS])
         return buf.getvalue()
 
     # ---- watch list ------------------------------------------------------
@@ -297,8 +298,11 @@ class TelemetryService:
             self._last_passive[(node, kind)] = now
             if len(self._last_passive) > 5000:
                 self._last_passive.clear()
-            # hops travelled = hopStart (limit at send) - hopLimit (remaining on arrival); None if the sender didn't include them
-            hops = (packet["hopStart"] - packet["hopLimit"]) if packet.get("hopStart") is not None and packet.get("hopLimit") is not None else None
+            # hops travelled = hopStart (limit at send) - hopLimit (remaining on arrival); None if either is missing or implausible
+            # (hopStart 0 means the sender doesn't say), the same rule mesh.py and reach.py use, so a malformed packet can't store a negative count
+            hs, hl = packet.get("hopStart"), packet.get("hopLimit")
+            valid = lambda v: isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= 7
+            hops = hs - hl if valid(hs) and valid(hl) and hs > 0 and hl <= hs else None
             self.store.add(time.time(), node, self.bridge.node_name(node), kind, "broadcast", "ok",
                            node_time=node_time or None, values=values, rx_snr=packet.get("rxSnr"),
                            rx_rssi=packet.get("rxRssi"), hops=hops, raw=metrics)

@@ -298,7 +298,7 @@ class RadioConfig:
         if not steps:
             return {"changed": [], "message": "Nothing changed: those are the radio's current values."}
         if not b.radio_request_lock.acquire(timeout=5):
-            raise ConfigError("The radio is busy with a traceroute; try again in a moment.")
+            raise ConfigError("The radio is busy with another request (a traceroute or a settings change); try again in a moment.")
         old = {}
         try:
             backup_id = self.backup(reason)           # always keep the settings we are about to replace

@@ -148,6 +148,13 @@ br2 = b.Bridge(make_args())   # a "restarted" bridge on the same database (worke
 br2.restore_queue()
 check("restart: fresh queued question restored", [it[0] for it in br2.q] == [fresh], list(br2.q))
 check("restart: stale queued question expired", [r["status"] for r in br.audit.conversation(B) if r["id"] == stale] == ["expired"])
+# more questions waiting than the queue holds: the extras are closed as busy, not left 'queued' to be skipped at every restart
+many = [br.audit.new_request(B, None, f"waiting {i}", status="queued") for i in range(4)]
+br4 = b.Bridge(make_args(max_queue=2))
+br4.restore_queue()
+rows4 = {r["id"]: r["status"] for r in br.audit.conversation(B) if r["id"] in many}
+# (the earlier "fresh" question is still pending too, so five are waiting for two places)
+check("restart with a full queue: what fits is restored, the rest closed as busy", len(br4.q) == 2 and list(rows4.values()).count("busy") == 3 and list(rows4.values()).count("queued") == 1, (len(br4.q), rows4))
 br3 = b.Bridge(make_args(access_mode="allowlist", daily_cap=7))
 check("flags override saved settings", br3.mode == "allowlist" and br3.default_cap == 7)
 br3.set_mode("open"); br3.set_default_cap(0)

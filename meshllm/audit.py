@@ -77,6 +77,17 @@ _UPDATABLE = {"response", "status", "model", "llm_ms", "chunks", "node_name", "a
 _DELIVERY = {"delivered", "relayed", "failed"}
 
 
+FORMULA_START = "=+-@\t\r"          # characters that make a spreadsheet treat a cell as a formula
+
+
+def csv_cell(value):
+    """A value made safe to write into a CSV that someone opens in a spreadsheet.
+
+    Node names and message text come from strangers on the mesh, so text that starts like a formula (=, +, -, @) gets a leading
+    quote, which makes Excel and Sheets show it as text instead of running it. Numbers and None pass through unchanged."""
+    return ("'" + value) if isinstance(value, str) and value and value[0] in FORMULA_START else value
+
+
 class Audit:
     """Thread-safe wrapper around the audit SQLite database. Every method takes self.lock, because the
     connection is shared between the radio, model, and web threads (check_same_thread=False)."""
@@ -398,7 +409,5 @@ class Audit:
         w = csv.writer(buf)
         w.writerow(COLUMNS)
         for r in rows:
-            # prefix formula-looking cells so Excel doesn't execute mesh-supplied text
-            w.writerow([("'" + v) if isinstance(v, str) and v and v[0] in "=+-@\t\r" else v
-                        for v in (r[c] for c in COLUMNS)])
+            w.writerow([csv_cell(r[c]) for c in COLUMNS])        # mesh-supplied text must not run as a spreadsheet formula
         return buf.getvalue()

@@ -129,6 +129,28 @@ def grounded(text, *sources):
     return bool(want) and all(any(abs(w - h) <= 0.51 for h in have) for w in want)
 
 
+def open_failure_reason(port, error, windows=os.name == "nt"):
+    """(seconds before retrying, message) for a serial port that could not be opened or did not answer like a radio.
+
+    "Denied" means different things per OS. On Windows it is almost always another program holding the port. On Linux and macOS it is
+    the device file's permissions (your user is not in the group that owns it), so say that and name the group, instead of blaming
+    some other program."""
+    text = str(error).lower()
+    denied = isinstance(error, PermissionError) or "denied" in text
+    if denied and not windows:
+        group = ""
+        try:
+            import grp
+            group = grp.getgrgid(os.stat(port).st_gid).gr_name
+        except (ImportError, KeyError, OSError):
+            pass
+        hint = f" - the port belongs to the '{group}' group; add your user to it and log in again" if group else ""
+        return 10, f"permission denied{hint} (python setup_env.py --check says exactly what to run)"
+    if denied or "busy" in text or "exclusively lock" in text:
+        return 10, "in use by another program"
+    return 60, f"no Meshtastic radio answered ({str(error)[:70]})"  # a device that is not a radio, or one that did not handshake
+
+
 NO_TOOL_ANSWER = ("I couldn't tell which lookup to run. I can check: the mesh summary, nearest or low-battery nodes, "
                   "sensors, signal, quiet nodes, busy times, or one node.")
 
@@ -656,10 +678,17 @@ class Bridge:
         """
         self.audit.cancel_stale_web()
         rows = self.audit.pending_queue(self.args.queue_ttl)
+        restored = 0
         for r in rows:
-            self.enqueue(r["id"], r["node_id"], r["prompt"], r["ts"])
+            if self.enqueue(r["id"], r["node_id"], r["prompt"], r["ts"]) is not None:
+                restored += 1
+            else:
+                # more were waiting than the queue holds: close the row now (no radio notice, the asker has long since moved on)
+                # instead of leaving it 'queued' to be skipped again at every restart
+                self.audit.update(r["id"], status="busy", response="The question queue was full after a restart.")
         if rows:
-            print(f"[queue] restored {len(rows)} question(s) from before the restart")
+            print(f"[queue] restored {restored} question(s) from before the restart"
+                  + (f"; {len(rows) - restored} did not fit in the queue and were closed as busy" if restored < len(rows) else ""))
 
     # ---- AI tools -------------------------------------------------------
     def run_action(self, action, params):
@@ -1283,10 +1312,8 @@ class Bridge:
                 iface = meshtastic.serial_interface.SerialInterface(devPath=port)
             except Exception as e:
                 # park the failing port so candidate_ports() doesn't retry it in a tight loop
-                busy = isinstance(e, PermissionError) or "denied" in str(e).lower()
-                wait = 10 if busy else 60  # busy = another program has it; otherwise it may not be a radio
+                wait, why = open_failure_reason(port, e)
                 self.bad_until[port] = time.time() + wait
-                why = "in use by another program" if busy else f"no Meshtastic radio answered ({str(e)[:70]})"
                 print(f"[radio] could not use {port}: {why}; trying again in {wait}s")
                 time.sleep(self.args.scan_interval)
                 continue

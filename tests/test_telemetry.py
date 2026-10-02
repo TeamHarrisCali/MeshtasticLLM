@@ -69,6 +69,14 @@ check("a heard broadcast is stored, tagged 'broadcast', with values, link qualit
       r["source"] == "broadcast" and r["status"] == "ok" and r["battery_level"] == 64 and r["voltage"] == 3.88 and r["uptime_seconds"] == 7200
       and r["rx_snr"] == 4.25 and r["rx_rssi"] == -77 and r["hops"] == 2 and r["node_time"] == 1_700_000_500 and r["node_name"] == "House Base " and abs(r["ts"] - time.time()) < 5, r)
 check("the stored JSON is the plain metrics (no protobuf object from the library)", json.loads(r["raw"]) == DEV, r["raw"])
+# malformed hop fields must not store a nonsense count (negative, or from a sender that doesn't say); one node each, since a node is
+# only recorded once per passive gap
+odd_nodes = []
+for n_, (hs_, hl_) in enumerate([(1, 5), (0, 3), (9, 2), (True, 1), (None, 1)]):
+    odd = "!%08x" % (0xbad00 + n_); odd_nodes.append(odd)
+    t.on_packet(bc(odd, "deviceMetrics", {"batteryLevel": 50 + n_}, 900 + n_, hopStart=hs_, hopLimit=hl_), br.iface)
+bad_hops = [x["hops"] for x in t.store.list(limit=500) if x["node_id"] in odd_nodes]
+check("implausible hopStart/hopLimit pairs store no hop count instead of a negative one", len(bad_hops) == 5 and all(h is None for h in bad_hops), bad_hops)
 t.on_packet(bc(OTHER, "environmentMetrics", {"temperature": 19.5}, 3), br.iface)
 check("another node that nobody put on a watch list is recorded too", cnt(node=OTHER) == 1)
 t.on_packet(bc(W, "deviceMetrics", DEV, 2), br.iface)

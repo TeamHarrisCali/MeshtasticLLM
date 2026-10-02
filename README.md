@@ -11,6 +11,15 @@ is happening on the mesh and lets you control who may ask what.
 ![python](https://img.shields.io/badge/python-3.9%2B-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
+> ### 🤖 Built entirely by AI
+> Every line of code, every test and every page of documentation in this repository was written by **Anthropic's Claude models**,
+> working through [Claude Code](https://claude.com/claude-code). A human maintainer ([@TeamHarrisCali](https://github.com/TeamHarrisCali))
+> sets the goals, runs the hardware and decides what ships; the AI does the writing, the testing and the code review.
+>
+> That makes it unusual, not untrustworthy, but it deserves the same care as any code you did not write yourself: read what it does
+> before you give it your radio. It is covered by an automated test suite that fakes the radio and Ollama, and has had limited time
+> on real hardware ([docs/roadmap.md](docs/roadmap.md) lists what is still unproven). See [How this is built](#how-this-is-built).
+
 ```text
   phone / node ──LoRa──▶  your radio  ──USB──▶  bridge  ──▶  Ollama (local model)
        ▲                                          │  │
@@ -140,6 +149,17 @@ setup_env.py       installer (launched by setup.sh / setup.bat)       start_brid
 
 Every module starts with a docstring that says what it is for; [docs/files.md](docs/files.md) lists them all. Run the bridge in the
 foreground with `python -m meshllm`.
+
+## How this is built
+
+The project is developed the way a small software team works, with AI agents as the team members:
+
+- **One feature branch per task.** Each agent works on its own branch (`feat/...`, `fix/...`, `docs/...`), so work on different things never collides.
+- **Every change is a pull request**, described using the [template](.github/PULL_REQUEST_TEMPLATE.md), with tests that fail without the change.
+- **A separate reviewer agent reads each pull request cold**, without the author's context, and posts its findings on the PR before anything is merged.
+- **Merged to `main` only when tests pass and the review is clean.** The test suite runs in CI on every pull request.
+
+Human contributors are welcome and go through exactly the same flow. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Contributing
 

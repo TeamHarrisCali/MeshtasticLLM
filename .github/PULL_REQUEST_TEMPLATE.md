@@ -2,7 +2,14 @@
 
 <!-- One or two sentences: what and why. -->
 
+## Review
+
+<!-- Who reviewed this and what they found. For an agent-authored change: the independent reviewer's summary, and what was done about each finding. -->
+
 ## Checklist
+
+- [ ] One topic on this branch (feature/fix/docs), branched from an up-to-date `main`
+- [ ] Reviewed independently of the author; findings addressed or answered above
 
 - [ ] `python run_tests.py` passes
 - [ ] New behaviour has a test (the radio and Ollama are faked in `tests/`)

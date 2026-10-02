@@ -12,6 +12,20 @@ python -m meshllm     # run the bridge in the foreground
 
 `python run_tests.py channel backup` runs only the test files whose names contain those words. `-v` prints more detail for failures.
 
+## How changes are made
+
+Work happens on branches and lands through pull requests; nothing is committed straight to `main`.
+
+1. **Branch** from an up-to-date `main`, one branch per task: `feat/<topic>`, `fix/<topic>` or `docs/<topic>`. When several people or agents work at
+   once, each takes their own branch and their own topic, like team members on a small team.
+2. **Commit** in small steps with messages that say *why*. Run `python run_tests.py` first; a change that fixes a bug should come with a test that fails without it.
+3. **Publish the branch and open a pull request** using the template. Say what changed, why, and how it was checked.
+4. **Get an independent review.** A reviewer who did not write the change (another contributor, or a separate reviewer agent working from the diff alone)
+   reads it and posts findings on the PR. Fix what they find on the same branch.
+5. **Merge** once CI is green and the review is clean (squash merge keeps `main` readable), then delete the branch.
+
+AI agents follow exactly the same steps. Their commits and pull requests say so (`Co-Authored-By` trailer / "Generated with Claude Code" footer).
+
 ## Ground rules
 
 - **Keep the AI read-only and boxed in.** Tools are entries in `ACTIONS` in `actions.py`: a name, a validated parameter

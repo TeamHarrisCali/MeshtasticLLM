@@ -47,6 +47,17 @@ is happening on the mesh and lets you control who may ask what.
 Everything runs on your computer. Once set up, the only outbound connections are ones you ask for: model downloads through
 Ollama, and the optional map background, whose OpenStreetMap tiles are fetched only for the area you are looking at.
 
+## Screenshots
+
+All of these are from [demo mode](#try-it-without-hardware): simulated nodes and traffic, nothing from a real mesh.
+
+| | |
+|---|---|
+| ![Home: sensors, headline numbers, alerts, map and new nodes](docs/screenshots/home.png) | ![Nodes: every node the radio knows, with role, hops, signal and battery](docs/screenshots/nodes.png) |
+| **Home**: temperature and humidity from sensor nodes, headline numbers, alerts. | **Nodes**: everything heard, with role, hops, signal and battery; open one for its history, your label and notes. |
+| ![Map: nodes coloured by how many hops away they are](docs/screenshots/map.png) | ![AI log: each question, the tool the AI used, delivery per message part](docs/screenshots/audit.png) |
+| **Map**: nodes coloured by hops away; an optional OpenStreetMap background. | **AI log**: every question, the tool the AI ran, and per-part delivery. |
+
 ## Requirements
 
 - A Meshtastic radio connected over USB (firmware 2.5 or newer for the encrypted-DM features).

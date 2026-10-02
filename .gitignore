@@ -24,3 +24,6 @@ private/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Claude Code working state, including the git worktrees reviewer agents use
+.claude/

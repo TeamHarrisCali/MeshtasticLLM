@@ -15,6 +15,7 @@ import os
 import queue
 import re
 import secrets
+import signal
 import sys
 import threading
 import time
@@ -1481,6 +1482,12 @@ def ble_scan_main():
     return 0
 
 
+def _stop_on_sigterm(signum, frame):
+    """SIGTERM (`kill`, `docker stop`, systemd) ends the bridge like Ctrl+C, so it closes the radio and the database cleanly. It matters
+    most in a container, where the bridge is process 1 and Linux ignores SIGTERM for process 1 unless the program handles it."""
+    raise KeyboardInterrupt
+
+
 def main():
     """Command-line entry point: parse flags, apply any staged database restore, then run the bridge."""
     parser, args = parse_cli()
@@ -1494,6 +1501,10 @@ def main():
     if args.demo:
         from meshllm import demo
         sys.exit(demo.launch(args, Bridge, parser))     # temporary folders, signals and cleanup are all handled there
+    try:
+        signal.signal(signal.SIGTERM, _stop_on_sigterm)
+    except (ValueError, OSError, AttributeError):       # not the main thread, or no such signal here: Ctrl+C still works
+        pass
     apply_staged_restore(args.db)           # a database restore set aside from the dashboard is swapped in before anything opens it
     Bridge(args).run()
 

@@ -876,6 +876,14 @@ def cleanup(args):
 LOOPBACK = ("127.0.0.1", "localhost", "::1")
 
 
+def web_host_allowed(host, environ=None):
+    """True if --demo may listen on `host`: this computer only, except that the Docker image (which sets MESHLLM_CONTAINER=1) binds
+    0.0.0.0 inside its own network namespace. What can reach the container is then decided by the published port, and the compose
+    file publishes it on the host's loopback only."""
+    environ = os.environ if environ is None else environ
+    return host in LOOPBACK or (host == "0.0.0.0" and environ.get("MESHLLM_CONTAINER") == "1")
+
+
 def _address_in_use(e):
     """True if an OSError means the port is already taken (the error number differs per operating system)."""
     return e.errno in (errno.EADDRINUSE, 98, 48, 10048) or "in use" in str(e).lower()
@@ -886,7 +894,7 @@ def launch(args, bridge_class, parser):
 
     Owns the temporary folder from the moment it exists, so Ctrl+C, kill, closing the terminal, a busy port or any other failure
     still deletes it. Refuses to listen beyond this machine: the demo has a send box and settings pages that must not face a network."""
-    if args.web_host not in LOOPBACK:
+    if not web_host_allowed(args.web_host):
         print(f"Demo mode only listens on this computer (127.0.0.1); --web-host {args.web_host} is not allowed with --demo.", flush=True)
         return 2
     ignored = [flag for flag, given in (("--port", args.port != parser.get_default("port")), ("--tcp", args.tcp is not None), ("--ble", args.ble is not None), ("--db", args.db != parser.get_default("db")),

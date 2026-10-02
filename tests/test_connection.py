@@ -86,10 +86,13 @@ class FakeBle:
         W.made.append(self)
         if W.fail_late: raise W.fail_late       # fails after the receive thread exists, like a bleak error inside the library's constructor
         self.timeout = timeout
-        self.device = self.find_device(address)  # the library's connect() does this first
+        self.client = self.connect(address)      # the library's constructor does this: find the device, open a client, connect
         if W.block: W.block.wait()               # a connect that never returns
         self._startConfig()                      # ...then it downloads the radio's settings
     def _startConfig(self): pass
+    def connect(self, address=None):             # the library's version (replaced by our subclass; kept so FakeBle is complete)
+        self.find_device(address); return FakeBleClient(address)
+    def find_device(self, address): return FakeDevice(address, None, {})
     @staticmethod
     def scan(): raise AssertionError("the library's filtered BLEInterface.scan() must never be called")
     class BLEError(Exception):
@@ -100,11 +103,21 @@ class FakeBle:
     def drop(self): self.client = None; self._want_receive = False; self._receiveThread.alive = False   # the library's disconnect callback closes the interface
 FAKE_SERVICE = "6ba1b218-15a8-461f-9fa8-5dcae273eafd"
 DISCOVER_CALLS = []          # kwargs of every discover() call the code made
+CLIENTS = []                 # every FakeBleClient built: what it was given as its first argument
+CLIENT_FAILS = []            # exceptions the next client.connect() calls raise, in order
 class FakeBleClient:
-    """Stands in for the library's BLEClient wrapper: an unfiltered discovery over FakeBle.SCAN (each device may carry .uuids)."""
+    """Stands in for the library's BLEClient wrapper: an unfiltered discovery over FakeBle.SCAN (each device may carry .uuids),
+    and a client that records what it was asked to connect to."""
+    def __init__(self, address=None, **kw):
+        self.target, self.closed = address, False
+        CLIENTS.append(self)
+    def connect(self):
+        if CLIENT_FAILS: raise CLIENT_FAILS.pop(0)
+    def close(self): self.closed = True
     def __enter__(self): return self
     def __exit__(self, *a): return False
     def discover(self, **kw):
+        if "return_adv" not in kw: return None          # the connect step's service discovery
         DISCOVER_CALLS.append(kw)
         if W.block_scan: W.block_scan.wait()
         return {d.address: (d, SimpleNamespace(service_uuids=getattr(d, "uuids", [FAKE_SERVICE.upper()]))) for d in FakeBle.SCAN}
@@ -134,6 +147,7 @@ def reset_world():
     for br in BRIDGES: br.stop()
     BRIDGES.clear(); time.sleep(0.3)
     W.fail, W.fail_late, W.block, W.block_scan, W.node, W.attempts = None, None, None, None, "!00000a01", 0
+    del CLIENT_FAILS[:]
     W.made.clear()
 
 # ---- command line ----------------------------------------------------------------------------------------------------
@@ -352,6 +366,58 @@ br = start(ble="AA:BB:CC:00:00:99")
 time.sleep(0.5)
 check("BLE MAC unknown: tried once and parked", W.attempts == 1 and br.bad_until["ble:AA:BB:CC:00:00:99"] > time.time() + 25, (W.attempts, br.bad_until))
 reset_world()
+# ---- on Linux a MAC address reuses BlueZ's existing device entry (the radio is held by the OS and not advertising) ----------
+sysfs = tempfile.mkdtemp(prefix="meshsys_")
+saved_sysfs, saved_platform = conn.BLUETOOTH_SYSFS, sys.platform
+conn.BLUETOOTH_SYSFS = sysfs
+for name_ in ("hci1", "hci0", "rfkill"): os.mkdir(os.path.join(sysfs, name_))
+check("BlueZ path: first hciN adapter, upper-case with underscores", conn.bluez_device_path("aa:bb:cc:dd:ee:ff") == "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF"
+      and conn.bluez_device_path("aa-bb-cc-dd-ee-ff") == conn.bluez_device_path("AA:BB:CC:DD:EE:FF"))
+os.rmdir(os.path.join(sysfs, "hci0"))
+check("BlueZ path: uses whichever adapter exists", conn.bluez_device_path("AA:BB:CC:DD:EE:FF").startswith("/org/bluez/hci1/"))
+conn.BLUETOOTH_SYSFS = os.path.join(sysfs, "missing")
+check("BlueZ path: a missing adapter list defaults to hci0", conn.bluez_device_path("AA:BB:CC:DD:EE:FF").startswith("/org/bluez/hci0/"))
+conn.BLUETOOTH_SYSFS = sysfs; os.mkdir(os.path.join(sysfs, "hci0"))
+sys.platform = "linux"
+FakeBle.SCAN = []
+EXPECT = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF"
+for given in ("AA:BB:CC:DD:EE:FF", "aa-bb-cc-dd-ee-ff"):
+    del CLIENTS[:], DISCOVER_CALLS[:]
+    out = io.StringIO()
+    ep = conn.BleEndpoint(given)
+    with contextlib.redirect_stdout(out):
+        ep.open(ep.label)
+    dev_ = CLIENTS[-1].target if CLIENTS else None
+    check(f"Linux, {given}: the client gets a device carrying BlueZ's object path, and no scan runs",
+          len(CLIENTS) == 1 and getattr(dev_, "address", None) == "AA:BB:CC:DD:EE:FF" and getattr(dev_, "details", {}).get("path") == EXPECT and DISCOVER_CALLS == [], (dev_, DISCOVER_CALLS))
+check("...and the phase says it is using the system's existing entry", "using the system's existing device entry" in out.getvalue() and "scanning first" not in out.getvalue(), out.getvalue())
+# BlueZ does not know that object: fall back once to the plain address, then give the pair advice if that fails too
+del CLIENTS[:]
+CLIENT_FAILS[:] = [RuntimeError("Device with address AA:BB:CC:DD:EE:FF was not found. It may have been removed from BlueZ")]
+out = io.StringIO()
+ep = conn.BleEndpoint("AA:BB:CC:DD:EE:FF")
+with contextlib.redirect_stdout(out):
+    ep.open(ep.label)
+check("Linux, unknown object: falls back once to the plain address string (the library's own way)", [type(c_.target).__name__ for c_ in CLIENTS] == ["FakeDevice", "str"] and CLIENTS[1].target == "AA:BB:CC:DD:EE:FF", [c_.target for c_ in CLIENTS])
+check("...the failed attempt's client is closed and the phase says it is scanning first", CLIENTS[0].closed and "(scanning first)" in out.getvalue(), out.getvalue())
+del CLIENTS[:]
+CLIENT_FAILS[:] = [RuntimeError("Device with address AA:BB:CC:DD:EE:FF was not found."), RuntimeError("Device with address AA:BB:CC:DD:EE:FF was not found.")]
+try: ep.open(ep.label); err_ = None
+except RuntimeError as e: err_ = e
+check("Linux, unknown to BlueZ both ways: the error reaches the 'pair it once' advice", err_ is not None and len(CLIENTS) == 2 and all(c_.closed for c_ in CLIENTS)
+      and "not paired" in ep.failure_reason(ep.label, err_)[1], (err_, len(CLIENTS)))
+del CLIENTS[:]
+CLIENT_FAILS[:] = [RuntimeError("org.bluez.Error.Failed br-connection-canceled")]
+try: ep.open(ep.label); err_ = None
+except RuntimeError as e: err_ = e
+check("Linux, a real connect failure is NOT retried with a scan", err_ is not None and len(CLIENTS) == 1 and CLIENTS[0].closed, (err_, len(CLIENTS)))
+# no BlueZ elsewhere: the plain address string, as the library does
+sys.platform = "darwin"
+del CLIENTS[:]
+ep.open(ep.label)
+check("non-Linux: the client gets the plain address string", len(CLIENTS) == 1 and CLIENTS[0].target == "AA:BB:CC:DD:EE:FF", [c_.target for c_ in CLIENTS])
+sys.platform = saved_platform; conn.BLUETOOTH_SYSFS = saved_sysfs
+
 # a hung connect: the endpoint gives up, names the phase, closes what it built, and the helper thread is a daemon
 saved = conn.BLE_CONNECT_TIMEOUT
 conn.BLE_CONNECT_TIMEOUT = 0.5

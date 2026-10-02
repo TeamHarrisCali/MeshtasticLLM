@@ -51,7 +51,7 @@ system's retransmission timeout (about 15 minutes on Linux) applies. On Windows,
 
 **If the computer's own Bluetooth already holds the radio** (a desktop Bluetooth manager connected it after pairing), the radio stops
 advertising and will not appear in a scan. Pass the **address** then: a Bluetooth address (six hex pairs) is connected to directly, with no scan,
-and the bridge logs `Bluetooth: connecting to ...`. A **name** always needs a scan. If the address is not known to the system yet, the bridge says
+and the bridge logs `Bluetooth: connecting to ...`. On Linux it reuses BlueZ's existing entry for the radio, including a connection the system already holds, so the radio need not be advertising. A **name** always needs a scan. If the address is not known to the system yet, the bridge says
 to pair the radio once in the system Bluetooth settings.
 
 Only one Bluetooth client can hold the radio at a time: disconnect the phone app first. A radio in the "No PIN" Bluetooth mode pairs with

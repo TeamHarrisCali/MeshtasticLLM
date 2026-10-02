@@ -18,6 +18,7 @@ Nothing here transmits anything; it only opens and watches the link."""
 import socket
 import os
 import re
+import sys
 import threading
 
 import meshtastic.serial_interface
@@ -27,6 +28,7 @@ DEFAULT_TCP_PORT = 4403     # the meshtastic TCP API port
 BLE_CONNECT_TIMEOUT = 90    # seconds for the whole Bluetooth connect (scan, connect, settings download); tests shorten it
 BLE_SCAN_TIMEOUT = 25       # seconds for one Bluetooth scan (the library's own discovery runs 10)
 BLE_CONFIG_TIMEOUT = 60     # seconds the library waits for the radio's settings (its own default is 300)
+BLUETOOTH_SYSFS = "/sys/class/bluetooth"    # Linux lists the Bluetooth adapters (hci0, ...) here; tests point it elsewhere
 MAC_RE = re.compile(r"^[0-9A-Fa-f]{2}([:-][0-9A-Fa-f]{2}){5}$")
 
 # USB vendor IDs of the serial chips Meshtastic boards use. Auto-detection only tries ports from these
@@ -184,13 +186,31 @@ def _quiet(iface):
         pass
 
 
-def _make_device(mac):
-    """A minimal bleak BLEDevice for an address we did not scan for. The library only reads `.address` from it (to build its client)."""
+def _make_device(mac, details=None):
+    """A minimal bleak BLEDevice for an address we did not scan for. `details` is bleak's OS-specific part (None = just the address)."""
     device_class = _ble_module().BLEDevice
     try:
-        return device_class(mac, None, None)
+        return device_class(mac, None, details)
     except TypeError:           # older bleak versions also wanted a signal strength
-        return device_class(mac, None, None, 0)
+        return device_class(mac, None, details, 0)
+
+
+def bluez_device_path(mac):
+    """BlueZ's D-Bus object path for a device address on this computer's first Bluetooth adapter, e.g. /org/bluez/hci0/dev_AA_BB_...
+
+    BlueZ keeps an object for every device it has paired with or connected to, advertising or not. Handing bleak that path lets it connect to a
+    device it cannot see in a scan, which is the case when the OS already holds the connection (the radio then stops advertising)."""
+    try:
+        adapters = sorted(n for n in os.listdir(BLUETOOTH_SYSFS) if re.match(r"^hci\d+$", n))
+    except OSError:
+        adapters = []
+    return f"/org/bluez/{adapters[0] if adapters else 'hci0'}/dev_{mac.replace('-', ':').upper().replace(':', '_')}"
+
+
+def _device_unknown(error):
+    """True if bleak/BlueZ is saying it has no such device (as opposed to a real connect failure such as a refused pairing)."""
+    text = str(error).lower()
+    return "was not found" in text or "unknownobject" in text or "does not exist" in text
 
 
 def _closing_on_error(cls, note=None, state=None):
@@ -226,13 +246,44 @@ def _closing_on_error(cls, note=None, state=None):
             say("config", "connected, waiting for the radio to send its settings")
             return super()._startConfig()
 
+        def connect(self, address=None):
+            """The library's connect (find the device, open a client, connect, discover services), with one change for a MAC address.
+
+            The library hands bleak only the address string, and bleak then SCANS for it, which cannot see a radio the OS already holds
+            (it stopped advertising). On Linux we give bleak a device that carries BlueZ's own object path for that address instead, so it
+            connects to (or reuses) the existing system connection with no scan. If BlueZ turns out not to know the object we fall back once
+            to the plain address, as the library would. Elsewhere there is no BlueZ and the address string is used."""
+            module = _ble_module()
+            device = self.find_device(address)
+            attempts = []
+            direct = getattr(device, "details", "scanned") is None      # details None = a MAC address we did not scan for
+            if direct and sys.platform.startswith("linux"):
+                path = bluez_device_path(device.address)
+                attempts.append((f"connecting to {device.address} (using the system's existing device entry)",
+                                _make_device(device.address, {"path": path, "props": {}})))
+            if direct:
+                attempts.append((f"connecting to {device.address}" + (" (scanning first)" if attempts else ""), device.address))
+            else:
+                attempts.append((None, device.address))         # found by our scan: its phase was already logged
+            for i, (phase, target) in enumerate(attempts):
+                if phase:
+                    say("connect", phase)
+                client = module.BLEClient(target, disconnected_callback=lambda _: self.close())
+                try:
+                    client.connect()
+                    client.discover()
+                except Exception as e:
+                    _quiet(client)      # a failed attempt must not leave the client's event-loop thread behind
+                    if i + 1 < len(attempts) and _device_unknown(e):
+                        continue
+                    raise
+                return client
+
         def find_device(self, address):
             """Same as the library's: the device whose name or address equals `address` (any device if None); exactly one must match.
             A MAC address skips the scan entirely (see above)."""
             if address and MAC_RE.match(address):
-                mac = address.replace("-", ":").upper()
-                say("connect", f"connecting to {mac}")
-                return _make_device(mac)
+                return _make_device(address.replace("-", ":").upper())
             say("scan", f"scanning for {address or 'any Meshtastic radio'}")
             devices = safe_ble_scan()
             if address:

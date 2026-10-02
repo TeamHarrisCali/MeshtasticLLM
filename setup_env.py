@@ -34,7 +34,7 @@ import sys
 import urllib.error
 import urllib.request
 
-MIN_PY = (3, 9)                                   # the code uses str.removeprefix; it is tested on 3.12 and 3.13
+MIN_PY = (3, 9)                                   # str.removeprefix (3.9+) is used; CI tests 3.9, 3.10, 3.12 and 3.13
 OLLAMA_URL = "http://127.0.0.1:11434"
 IMPORTS = [("meshtastic", "meshtastic"), ("requests", "requests"), ("serial", "pyserial"), ("pubsub", "pypubsub")]
 # USB vendor ids of the chips on Meshtastic boards (Adafruit/Nordic, Espressif, Silicon Labs CP210x, WCH CH340, FTDI, ...)

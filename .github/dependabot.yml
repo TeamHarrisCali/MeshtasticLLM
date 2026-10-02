@@ -9,3 +9,17 @@ updates:
       interval: "monthly"
     commit-message:
       prefix: "ci"
+  # The pinned base image in the Dockerfile (tag and digest): a new digest arrives as a pull request.
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    commit-message:
+      prefix: "ci"
+  # The pinned image tags in docker-compose.yml (the Ollama server).
+  - package-ecosystem: "docker-compose"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    commit-message:
+      prefix: "ci"

@@ -90,16 +90,35 @@ def parse_tcp(text):
     return host, port
 
 
-def load_ble():
-    """Import and return the library's `BLEInterface` class, or raise `BleUnavailable` with a one-line explanation.
+def _ble_module():
+    """Import and return the library's `meshtastic.ble_interface` module, or raise `BleUnavailable` with a one-line explanation.
     Imported here, not at start-up, so USB and Wi-Fi users never import bleak."""
     try:
-        from meshtastic.ble_interface import BLEInterface
+        import meshtastic.ble_interface as module
     except Exception as e:      # ImportError normally, but a broken bleak/D-Bus set-up can fail in other ways
         raise BleUnavailable(f"Bluetooth is not available here ({type(e).__name__}: {str(e)[:80]}); "
                              "it needs the 'bleak' package (pip install -r requirements.txt) and, on Linux, BlueZ. "
                              "Use USB or --tcp instead.") from None
-    return BLEInterface
+    return module
+
+
+def load_ble():
+    """The library's `BLEInterface` class, or raise `BleUnavailable` (see `_ble_module`)."""
+    return _ble_module().BLEInterface
+
+
+def safe_ble_scan(timeout=10):
+    """Nearby Meshtastic Bluetooth devices as the library's BLEDevice objects, found with an UNFILTERED discovery.
+
+    Why not the library's own `BLEInterface.scan()`: it asks BlueZ to filter by the Meshtastic service UUID, and on one real set-up
+    (BlueZ 5.87, bleak 3.0.2) that filtered discovery made bluetoothd crash every time. A plain discovery works there, so we ask for
+    everything and do the same filtering the library does afterwards: keep devices whose advertisement lists the Meshtastic service.
+    Never pass `service_uuids` to a discover call here. Raises BleUnavailable if Bluetooth support cannot be loaded."""
+    module = _ble_module()
+    with module.BLEClient() as client:      # the library's wrapper: owns the event loop thread bleak needs, and closes it again
+        response = client.discover(timeout=timeout, return_adv=True)
+    wanted = module.SERVICE_UUID.lower()
+    return [device for device, adv in response.values() if wanted in [u.lower() for u in (adv.service_uuids or [])]]
 
 
 def _closing_on_error(cls):
@@ -107,9 +126,27 @@ def _closing_on_error(cls):
 
     The library starts its receive thread first and only calls close() when the failure is its own BLEError. A bleak error or a timeout
     would leave that thread spinning and the caller without a reference to close it, and the bridge retries, so the leak would repeat
-    every retry. (A BLE client created inside a failed connect() is still out of reach and is left to the library.)"""
+    every retry. (A BLE client created inside a failed connect() is still out of reach and is left to the library.)
+
+    It also replaces the library's `find_device`, which scans with the service-UUID filter that crashed bluetoothd (see `safe_ble_scan`).
+    The matching and the error messages are the library's own, so `BleEndpoint.failure_reason` keeps working."""
     class ClosingOnError(cls):
-        """BLEInterface that cleans up after a failed constructor."""
+        """BLEInterface that cleans up after a failed constructor and finds its device with the unfiltered scan."""
+        def find_device(self, address):
+            """Same as the library's: the device whose name or address equals `address` (any device if None); exactly one must match."""
+            devices = safe_ble_scan()
+            if address:
+                devices = [d for d in devices if address in (d.name, d.address)]
+            if len(devices) == 0:
+                raise cls.BLEError(
+                    f"No Meshtastic BLE peripheral with identifier or address '{address}' found. Try --ble-scan to find it.",
+                    cls.BLEError.DEVICE_NOT_FOUND)
+            if len(devices) > 1:
+                raise cls.BLEError(
+                    f"More than one Meshtastic BLE peripheral with identifier or address '{address}' found.",
+                    cls.BLEError.MULTIPLE_DEVICES)
+            return devices[0]
+
         def __init__(self, *args, **kwargs):
             try:
                 super().__init__(*args, **kwargs)
@@ -125,7 +162,7 @@ def _closing_on_error(cls):
 def scan_ble():
     """Scan for nearby Meshtastic Bluetooth devices (takes about 10 seconds). Returns a sorted list of (name, address).
     Raises BleUnavailable if Bluetooth cannot be used; other errors (adapter off, no BlueZ) propagate to the caller."""
-    found = load_ble().scan()
+    found = safe_ble_scan()
     return sorted(((getattr(d, "name", None) or "(no name)", d.address) for d in found), key=lambda t: (t[0].lower(), t[1]))
 
 

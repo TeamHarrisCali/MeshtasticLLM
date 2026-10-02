@@ -84,11 +84,24 @@ class FakeBle:
         W.made.append(self)
         if W.fail_late: raise W.fail_late       # fails after the receive thread exists, like a bleak error inside the library's constructor
     @staticmethod
-    def scan(): return list(FakeBle.SCAN)
+    def scan(): raise AssertionError("the library's filtered BLEInterface.scan() must never be called")
+    class BLEError(Exception):
+        DEVICE_NOT_FOUND, MULTIPLE_DEVICES = "device_not_found", "multiple_devices"
+        def __init__(self, message, kind="unknown"): super().__init__(message); self.kind = kind
     def getMyUser(self): return {"id": self.node, "longName": "Radio over Bluetooth", "shortName": "B", "hwModel": "FAKE"}
     def close(self): self.closed = True
     def drop(self): self.client = None; self._want_receive = False; self._receiveThread.alive = False   # the library's disconnect callback closes the interface
-FAKE_BLE_MODULE = types.ModuleType("meshtastic.ble_interface"); FAKE_BLE_MODULE.BLEInterface = FakeBle
+FAKE_SERVICE = "6ba1b218-15a8-461f-9fa8-5dcae273eafd"
+DISCOVER_CALLS = []          # kwargs of every discover() call the code made
+class FakeBleClient:
+    """Stands in for the library's BLEClient wrapper: an unfiltered discovery over FakeBle.SCAN (each device may carry .uuids)."""
+    def __enter__(self): return self
+    def __exit__(self, *a): return False
+    def discover(self, **kw):
+        DISCOVER_CALLS.append(kw)
+        return {d.address: (d, SimpleNamespace(service_uuids=getattr(d, "uuids", [FAKE_SERVICE.upper()]))) for d in FakeBle.SCAN}
+FAKE_BLE_MODULE = types.ModuleType("meshtastic.ble_interface")
+FAKE_BLE_MODULE.BLEInterface, FAKE_BLE_MODULE.BLEClient, FAKE_BLE_MODULE.SERVICE_UUID = FakeBle, FakeBleClient, FAKE_SERVICE
 sys.modules["meshtastic.ble_interface"] = FAKE_BLE_MODULE
 
 def args(**over):
@@ -275,6 +288,28 @@ with contextlib.redirect_stderr(err), contextlib.redirect_stdout(out):
     code = b.ble_scan_main()
 check("BLE unavailable: --ble-scan reports it in one line and exits 1", code == 1 and err.getvalue().count("\n") == 1 and "Bluetooth is not available" in err.getvalue(), (code, err.getvalue()))
 sys.modules["meshtastic.ble_interface"] = FAKE_BLE_MODULE
+
+# ---- the safe scan (never the library's filtered one) ----------------------------------------------------------------------
+FakeBle.SCAN = [SimpleNamespace(name="Meshtastic_aa22", address="AA:BB:CC:00:00:01"), SimpleNamespace(name="Meshtastic_zz11", address="11:22:33:44:55:66"),
+                SimpleNamespace(name="Headphones", address="99:99:99:99:99:99", uuids=["0000110b-0000-1000-8000-00805f9b34fb"]),
+                SimpleNamespace(name="Silent", address="98:98:98:98:98:98", uuids=None)]
+del DISCOVER_CALLS[:]
+found = conn.safe_ble_scan()
+check("safe scan: discover is called without a service filter, with advertisement data", len(DISCOVER_CALLS) == 1 and "service_uuids" not in DISCOVER_CALLS[0] and DISCOVER_CALLS[0].get("return_adv") is True, DISCOVER_CALLS)
+check("safe scan: devices that do not advertise the Meshtastic service are dropped (even with no advertised services)", sorted(d.address for d in found) == ["11:22:33:44:55:66", "AA:BB:CC:00:00:01"], [d.address for d in found])
+Closing = conn._closing_on_error(FakeBle)
+finder = Closing.__new__(Closing)        # find_device does not need a constructed object
+check("find_device: matches by address", finder.find_device("AA:BB:CC:00:00:01").name == "Meshtastic_aa22")
+check("find_device: matches by name", finder.find_device("Meshtastic_zz11").address == "11:22:33:44:55:66")
+try: finder.find_device("nobody"); err_ = None
+except FakeBle.BLEError as e: err_ = e
+check("find_device: none found raises the library's BLEError text and kind", err_ is not None and err_.kind == "device_not_found" and "No Meshtastic BLE peripheral with identifier or address 'nobody' found" in str(err_) and "--ble-scan" in str(err_), err_)
+check("...which the endpoint turns into the 'not found' back-off", conn.BleEndpoint("nobody").failure_reason("x", err_)[0] == 30)
+try: finder.find_device(None); err_ = None
+except FakeBle.BLEError as e: err_ = e
+check("find_device: no address with several radios nearby is the library's 'more than one' error", err_ is not None and err_.kind == "multiple_devices" and "More than one Meshtastic BLE peripheral" in str(err_), err_)
+FakeBle.SCAN = FakeBle.SCAN[:1]
+check("find_device: no address with exactly one radio nearby picks it (as the library does)", finder.find_device(None).address == "AA:BB:CC:00:00:01")
 
 # ---- --ble-scan ----------------------------------------------------------------------------------------------------------
 FakeBle.SCAN = [SimpleNamespace(name="Meshtastic_zz11", address="11:22:33:44:55:66"), SimpleNamespace(name="Meshtastic_aa22", address="AA:BB:CC:00:00:01")]

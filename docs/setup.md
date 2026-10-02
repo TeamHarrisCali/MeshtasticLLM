@@ -48,7 +48,7 @@ system's retransmission timeout (about 15 minutes on Linux) applies. On Windows,
 radio with the computer if the operating system asks for the PIN the radio shows. Bluetooth is host-only: it uses the computer's own
 Bluetooth adapter and does not work inside a container or a virtual machine without the adapter passed through. On **Linux** it needs BlueZ
 (the `bluetooth` service running, D-Bus available) and your user allowed to use it; if the scan fails, check `systemctl status bluetooth`
-and that `bluetoothctl show` lists a powered adapter. Each connection attempt scans for about ten seconds first, and a radio that is not
+and that `bluetoothctl show` lists a powered adapter. Each connection attempt scans for about ten seconds first (an unfiltered scan, then the bridge picks out Meshtastic radios itself: with BlueZ 5.87 and bleak 3.0.2 the library's own scan, which asks BlueZ to filter by service, crashed the Bluetooth daemon), and a radio that is not
 found is retried every 30 seconds. Bluetooth support comes with the `meshtastic` package (it installs `bleak`); if it is missing the bridge says so in one line and
 you can reinstall with `pip install -r requirements.txt`. Not yet tried on Windows or macOS.
 

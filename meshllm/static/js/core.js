@@ -145,6 +145,7 @@ async function refreshTop() {
     if (s.dist_unit && s.dist_unit !== distUnit) { setDistUnit(s.dist_unit); if (view) route(); }
     if (s.temp_unit && s.temp_unit !== tempUnit) { setTempUnit(s.temp_unit); if (view) route(); }     // changed from another browser
     syncRadioBanner(s.radio_change);
+    $("demoBadge").hidden = !s.demo;      // --demo: simulated radio and mesh
     $("llmDot").className = "dot " + (s.ollama_ok ? "ok" : "bad");
     $("llmTxt").textContent = s.ollama_ok ? `Ollama · ${s.model}` : `Ollama: ${s.model} unavailable`;
     const pb = $("pauseBtn");

@@ -660,6 +660,10 @@ name_cells = [r["name"] for r in _csv.DictReader(_io.StringIO(cm.export_csv("mes
 check("a node name that looks like a spreadsheet formula is exported as text (leading quote)", name_cells == ['\'=HYPERLINK("http://evil.example","click")'], name_cells)
 from meshllm.audit import csv_cell as _cc
 check("csv_cell leaves numbers, None and ordinary text alone and quotes =, +, -, @, tab", [_cc(5), _cc(-2.5), _cc(None), _cc(""), _cc("hello"), _cc("=1+1"), _cc("+1"), _cc("-1"), _cc("@x"), _cc("\tx")] == [5, -2.5, None, "", "hello", "'=1+1", "'+1", "'-1", "'@x", "'\tx"])
+check("csv_cell drops NUL characters (Python before 3.11 cannot write them, which broke the whole export)", [_cc("a\x00b"), _cc("\x00=1"), _cc("\x00")] == ["ab", "'=1", ""])
+import csv as _c2, io as _i2
+_buf = _i2.StringIO(); _c2.writer(_buf).writerow([_cc("hello\x00world")])
+check("...so a message with a NUL in it still exports", _buf.getvalue().strip() == "helloworld")
 cb.audit.db.close()
 
 # ---- link-quality map and hop series -------------------------------------------------------------------------------------------------

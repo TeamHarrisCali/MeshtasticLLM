@@ -23,8 +23,9 @@ Reports and fixes are welcome.
 
 ## Evaluation to do
 
-- The tool menu is now mesh-only. Re-run `eval_tools.py` (dev and held-out, `--runs 3`) for the model you use and
-  compare with the earlier results in `eval_results/`. Try a larger model and record accuracy *and* latency.
+- The tool menu is now mesh-only and has been measured once, on `llama3.2:3b` (see `evaluation.md`: dev 85%, held-out 70%).
+  Repeat with a larger model (for example `qwen3.5`) and `--runs 3`, and record accuracy *and* latency. The weak spot is choosing the
+  right `mesh_report` topic, so that is where better tool descriptions or a bigger model would show up.
 - Measure how often a model invents radio or device status when asked a casual question (some models do).
 - Repeat the tool-choice results for models other than `qwen3.5` before quoting them.
 

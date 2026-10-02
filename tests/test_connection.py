@@ -90,6 +90,7 @@ class FakeBle:
         if W.block: W.block.wait()               # a connect that never returns
         self._startConfig()                      # ...then it downloads the radio's settings
     def _startConfig(self): pass
+    def _handleFromRadio(self, b): pass
     def connect(self, address=None):             # the library's version (replaced by our subclass; kept so FakeBle is complete)
         self.find_device(address); return FakeBleClient(address)
     def find_device(self, address): return FakeDevice(address, None, {})
@@ -99,7 +100,7 @@ class FakeBle:
         DEVICE_NOT_FOUND, MULTIPLE_DEVICES = "device_not_found", "multiple_devices"
         def __init__(self, message, kind="unknown"): super().__init__(message); self.kind = kind
     def getMyUser(self): return {"id": self.node, "longName": "Radio over Bluetooth", "shortName": "B", "hwModel": "FAKE"}
-    def close(self): self.closed = True
+    def close(self): self.closed = True; self.closed_by = threading.current_thread()
     def drop(self): self.client = None; self._want_receive = False; self._receiveThread.alive = False   # the library's disconnect callback closes the interface
 FAKE_SERVICE = "6ba1b218-15a8-461f-9fa8-5dcae273eafd"
 DISCOVER_CALLS = []          # kwargs of every discover() call the code made
@@ -109,7 +110,8 @@ class FakeBleClient:
     """Stands in for the library's BLEClient wrapper: an unfiltered discovery over FakeBle.SCAN (each device may carry .uuids),
     and a client that records what it was asked to connect to."""
     def __init__(self, address=None, **kw):
-        self.target, self.closed = address, False
+        self.target, self.closed, self.kw = address, False, kw
+        self.bleak_client = SimpleNamespace(is_connected=True)      # what the library's BLEClient exposes: bleak's own view of the link
         CLIENTS.append(self)
     def connect(self):
         if CLIENT_FAILS: raise CLIENT_FAILS.pop(0)
@@ -286,6 +288,89 @@ W.fail_late = None
 check("BLE: failure wording", "not found" in conn.BleEndpoint("x").failure_reason("x", FakeBleError("m", "device_not_found"))[1]
       and conn.BleEndpoint("x").failure_reason("x", RuntimeError("boom"))[0] >= 30)
 reset_world()
+
+# ---- the data watchdog and the real link state (injected clock: no sleeping) ---------------------------------------------------
+NOW = [1000.0]
+saved_clock = conn.clock
+conn.clock = lambda: NOW[0]
+ep = conn.BleEndpoint("AA:BB:CC:DD:EE:FF")
+FakeBle.SCAN = []
+with contextlib.redirect_stdout(io.StringIO()):
+    iface_ = ep.open(ep.label)
+check("watchdog: a fresh link is healthy and its silence clock starts when the radio is ready", ep.link_problem(iface_, ep.label) is None and ep.silence(iface_) == 0)
+iface_.client.bleak_client.is_connected = False
+check("BLE: the Bluetooth stack saying 'not connected' is a lost link even though the library's flags still say connected", ep.link_problem(iface_, ep.label) == "Bluetooth link lost" and not ep.alive(iface_))
+iface_.client.bleak_client.is_connected = True
+NOW[0] += 299
+check("BLE: silence below the limit is healthy", ep.link_problem(iface_, ep.label) is None)
+NOW[0] += 2
+check("BLE: silence beyond the limit is a lost link, even though is_connected has flipped back to True with no data", ep.link_problem(iface_, ep.label) == "no data from the radio for 301 s")
+iface_._handleFromRadio(b"packet")
+check("BLE: a message from the radio resets the silence clock", ep.silence(iface_) == 0 and ep.link_problem(iface_, ep.label) is None)
+check("BLE: --link-silence 0 turns the watchdog off", (setattr(ep, "silence_limit", 0), setattr(iface_, "_last_rx", NOW[0] - 10 ** 6), ep.link_problem(iface_, ep.label))[-1] is None)
+ep.silence_limit = 300
+check("serial and the demo radio record no silence, so the watchdog never applies", conn.SerialEndpoint().silence(SimpleNamespace()) is None and conn.SerialEndpoint().silence_limit == 0)
+# the library's disconnect callback must not close the interface on the thread that called it (it would wait on itself)
+with contextlib.redirect_stdout(io.StringIO()):
+    iface_ = ep.open(ep.label)
+callback = CLIENTS[-1].kw["disconnected_callback"]
+caller = threading.current_thread()
+callback(None)
+check("BLE: the disconnect callback closes the interface on a thread of its own", until(lambda: iface_.closed) and iface_.closed_by is not caller, getattr(iface_, "closed_by", None))
+
+# through a running bridge
+NOW[0] = 5000.0
+br = start(ble="AA:BB:CC:DD:EE:FF")
+check("bridge, BLE: connected with a fresh silence clock reported in the status", until(lambda: br.iface is not None) and br.status()["last_rx_age_s"] == 0 and br.status()["silence_limit_s"] == 300, br.status())
+first = br.iface
+NOW[0] += 200
+first._handleFromRadio(b"x")
+NOW[0] += 200       # 200 s since the last message: still healthy
+until(lambda: br.status()["last_rx_age_s"] == 200)
+time.sleep(0.3)
+check("bridge, BLE: data keeps the link alive across the limit in total time", br.iface is first and br.status()["last_rx_age_s"] == 200, br.status())
+NOW[0] += 150       # now 350 s of silence
+check("bridge, BLE: silence beyond the limit drops the link and it reconnects by itself", until(lambda: br.iface is not None and br.iface is not first and first.closed), br.status())
+check("...and the new link starts with a fresh silence clock", br.status()["connected"] and br.status()["last_rx_age_s"] == 0, br.status())
+second = br.iface
+second.client.bleak_client.is_connected = False
+check("bridge, BLE: bleak reporting a lost link also reconnects", until(lambda: br.iface is not None and br.iface is not second and second.closed))
+# diagnostics, on a bridge that is not running a connect loop (so its clock can be moved freely)
+dbr = b.Bridge(args(ble="AA:BB:CC:DD:EE:FF", web_host="127.0.0.1", web_port=8080))
+with contextlib.redirect_stdout(io.StringIO()):
+    dbr.iface = dbr.endpoint.open(dbr.endpoint.label)
+dbr.port = dbr.endpoint.label
+def radio_data_check():
+    return [c_ for c_ in dbr.diagnostics.report()["checks"] if c_["id"] == "radio_data"]
+check("diagnostics: no warning while the radio is talking", radio_data_check() == [])
+NOW[0] += 400
+rd_ = radio_data_check()
+check("diagnostics: a 'connected' radio that has been silent beyond the limit gets a warning", len(rd_) == 1 and rd_[0]["status"] == "warn" and "400 s" in rd_[0]["detail"], rd_)
+dbr.stop()
+reset_world()
+# Wi-Fi: same watchdog with a longer default, and the hidden flag overrides it
+NOW[0] = 9000.0
+br = start(tcp="radio.test")
+until(lambda: br.iface is not None)
+first = br.iface
+check("bridge, TCP: default limit is 900 s and the status reports it", br.status()["silence_limit_s"] == conn.TCP_SILENCE_LIMIT == 900 and br.status()["last_rx_age_s"] == 0, br.status())
+NOW[0] += 800
+time.sleep(0.3)
+check("bridge, TCP: 800 s of silence is still tolerated", br.iface is first)
+NOW[0] += 200
+check("bridge, TCP: 1000 s of silence drops the link and it reconnects", until(lambda: br.iface is not None and br.iface is not first and first.closed))
+reset_world()
+br = start(tcp="radio.test", link_silence=0)
+until(lambda: br.iface is not None); first = br.iface
+NOW[0] += 10 ** 6
+time.sleep(0.3)
+check("bridge, TCP: --link-silence 0 disables the watchdog", br.iface is first and br.status()["silence_limit_s"] is None, br.status())
+reset_world()
+conn.clock = saved_clock
+code, err, ns = run_cli(["--link-silence", "-5"])
+check("--link-silence rejects a negative value, and the flag is hidden from --help", code == 2 and "--link-silence" in err and "--link-silence" not in b.build_parser().format_help(), (code, err))
+code, err, ns = run_cli(["--ble", "AA:BB:CC:DD:EE:FF", "--link-silence", "60"])
+check("--link-silence overrides the per-mode limit", code is None and conn.make_endpoint(ns).silence_limit == 60, (code, err))
 
 # ---- Bluetooth unavailable -------------------------------------------------------------------------------------------
 sys.modules["meshtastic.ble_interface"] = None     # makes `import` raise ImportError, like a missing bleak

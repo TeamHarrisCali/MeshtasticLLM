@@ -831,6 +831,9 @@ class Bridge:
             "access_mode": self.mode,
             "temp_unit": self.mesh.temp_unit(), "dist_unit": self.mesh.dist_unit(),
             "radio_change": self.mesh.radio_change_active(),
+            # seconds since the radio last sent anything (None when this connection mode does not record it) and the silence that counts as dead
+            "last_rx_age_s": None if self.iface is None or self.endpoint.silence(self.iface) is None else int(self.endpoint.silence(self.iface)),
+            "silence_limit_s": self.endpoint.silence_limit or None,
             "demo": bool(getattr(self.args, "demo", False)),   # --demo: the dashboard shows a "Demo mode" badge
         }
 
@@ -1371,6 +1374,7 @@ def build_parser():
     p.add_argument("--ble", default=None, metavar="ADDRESS_OR_NAME",
                    help="reach the radio over Bluetooth instead of USB: its address or name as --ble-scan prints it "
                         "(needs Bluetooth on this computer, not inside a container)")
+    p.add_argument("--link-silence", type=float, default=None, metavar="SECONDS", help=argparse.SUPPRESS)   # advanced: see connection.py
     p.add_argument("--ble-scan", action="store_true",
                    help="list nearby Meshtastic Bluetooth radios (name and address), then exit without starting the bridge")
     p.add_argument("--scan-interval", type=float, default=2.0,

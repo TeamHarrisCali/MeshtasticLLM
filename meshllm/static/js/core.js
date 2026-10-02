@@ -32,6 +32,8 @@ const fmtTime = ts => {
 // Milliseconds as 'N ms' or 'N.N s'; a dash when unknown.
 const fmtMs = ms => ms == null ? "–" : ms < 1000 ? ms + " ms" : (ms / 1000).toFixed(1) + " s";
 // Uptime in seconds as minutes (under an hour) or hours.
+// " · heard 12 s ago": when the radio last sent anything (only connection modes that record it report it)
+const lastHeard = s => s.last_rx_age_s == null ? "" : ` · heard ${s.last_rx_age_s < 120 ? s.last_rx_age_s + " s" : Math.round(s.last_rx_age_s / 60) + " min"} ago`;
 const fmtUp = s => s < 3600 ? Math.floor(s / 60) + " min" : (s / 3600).toFixed(1) + " h";
 
 // Returns [text, colour class] summarising how many reply chunks were acked, relayed or failed.
@@ -139,7 +141,7 @@ async function refreshTop() {
     const [s, st] = await Promise.all([api("/api/status"), api("/api/stats")]);
     $("radioDot").className = "dot " + (s.connected ? "ok" : (s.searching ? "warn" : "bad"));
     $("radioTxt").textContent = s.connected
-      ? `${s.node.long_name || "Node"} · ${s.port} · up ${fmtUp(s.uptime_s)}`
+      ? `${s.node.long_name || "Node"} · ${s.port} · up ${fmtUp(s.uptime_s)}${lastHeard(s)}`
       : (s.searching ? "Looking for a radio…" + (s.node.long_name ? ` (last: ${s.node.long_name})` : "") : "Radio disconnected");
     // Units are stored on the server: adopt a change made in another browser and redraw the current page in the new unit.
     if (s.dist_unit && s.dist_unit !== distUnit) { setDistUnit(s.dist_unit); if (view) route(); }

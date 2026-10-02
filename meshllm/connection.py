@@ -20,6 +20,7 @@ import os
 import re
 import sys
 import threading
+import time
 
 import meshtastic.serial_interface
 from serial.tools import list_ports
@@ -28,6 +29,9 @@ DEFAULT_TCP_PORT = 4403     # the meshtastic TCP API port
 BLE_CONNECT_TIMEOUT = 90    # seconds for the whole Bluetooth connect (scan, connect, settings download); tests shorten it
 BLE_SCAN_TIMEOUT = 25       # seconds for one Bluetooth scan (the library's own discovery runs 10)
 BLE_CONFIG_TIMEOUT = 60     # seconds the library waits for the radio's settings (its own default is 300)
+BLE_SILENCE_LIMIT = 300     # seconds without any message from a Bluetooth radio before the link is declared dead
+TCP_SILENCE_LIMIT = 900     # the same for Wi-Fi (a quiet mesh is normal, and a needless reconnect is harmless)
+clock = time.monotonic      # tests replace this with a fake clock
 BLUETOOTH_SYSFS = "/sys/class/bluetooth"    # Linux lists the Bluetooth adapters (hci0, ...) here; tests point it elsewhere
 MAC_RE = re.compile(r"^[0-9A-Fa-f]{2}([:-][0-9A-Fa-f]{2}){5}$")
 
@@ -178,6 +182,24 @@ def safe_ble_scan(timeout=10):
     return [device for device, adv in response.values() if wanted in [u.lower() for u in (adv.service_uuids or [])]]
 
 
+def stamp_rx(cls):
+    """A subclass of a library interface class that remembers when the last message from the radio arrived (`_last_rx`, on `clock`).
+
+    The link checks look at flags the library keeps, and those can stay true after the link is dead (a radio reboot with the OS
+    reconnecting underneath, subscriptions gone). Data is the only proof that the link works, so the endpoints turn long silence into a
+    lost link. `_handleFromRadio` is the library's single entry point for everything the radio sends."""
+    class StampsReceive(cls):
+        """Interface that records when it last heard from the radio."""
+        def __init__(self, *args, **kwargs):
+            self._last_rx = clock()         # set before the library starts its reader
+            super().__init__(*args, **kwargs)
+
+        def _handleFromRadio(self, fromRadioBytes):
+            self._last_rx = clock()
+            return super()._handleFromRadio(fromRadioBytes)
+    return StampsReceive
+
+
 def _quiet(iface):
     """Close an interface, ignoring errors (it may be half built or already gone)."""
     try:
@@ -227,7 +249,7 @@ def _closing_on_error(cls, note=None, state=None):
     cannot see it, yet connecting by address works because the OS knows the device. `note(phase, text)` (optional) is told about each phase
     so it can be logged; `state` (optional) receives this object as state["iface"] so a timed-out connect can close it."""
     say = note or (lambda phase, text: None)
-    class ClosingOnError(cls):
+    class ClosingOnError(stamp_rx(cls)):
         """BLEInterface that cleans up after a failed constructor and finds its device with the unfiltered scan."""
         def __init__(self, *args, **kwargs):
             if state is not None:
@@ -268,7 +290,11 @@ def _closing_on_error(cls, note=None, state=None):
             for i, (phase, target) in enumerate(attempts):
                 if phase:
                     say("connect", phase)
-                client = module.BLEClient(target, disconnected_callback=lambda _: self.close())
+                # The library's callback calls self.close() directly. bleak runs the callback ON the Bluetooth event-loop thread, and close()
+                # talks to the radio through that same loop and waits for the answer, so it can wait forever on itself: the interface then
+                # never closes and looks connected. Closing from a thread of its own avoids that.
+                client = module.BLEClient(target, disconnected_callback=lambda _: threading.Thread(
+                    target=_quiet, args=(self,), daemon=True, name="ble-close").start())
                 try:
                     client.connect()
                     client.discover()
@@ -320,6 +346,8 @@ def check_args(parser, args):
             parse_tcp(args.tcp)
         except ValueError as e:
             parser.error(f"--tcp: {e}")
+    if (getattr(args, "link_silence", None) or 0) < 0:
+        parser.error("--link-silence: seconds must be 0 (off) or more")
     if args.ble is not None and not args.ble.strip():
         parser.error("--ble: an address or device name is needed (--ble-scan lists them)")
 
@@ -328,19 +356,34 @@ def make_endpoint(args):
     """The Endpoint the command-line flags ask for. Tolerates an `args` without the newer flags (older tests and callers)."""
     if getattr(args, "demo", False):     # the simulated radio has no socket or Bluetooth client: --tcp/--ble are ignored there
         return SerialEndpoint()
+    silence = getattr(args, "link_silence", None)     # hidden --link-silence SECONDS: overrides the per-mode limit, 0 = off
     if getattr(args, "tcp", None) is not None:
-        return TcpEndpoint(*parse_tcp(args.tcp))
+        return TcpEndpoint(*parse_tcp(args.tcp), silence_limit=TCP_SILENCE_LIMIT if silence is None else silence)
     if getattr(args, "ble", None) is not None:
-        return BleEndpoint(args.ble.strip())
+        return BleEndpoint(args.ble.strip(), silence_limit=BLE_SILENCE_LIMIT if silence is None else silence)
     return SerialEndpoint(getattr(args, "port", "auto"), bool(getattr(args, "probe_unknown", False)))
 
 
 class Endpoint:
     """One way of reaching the radio. Subclasses fill in the mode-specific parts; see the module docstring."""
     kind = ""
+    silence_limit = 0       # seconds without data before the link counts as dead; 0 = no watchdog (USB serial has its own checks)
 
     def initial_label(self):
         """What to show as the connection before anything has connected."""
+        return None
+
+    @staticmethod
+    def silence(iface):
+        """Seconds since the radio last sent anything, or None when the interface does not record it (USB serial, the demo radio)."""
+        last = getattr(iface, "_last_rx", None)
+        return None if last is None else max(0.0, clock() - last)
+
+    def silent_too_long(self, iface):
+        """A reason if the radio has said nothing for longer than `silence_limit`, else None."""
+        age = self.silence(iface)
+        if self.silence_limit and age is not None and age > self.silence_limit:
+            return f"no data from the radio for {age:.0f} s"
         return None
 
     def describe(self):
@@ -442,8 +485,8 @@ class TcpEndpoint(Endpoint):
     kind = "tcp"
     OPEN_TIMEOUT = 60       # seconds to wait for the radio's config after connecting (the library's own default is 300)
 
-    def __init__(self, host, port=DEFAULT_TCP_PORT):
-        self.host, self.port = host, port
+    def __init__(self, host, port=DEFAULT_TCP_PORT, silence_limit=TCP_SILENCE_LIMIT):
+        self.host, self.port, self.silence_limit = host, port, silence_limit
         self.label = f"tcp://[{host}]:{port}" if ":" in host else f"tcp://{host}:{port}"
 
     def initial_label(self):
@@ -460,7 +503,8 @@ class TcpEndpoint(Endpoint):
 
     def open(self, label):
         from meshtastic.tcp_interface import TCPInterface
-        iface = TCPInterface(hostname=self.host, portNumber=self.port, timeout=self.OPEN_TIMEOUT)
+        iface = stamp_rx(TCPInterface)(hostname=self.host, portNumber=self.port, timeout=self.OPEN_TIMEOUT)
+        iface._last_rx = clock()        # the silence clock starts when the radio is ready
         self._keepalive(iface)
         return iface
 
@@ -501,7 +545,7 @@ class TcpEndpoint(Endpoint):
         if not self.alive(iface):
             return "connection to the radio ended"
         self._keepalive(iface)      # re-applies after the library reconnected on a new socket
-        return None
+        return self.silent_too_long(iface)
 
     def failure_reason(self, label, error):
         text = str(error).lower()
@@ -523,8 +567,8 @@ class BleEndpoint(Endpoint):
     connect has a time limit (BLE_CONNECT_TIMEOUT), because the Bluetooth stack can hang without an error."""
     kind = "ble"
 
-    def __init__(self, target):
-        self.target = target
+    def __init__(self, target, silence_limit=BLE_SILENCE_LIMIT):
+        self.target, self.silence_limit = target, silence_limit
         self.label = f"ble:{target}"
 
     def initial_label(self):
@@ -558,13 +602,29 @@ class BleEndpoint(Endpoint):
         iface = _call_with_timeout(lambda: _closing_on_error(cls, note, state)(self.target, timeout=BLE_CONFIG_TIMEOUT),
                                    BLE_CONNECT_TIMEOUT, lambda: state["phase"], on_abandon=abandon, on_late_result=_quiet)
         state["ready"] = True
+        iface._last_rx = clock()        # the silence clock starts when the radio is ready
         print("[radio] Bluetooth: radio ready", flush=True)
         return iface
 
     def alive(self, iface):
         thread = getattr(iface, "_receiveThread", None)
-        return (getattr(iface, "client", None) is not None and getattr(iface, "_want_receive", True)
-                and (thread is None or thread.is_alive()))
+        client = getattr(iface, "client", None)
+        return (client is not None and getattr(iface, "_want_receive", True) and (thread is None or thread.is_alive())
+                and self._os_connected(client))
+
+    @staticmethod
+    def _os_connected(client):
+        """The Bluetooth stack's own view: is the link up? (bleak reads BlueZ's Connected state.) The library's flags alone can stay true
+        after the radio has gone, so this is checked too. Unknown counts as connected; the silence watchdog covers that case."""
+        try:
+            return bool(getattr(getattr(client, "bleak_client", None), "is_connected", True))
+        except Exception:
+            return True
+
+    def link_problem(self, iface, label):
+        if not self.alive(iface):
+            return "Bluetooth link lost"
+        return self.silent_too_long(iface)
 
     def failure_reason(self, label, error):
         if isinstance(error, BleUnavailable):

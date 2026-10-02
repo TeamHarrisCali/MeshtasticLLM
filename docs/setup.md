@@ -71,7 +71,12 @@ a bare `bleak` script, fails with `org.bluez.Error.Failed br-connection-canceled
 *How it connects.* Names are looked up with an unfiltered scan of about ten seconds (the bridge picks out Meshtastic radios itself: with
 BlueZ 5.87 and bleak 3.0.2 the library's own scan, which asks BlueZ to filter by service, crashed the Bluetooth daemon). Every phase is logged
 (`Bluetooth: scanning`, `connecting`, `waiting for the radio to send its settings`, `radio ready`), and the whole connect gives up after 90 seconds
-with a message naming the phase it was stuck in, then retries after a back-off (30 to 60 seconds) instead of hanging silently. Bluetooth support
+with a message naming the phase it was stuck in, then retries after a back-off (30 to 60 seconds) instead of hanging silently. The bridge also watches the link itself: it asks the Bluetooth stack whether the radio is still connected, and it
+counts the messages the radio sends. If nothing at all has arrived for 5 minutes (15 minutes over Wi-Fi) it treats the link as dead, closes it and
+reconnects, because after a radio reboot the system can reconnect underneath while the radio's data stream is gone and the connection still
+looks fine. A quiet mesh can cause an unneeded reconnect now and then; it is harmless. The dashboard shows "heard N s ago" next to the radio,
+Diagnostics warns when the silence passes the limit, and the hidden `--link-silence SECONDS` flag changes the limit (0 turns it off). USB is not
+affected. Bluetooth support
 comes with the `meshtastic` package (it installs `bleak`); if it is missing the bridge says so in one line and you can reinstall with
 `pip install -r requirements.txt`. Not yet tried on Windows or macOS.
 

@@ -107,6 +107,10 @@ class Diagnostics:
                 b.endpoint.search_hint())
         else:
             add("radio", "Radio", "warn", "The radio connection looks stalled.", "Power-cycle or reconnect the radio; the bridge reconnects by itself.")
+        age, limit = st.get("last_rx_age_s"), st.get("silence_limit_s")
+        if st["connected"] and age is not None and limit and age > limit:
+            add("radio_data", "Radio data", "warn", f"Nothing has arrived from the radio for {age} s although it looks connected.",
+                "The bridge drops and reopens the connection by itself at this point; if it keeps happening, check the radio and the link.")
         # last packet
         try:
             last = max(b.mesh._seen.values(), default=None)

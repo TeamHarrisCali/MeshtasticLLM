@@ -92,6 +92,8 @@ foreground instead: `.venv/bin/python -m meshllm`.
 
 ### Connect over Wi-Fi or Bluetooth
 
+> **Status:** Bluetooth has been tested on a real radio (connect, and automatic recovery after a reboot). **Wi-Fi (`--tcp`) has not been tested on real hardware yet;** it is covered only by automated tests with a simulated connection. Try it and report what happens.
+
 USB is the default. A radio can also be reached without a cable (pick one; the AI's read-only toolbox and the reconnect behaviour are the same):
 
 ```bash

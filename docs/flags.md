@@ -14,7 +14,7 @@
 so only do that on a network you trust.
 **How the radio is reached** (pick one; the default is USB serial with auto-detect):
 `--port auto|COMx|/dev/ttyUSB0` (USB serial; `auto` finds the radio by its chip and follows it if the port number changes),
-`--tcp HOST[:PORT]` (Wi-Fi: a radio on your network, by IP address or host name; the port is 4403 unless you give one; IPv6 as `[addr]:port`),
+`--tcp HOST[:PORT]` (Wi-Fi: a radio on your network, by IP address or host name; the port is 4403 unless you give one; IPv6 as `[addr]:port`; **not yet tested on real hardware**),
 `--ble ADDRESS_OR_NAME` (Bluetooth LE, host only). `--tcp`, `--ble` and a pinned `--port` cannot be combined (`--port auto` is the
 default and may be written out). `--ble-scan` prints the nearby Meshtastic Bluetooth radios (name and address) and exits without starting the
 bridge; it takes about ten seconds. `--probe-unknown` applies to USB auto-detect only. `--scan-interval` is how often the link is checked in

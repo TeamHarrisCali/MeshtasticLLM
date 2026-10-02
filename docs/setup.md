@@ -87,8 +87,9 @@ affected. Bluetooth support
 comes with the `meshtastic` package (it installs `bleak`); if it is missing the bridge says so in one line and you can reinstall with
 `pip install -r requirements.txt`. Not yet tried on Windows or macOS.
 
-Not yet verified on real hardware (the code is tested against faked connections only): treat the first Wi-Fi or Bluetooth run as a trial and
-report what happens.
+**Wi-Fi (`--tcp`) has not been tested on real hardware yet.** It is covered by automated tests with a simulated connection only, so treat
+the first Wi-Fi run as a trial and report what happens. USB and Bluetooth (`--ble`) have been tested on a real Heltec V3 radio:
+hot-plug reconnect, connecting with and without the computer already holding the radio, and recovery after the radio rebooted.
 
 ## Start at login (optional)
 

@@ -1,2 +1,2 @@
-meshtastic
+meshtastic>=2.7.11,<2.8
 requests

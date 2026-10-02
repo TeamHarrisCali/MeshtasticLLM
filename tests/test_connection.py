@@ -61,6 +61,7 @@ class FakeSocket:
     def setsockopt(self, *a): self.opts.append(a)
 
 class FakeTcp:
+    def _handleFromRadio(self, b): pass
     def __init__(self, hostname, debugOut=None, noProto=False, connectNow=True, portNumber=4403, noNodes=False, timeout=300):
         W.attempts += 1
         if W.fail: raise W.fail
@@ -101,7 +102,9 @@ class FakeBle:
         DEVICE_NOT_FOUND, MULTIPLE_DEVICES = "device_not_found", "multiple_devices"
         def __init__(self, message, kind="unknown"): super().__init__(message); self.kind = kind
     def getMyUser(self): return {"id": self.node, "longName": "Radio over Bluetooth", "shortName": "B", "hwModel": "FAKE"}
+    close_calls = 0
     def close(self):
+        self.close_calls += 1
         self.closed = True; self.closed_by = threading.current_thread()
         c_ = getattr(self, "client", None)
         if W.close_error or (c_ is not None and not getattr(c_, "bleak_client", SimpleNamespace(is_connected=True)).is_connected):
@@ -123,6 +126,7 @@ class FakeBleClient:
     def connect(self):
         if CLIENT_FAILS: raise CLIENT_FAILS.pop(0)
     def close(self): self.closed = True
+    def disconnect(self): self.disconnected = True
     def __enter__(self): return self
     def __exit__(self, *a): return False
     def discover(self, **kw):
@@ -325,6 +329,46 @@ W.close_error = False
 check("...but the same error on a link that is still up is NOT hidden", any("Error closing mesh interface" in m for m in logged), logged)
 lib_logger.removeHandler(grab)
 
+# ---- small guards -------------------------------------------------------------------------------------------------------------
+check("MAC: a trailing newline or extra text is not a MAC address", not conn.MAC_RE.fullmatch("AA:BB:CC:DD:EE:FF\n") and not conn.MAC_RE.fullmatch("AA:BB:CC:DD:EE:FF/../x") and conn.MAC_RE.fullmatch("aa-bb-cc-dd-ee-ff"))
+class IncompatibleBle:
+    """A BLEInterface lookalike without the hooks we need."""
+    def __init__(self, address=None): pass
+saved_iface = FAKE_BLE_MODULE.BLEInterface
+FAKE_BLE_MODULE.BLEInterface = IncompatibleBle
+try:
+    conn.load_ble(); msg = None
+except conn.BleUnavailable as e:
+    msg = str(e)
+FAKE_BLE_MODULE.BLEInterface = saved_iface
+check("an incompatible meshtastic library gives a one-line message naming what is missing and the version to install",
+      msg is not None and "\n" not in msg and "_handleFromRadio" in msg and "find_device" in msg and conn.REQUIRED_LIBRARY in msg, msg)
+saved_tcp = meshtastic.tcp_interface.TCPInterface
+class IncompatibleTcp:
+    def __init__(self, hostname, **kw): pass
+meshtastic.tcp_interface.TCPInterface = IncompatibleTcp
+try:
+    conn.TcpEndpoint("radio.test").open("x"); msg = None
+except conn.LinkUnavailable as e:
+    msg = str(e)
+meshtastic.tcp_interface.TCPInterface = saved_tcp
+check("...and the same for Wi-Fi, with the long back-off", msg is not None and "not compatible" in msg and conn.TcpEndpoint("h").failure_reason("x", conn.TcpUnavailable(msg))[0] == 600, msg)
+# Ctrl+C while a connect is waiting: the half-built interface is closed (an object whose comparison raises KeyboardInterrupt stands in for the signal)
+class CtrlC:
+    def __gt__(self, other): raise KeyboardInterrupt()
+gate_ = threading.Event()
+events_ = []
+try:
+    conn._call_with_timeout(lambda: (gate_.wait(), "late-iface")[1], CtrlC(), lambda: "connecting",
+                            on_abandon=lambda: events_.append("abandoned"), on_late_result=lambda r: events_.append(r))
+    raised = False
+except KeyboardInterrupt:
+    raised = True
+check("Ctrl+C during a connect: the wait is abandoned (half-built interface closed) and the interrupt propagates", raised and events_ == ["abandoned"], events_)
+gate_.set()
+check("...and an interface that finishes late is closed rather than leaked", until(lambda: events_ == ["abandoned", "late-iface"]), events_)
+reset_world()
+
 # ---- the data watchdog and the real link state (injected clock: no sleeping) ---------------------------------------------------
 NOW = [1000.0]
 saved_clock = conn.clock
@@ -337,14 +381,14 @@ check("watchdog: a fresh link is healthy and its silence clock starts when the r
 iface_.client.bleak_client.is_connected = False
 check("BLE: the Bluetooth stack saying 'not connected' is a lost link even though the library's flags still say connected", ep.link_problem(iface_, ep.label) == "Bluetooth link lost" and not ep.alive(iface_))
 iface_.client.bleak_client.is_connected = True
-NOW[0] += 299
-check("BLE: silence below the limit is healthy", ep.link_problem(iface_, ep.label) is None)
+NOW[0] += 899
+check("BLE: silence one second below the limit is healthy", ep.link_problem(iface_, ep.label) is None)
 NOW[0] += 2
-check("BLE: silence beyond the limit is a lost link, even though is_connected has flipped back to True with no data", ep.link_problem(iface_, ep.label) == "no data from the radio for 301 s")
+check("BLE: silence beyond the limit is a lost link, even though is_connected has flipped back to True with no data", ep.link_problem(iface_, ep.label) == "no data from the radio for 901 s")
 iface_._handleFromRadio(b"packet")
 check("BLE: a message from the radio resets the silence clock", ep.silence(iface_) == 0 and ep.link_problem(iface_, ep.label) is None)
 check("BLE: --link-silence 0 turns the watchdog off", (setattr(ep, "silence_limit", 0), setattr(iface_, "_last_rx", NOW[0] - 10 ** 6), ep.link_problem(iface_, ep.label))[-1] is None)
-ep.silence_limit = 300
+ep.silence_limit = conn.BLE_SILENCE_LIMIT
 check("serial and the demo radio record no silence, so the watchdog never applies", conn.SerialEndpoint().silence(SimpleNamespace()) is None and conn.SerialEndpoint().silence_limit == 0)
 # the library's disconnect callback must not close the interface on the thread that called it (it would wait on itself)
 with contextlib.redirect_stdout(io.StringIO()):
@@ -357,31 +401,112 @@ check("BLE: the disconnect callback closes the interface on a thread of its own"
 # through a running bridge
 NOW[0] = 5000.0
 br = start(ble="AA:BB:CC:DD:EE:FF")
-check("bridge, BLE: connected with a fresh silence clock reported in the status", until(lambda: br.iface is not None) and br.status()["last_rx_age_s"] == 0 and br.status()["silence_limit_s"] == 300, br.status())
+check("bridge, BLE: connected with a fresh silence clock reported in the status", until(lambda: br.iface is not None) and br.status()["last_rx_age_s"] == 0 and br.status()["silence_limit_s"] == 900 == conn.BLE_SILENCE_LIMIT, br.status())
 first = br.iface
-NOW[0] += 200
+NOW[0] += 500
 first._handleFromRadio(b"x")
-NOW[0] += 200       # 200 s since the last message: still healthy
-until(lambda: br.status()["last_rx_age_s"] == 200)
+NOW[0] += 500       # 500 s since the last message: still healthy
+until(lambda: br.status()["last_rx_age_s"] == 500)
 time.sleep(0.3)
-check("bridge, BLE: data keeps the link alive across the limit in total time", br.iface is first and br.status()["last_rx_age_s"] == 200, br.status())
-NOW[0] += 150       # now 350 s of silence
+check("bridge, BLE: data keeps the link alive across the limit in total time", br.iface is first and br.status()["last_rx_age_s"] == 500, br.status())
+NOW[0] += 450       # now 950 s of silence
 check("bridge, BLE: silence beyond the limit drops the link and it reconnects by itself", until(lambda: br.iface is not None and br.iface is not first and first.closed), br.status())
 check("...and the new link starts with a fresh silence clock", br.status()["connected"] and br.status()["last_rx_age_s"] == 0, br.status())
 second = br.iface
 second.client.bleak_client.is_connected = False
 check("bridge, BLE: bleak reporting a lost link also reconnects", until(lambda: br.iface is not None and br.iface is not second and second.closed))
+reset_world()
+# silence escalation: a quiet mesh must not turn into an endless reconnect loop
+eps = conn.BleEndpoint("AA:BB:CC:DD:EE:FF")
+def fresh_link():
+    with contextlib.redirect_stdout(io.StringIO()):
+        return eps.open(eps.label)
+NOW[0] = 50000.0
+i1 = fresh_link()
+NOW[0] += 899
+check("escalation: no trip one second below the limit", eps.link_problem(i1, eps.label) is None)
+NOW[0] += 2
+check("escalation: a trip beyond the limit; the first one reconnects at once", eps.link_problem(i1, eps.label) == "no data from the radio for 901 s" and eps.loss_backoff("x") == 0)
+eps.link_problem(i1, eps.label)
+check("escalation: asking again about the same lost link is not counted twice", eps._streak == 1)
+i2 = fresh_link(); NOW[0] += 901
+out = io.StringIO()
+with contextlib.redirect_stdout(out):
+    trip2 = eps.link_problem(i2, eps.label)
+check("escalation: the second silence loss in a row warns, doubles the limit and asks for a back-off", trip2 is not None and "again after reconnecting" in out.getvalue()
+      and eps._multiple == 2 and eps.loss_backoff("x") == conn.SILENCE_BACKOFF and eps.loss_backoff("x") == 0, (out.getvalue(), eps._multiple))
+i3 = fresh_link(); NOW[0] += 901
+check("escalation: the doubled limit tolerates 901 s", eps.link_problem(i3, eps.label) is None)
+NOW[0] += 900
+with contextlib.redirect_stdout(io.StringIO()):
+    check("escalation: ...and trips beyond 1800 s, the limit now 4x", eps.link_problem(i3, eps.label) is not None and eps._multiple == 4)
+i4 = fresh_link(); NOW[0] += 3601
+with contextlib.redirect_stdout(io.StringIO()):
+    check("escalation: the limit is capped at 4x", eps.link_problem(i4, eps.label) is not None and eps._multiple == conn.MAX_LIMIT_MULTIPLE)
+i5 = fresh_link(); i5._handleFromRadio(b"x")
+check("escalation: any data resets the counter and the limit", eps.link_problem(i5, eps.label) is None and eps._streak == 0 and eps._multiple == 1 and eps.loss_backoff("x") == 0)
+NOW[0] += 901
+check("escalation: ...so the next silence trips at the base limit again, with no back-off", eps.link_problem(i5, eps.label) is not None and eps._streak == 1 and eps.loss_backoff("x") == 0)
+# through a running bridge: the first silence loss reconnects at once, the second backs off
+NOW[0] = 70000.0
+br = start(ble="AA:BB:CC:DD:EE:FF")
+until(lambda: br.iface is not None); first = br.iface
+NOW[0] += 901
+check("bridge: first silence loss reconnects at once", until(lambda: br.iface is not None and br.iface is not first and first.closed))
+second = br.iface
+NOW[0] += 901
+check("bridge: a second silence loss with no data in between waits (the endpoint is parked)", until(lambda: br.iface is None and br.bad_until.get("ble:AA:BB:CC:DD:EE:FF", 0) > time.time() + 30), br.bad_until)
+reset_world()
+
+# the library's close() is not safe to run twice at once: only the first closer acts
+ep = conn.BleEndpoint("AA:BB:CC:DD:EE:FF")
+with contextlib.redirect_stdout(io.StringIO()):
+    iface_ = ep.open(ep.label)
+gate = threading.Barrier(8)
+def closer():
+    gate.wait(); iface_.close()
+threads = [threading.Thread(target=closer) for _ in range(8)]
+for t_ in threads: t_.start()
+for t_ in threads: t_.join(10)
+check("close: eight concurrent closers run the library's close exactly once", iface_.close_calls == 1 and not any(t_.is_alive() for t_ in threads), iface_.close_calls)
+iface_.close()
+check("close: a later close returns at once without closing again", iface_.close_calls == 1)
+
+# status() reads self.iface once, so it cannot trip over the connect thread clearing it
+class FlipBridge(b.Bridge):
+    """A bridge whose `iface` alternates between a radio and None on every read, like a connect thread racing the dashboard."""
+    reads = 0
+    @property
+    def iface(self):
+        FlipBridge.reads += 1
+        return self._radio if FlipBridge.reads % 2 == 1 else None
+    @iface.setter
+    def iface(self, value): self._radio = value
+fb = FlipBridge(args(ble="AA:BB:CC:DD:EE:FF", web_host="127.0.0.1", web_port=48766))
+with contextlib.redirect_stdout(io.StringIO()):
+    fb.iface = fb.endpoint.open(fb.endpoint.label)
+problems = []
+for _ in range(6):
+    try:
+        st_ = fb.status()
+        if st_["searching"] and st_["last_rx_age_s"] is not None: problems.append(st_)
+    except Exception as e:
+        problems.append(repr(e))
+check("status() survives iface flipping to None between reads", problems == [], problems)
+fb.stop()
+NOW[0] = 1000.0
+
 # diagnostics, on a bridge that is not running a connect loop (so its clock can be moved freely)
-dbr = b.Bridge(args(ble="AA:BB:CC:DD:EE:FF", web_host="127.0.0.1", web_port=8080))
+dbr = b.Bridge(args(ble="AA:BB:CC:DD:EE:FF", web_host="127.0.0.1", web_port=48765))
 with contextlib.redirect_stdout(io.StringIO()):
     dbr.iface = dbr.endpoint.open(dbr.endpoint.label)
 dbr.port = dbr.endpoint.label
 def radio_data_check():
     return [c_ for c_ in dbr.diagnostics.report()["checks"] if c_["id"] == "radio_data"]
 check("diagnostics: no warning while the radio is talking", radio_data_check() == [])
-NOW[0] += 400
+NOW[0] += 1000
 rd_ = radio_data_check()
-check("diagnostics: a 'connected' radio that has been silent beyond the limit gets a warning", len(rd_) == 1 and rd_[0]["status"] == "warn" and "400 s" in rd_[0]["detail"], rd_)
+check("diagnostics: a 'connected' radio that has been silent beyond the limit gets a warning", len(rd_) == 1 and rd_[0]["status"] == "warn" and "1000 s" in rd_[0]["detail"], rd_)
 dbr.stop()
 reset_world()
 # Wi-Fi: same watchdog with a longer default, and the hidden flag overrides it
@@ -389,12 +514,12 @@ NOW[0] = 9000.0
 br = start(tcp="radio.test")
 until(lambda: br.iface is not None)
 first = br.iface
-check("bridge, TCP: default limit is 900 s and the status reports it", br.status()["silence_limit_s"] == conn.TCP_SILENCE_LIMIT == 900 and br.status()["last_rx_age_s"] == 0, br.status())
-NOW[0] += 800
+check("bridge, TCP: default limit is 1800 s and the status reports it", br.status()["silence_limit_s"] == conn.TCP_SILENCE_LIMIT == 1800 and br.status()["last_rx_age_s"] == 0, br.status())
+NOW[0] += 1700
 time.sleep(0.3)
-check("bridge, TCP: 800 s of silence is still tolerated", br.iface is first)
+check("bridge, TCP: 1700 s of silence is still tolerated", br.iface is first)
 NOW[0] += 200
-check("bridge, TCP: 1000 s of silence drops the link and it reconnects", until(lambda: br.iface is not None and br.iface is not first and first.closed))
+check("bridge, TCP: 1900 s of silence drops the link and it reconnects", until(lambda: br.iface is not None and br.iface is not first and first.closed))
 reset_world()
 br = start(tcp="radio.test", link_silence=0)
 until(lambda: br.iface is not None); first = br.iface

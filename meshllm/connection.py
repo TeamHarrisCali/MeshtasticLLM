@@ -30,11 +30,14 @@ DEFAULT_TCP_PORT = 4403     # the meshtastic TCP API port
 BLE_CONNECT_TIMEOUT = 90    # seconds for the whole Bluetooth connect (scan, connect, settings download); tests shorten it
 BLE_SCAN_TIMEOUT = 25       # seconds for one Bluetooth scan (the library's own discovery runs 10)
 BLE_CONFIG_TIMEOUT = 60     # seconds the library waits for the radio's settings (its own default is 300)
-BLE_SILENCE_LIMIT = 300     # seconds without any message from a Bluetooth radio before the link is declared dead
-TCP_SILENCE_LIMIT = 900     # the same for Wi-Fi (a quiet mesh is normal, and a needless reconnect is harmless)
+BLE_SILENCE_LIMIT = 900     # seconds without any message from a Bluetooth radio before the link is declared dead (3x the library's 300 s heartbeat)
+TCP_SILENCE_LIMIT = 1800    # the same for Wi-Fi
+SILENCE_BACKOFF = 60        # seconds to wait before reopening after repeated silence reconnects that brought no data
+MAX_LIMIT_MULTIPLE = 4      # the silence limit may grow to this many times its base value while reconnects keep bringing no data
+REQUIRED_LIBRARY = "meshtastic>=2.7.11,<2.8"
 clock = time.monotonic      # tests replace this with a fake clock
 BLUETOOTH_SYSFS = "/sys/class/bluetooth"    # Linux lists the Bluetooth adapters (hci0, ...) here; tests point it elsewhere
-MAC_RE = re.compile(r"^[0-9A-Fa-f]{2}([:-][0-9A-Fa-f]{2}){5}$")
+MAC_RE = re.compile(r"[0-9A-Fa-f]{2}([:-][0-9A-Fa-f]{2}){5}")     # used with fullmatch
 
 # USB vendor IDs of the serial chips Meshtastic boards use. Auto-detection only tries ports from these
 # vendors (plus a real Meshtastic handshake), so it never pokes at headsets, dongles, modems, etc.
@@ -54,8 +57,16 @@ class BleTimeout(Exception):
     """A Bluetooth step took longer than its time limit. The message says which step it was stuck in."""
 
 
-class BleUnavailable(Exception):
-    """Bluetooth support cannot be loaded (the `bleak` package is missing or broken). The message is one friendly line."""
+class LinkUnavailable(Exception):
+    """A connection mode cannot be used on this installation (missing package, incompatible library). The message is one friendly line."""
+
+
+class TcpUnavailable(LinkUnavailable):
+    """The installed meshtastic library lacks what the Wi-Fi mode needs. The message is one friendly line."""
+
+
+class BleUnavailable(LinkUnavailable):
+    """Bluetooth support cannot be loaded (the `bleak` package is missing or broken, or the meshtastic library is not the expected one)."""
 
 
 def open_failure_reason(port, error, windows=os.name == "nt"):
@@ -119,9 +130,54 @@ def _ble_module():
     return module
 
 
+def _sets_attribute(cls, name):
+    """True if `name` is assigned in the __init__ of `cls` or of one of its base classes (looked up in the compiled code, no instance needed)."""
+    for klass in cls.__mro__:
+        init = vars(klass).get("__init__")
+        code = getattr(init, "__code__", None)
+        if code is not None and name in code.co_names:
+            return True
+    return False
+
+
+def library_problems(kind, interface_cls, client_cls=None):
+    """What this bridge relies on in the installed meshtastic library but cannot find, as a list of names (empty = compatible).
+
+    We reach into a few names the library does not document: the receive hook `_handleFromRadio`, the BLE connect steps, the `client`
+    and `bleak_client` attributes, the reader thread and socket. If a future release renames one, a quiet failure (a frozen silence
+    clock, a generic error) would be much worse than stopping with a clear message, so each open() checks first."""
+    missing = [f"{interface_cls.__name__}.{n}" for n in ("_handleFromRadio",) if not callable(getattr(interface_cls, n, None))]
+    if kind == "ble":
+        missing += [f"BLEInterface.{n}" for n in ("find_device", "connect", "_startConfig", "close") if not callable(getattr(interface_cls, n, None))]
+        missing += [f"BLEInterface.{n}" for n in ("client", "_want_receive", "_receiveThread") if not _sets_attribute(interface_cls, n)]
+        if client_cls is None or not _sets_attribute(client_cls, "bleak_client"):
+            missing.append("BLEClient.bleak_client")
+        else:
+            try:
+                import inspect
+                params = inspect.signature(client_cls.__init__).parameters
+                if "address" not in params or not any(p.kind == p.VAR_KEYWORD for p in params.values()):
+                    missing.append("BLEClient(address, **kwargs)")
+            except (TypeError, ValueError):
+                pass
+    else:
+        missing += [f"TCPInterface.{n}" for n in ("socket", "reconnectLock", "_rxThread") if not _sets_attribute(interface_cls, n)]
+    return missing
+
+
+def _incompatible(missing):
+    """The one-line message for a library that lacks what we need."""
+    return (f"the installed meshtastic library is not compatible with this version of the bridge: {', '.join(missing)} missing; "
+            f"install {REQUIRED_LIBRARY}")
+
+
 def load_ble():
-    """The library's `BLEInterface` class, or raise `BleUnavailable` (see `_ble_module`)."""
-    return _ble_module().BLEInterface
+    """The library's `BLEInterface` class, or raise `BleUnavailable` (see `_ble_module`, `library_problems`)."""
+    module = _ble_module()
+    missing = library_problems("ble", module.BLEInterface, getattr(module, "BLEClient", None))
+    if missing:
+        raise BleUnavailable(_incompatible(missing))
+    return module.BLEInterface
 
 
 def _call_with_timeout(fn, timeout, stuck_in, on_abandon=None, on_late_result=None):
@@ -139,18 +195,26 @@ def _call_with_timeout(fn, timeout, stuck_in, on_abandon=None, on_late_result=No
         except BaseException as e:      # handed back to the caller's thread
             with lock:
                 box["error"] = e
-            done.set()
+                done.set()
             return
         with lock:
             late = box.get("abandoned", False)
             if not late:
                 box["result"] = result
-        done.set()
+            done.set()
         if late and on_late_result:
             on_late_result(result)
 
     threading.Thread(target=work, daemon=True, name="ble-helper").start()
-    if not done.wait(timeout):
+    try:
+        finished = done.wait(timeout)
+    except BaseException:       # Ctrl+C while waiting: close what was half built before leaving
+        with lock:
+            box["abandoned"] = not done.is_set()
+        if box["abandoned"] and on_abandon:
+            on_abandon()
+        raise
+    if not finished:
         with lock:
             if not done.is_set():
                 box["abandoned"] = True
@@ -193,10 +257,12 @@ def stamp_rx(cls):
         """Interface that records when it last heard from the radio."""
         def __init__(self, *args, **kwargs):
             self._last_rx = clock()         # set before the library starts its reader
+            self._rx_count = self._rx_base = 0
             super().__init__(*args, **kwargs)
 
         def _handleFromRadio(self, fromRadioBytes):
             self._last_rx = clock()
+            self._rx_count += 1
             return super()._handleFromRadio(fromRadioBytes)
     return StampsReceive
 
@@ -271,6 +337,7 @@ def _closing_on_error(cls, note=None, state=None):
     class ClosingOnError(stamp_rx(cls)):
         """BLEInterface that cleans up after a failed constructor and finds its device with the unfiltered scan."""
         def __init__(self, *args, **kwargs):
+            self._close_lock, self._close_started = threading.Lock(), False
             if state is not None:
                 state["iface"] = self
             try:
@@ -284,6 +351,12 @@ def _closing_on_error(cls, note=None, state=None):
 
         def close(self):
             """The library's close, except that closing a link that is already lost says so plainly instead of logging a misleading error."""
+            lock = getattr(self, "_close_lock", None)
+            if lock is not None:        # several closers can race (disconnect callback, the bridge's detach, a timed-out connect): only the first acts
+                with lock:
+                    if self._close_started:
+                        return
+                    self._close_started = True
             client = getattr(self, "client", None)
             bleak = getattr(client, "bleak_client", None)
             lost = client is not None and bleak is not None and not getattr(bleak, "is_connected", True)
@@ -331,10 +404,17 @@ def _closing_on_error(cls, note=None, state=None):
                 # never closes and looks connected. Closing from a thread of its own avoids that.
                 client = module.BLEClient(target, disconnected_callback=lambda _: threading.Thread(
                     target=_quiet, args=(self,), daemon=True, name="ble-close").start())
+                connected = False
                 try:
                     client.connect()
+                    connected = True
                     client.discover()
                 except Exception as e:
+                    if connected:       # the link came up but the service discovery failed: let go of it, or BlueZ keeps the radio
+                        try:
+                            client.disconnect()
+                        except Exception:
+                            pass
                     _quiet(client)      # a failed attempt must not leave the client's event-loop thread behind
                     if i + 1 < len(attempts) and _device_unknown(e):
                         continue
@@ -344,7 +424,7 @@ def _closing_on_error(cls, note=None, state=None):
         def find_device(self, address):
             """Same as the library's: the device whose name or address equals `address` (any device if None); exactly one must match.
             A MAC address skips the scan entirely (see above)."""
-            if address and MAC_RE.match(address):
+            if address and MAC_RE.fullmatch(address):
                 return _make_device(address.replace("-", ":").upper())
             say("scan", f"scanning for {address or 'any Meshtastic radio'}")
             devices = safe_ble_scan()
@@ -404,6 +484,9 @@ class Endpoint:
     """One way of reaching the radio. Subclasses fill in the mode-specific parts; see the module docstring."""
     kind = ""
     silence_limit = 0       # seconds without data before the link counts as dead; 0 = no watchdog (USB serial has its own checks)
+    _streak = 0             # silence reconnects in a row that brought no data
+    _multiple = 1           # how many times silence_limit is currently allowed (grows while reconnects keep bringing no data)
+    _backoff = 0            # seconds the bridge should wait before reopening after the last loss (see loss_backoff)
 
     def initial_label(self):
         """What to show as the connection before anything has connected."""
@@ -416,11 +499,32 @@ class Endpoint:
         return None if last is None else max(0.0, clock() - last)
 
     def silent_too_long(self, iface):
-        """A reason if the radio has said nothing for longer than `silence_limit`, else None."""
+        """A reason if the radio has said nothing for longer than the silence limit, else None.
+
+        Guards against a quiet mesh turning into an endless reconnect loop (each reconnect restarts the silence clock): data received on
+        a connection resets everything; after a second silence loss in a row with no data in between, it warns, doubles the limit
+        (up to MAX_LIMIT_MULTIPLE times) and asks the bridge to wait SILENCE_BACKOFF seconds before reopening."""
+        if getattr(iface, "_rx_count", 0) > getattr(iface, "_rx_base", 0):      # something arrived since the link was ready
+            self._streak, self._multiple, self._backoff = 0, 1, 0
         age = self.silence(iface)
-        if self.silence_limit and age is not None and age > self.silence_limit:
-            return f"no data from the radio for {age:.0f} s"
-        return None
+        limit = self.silence_limit * self._multiple
+        if not (self.silence_limit and age is not None and age > limit):
+            return None
+        if not getattr(iface, "_silence_counted", False):       # count each lost link once, however often it is asked
+            iface._silence_counted = True
+            self._streak += 1
+            if self._streak >= 2:
+                self._multiple = min(self._multiple * 2, MAX_LIMIT_MULTIPLE)
+                self._backoff = SILENCE_BACKOFF
+                print(f"[radio] no data from the radio again after reconnecting; the mesh may just be quiet. Waiting {SILENCE_BACKOFF} s and "
+                      f"allowing {self.silence_limit * self._multiple:.0f} s of silence next time (--link-silence changes the limit, 0 turns it off)",
+                      flush=True)
+        return f"no data from the radio for {age:.0f} s"
+
+    def loss_backoff(self, label):
+        """Seconds the bridge should leave `label` alone after the loss it just handled (0 = reconnect at once). Read once per loss."""
+        wait, self._backoff = self._backoff, 0
+        return wait
 
     def describe(self):
         """Phrase for the start-up line: 'Bridge starting: <this>.'"""
@@ -539,8 +643,12 @@ class TcpEndpoint(Endpoint):
 
     def open(self, label):
         from meshtastic.tcp_interface import TCPInterface
+        missing = library_problems("tcp", TCPInterface)
+        if missing:
+            raise TcpUnavailable(_incompatible(missing))
         iface = stamp_rx(TCPInterface)(hostname=self.host, portNumber=self.port, timeout=self.OPEN_TIMEOUT)
         iface._last_rx = clock()        # the silence clock starts when the radio is ready
+        iface._rx_base = getattr(iface, "_rx_count", 0)
         self._keepalive(iface)
         return iface
 
@@ -585,6 +693,8 @@ class TcpEndpoint(Endpoint):
 
     def failure_reason(self, label, error):
         text = str(error).lower()
+        if isinstance(error, LinkUnavailable):
+            return 600, str(error)
         if isinstance(error, (ConnectionRefusedError, ConnectionResetError)):
             return 15, "connection refused - is Wi-Fi enabled on the radio, and is it port " + str(self.port) + "?"
         if isinstance(error, socket.gaierror):
@@ -644,12 +754,13 @@ class BleEndpoint(Endpoint):
         state = {"phase": "starting", "iface": None, "ready": False}
 
         def note(phase, text):
-            if not state["ready"]:      # the library re-runs its config step after a radio reboot; that is not a connect phase
+            if not state["ready"] and not state.get("abandoned"):   # not after a reboot's config re-run, nor from a connect we gave up on
                 state["phase"] = text
                 print(f"[radio] Bluetooth: {text}", flush=True)
 
         def abandon():
             """Timed out: close whatever the constructor had built so far (best effort, on its own thread in case close hangs)."""
+            state["abandoned"] = True
             if state["iface"] is not None:
                 threading.Thread(target=_quiet, args=(state["iface"],), daemon=True, name="ble-cleanup").start()
 
@@ -657,6 +768,7 @@ class BleEndpoint(Endpoint):
                                    BLE_CONNECT_TIMEOUT, lambda: state["phase"], on_abandon=abandon, on_late_result=_quiet)
         state["ready"] = True
         iface._last_rx = clock()        # the silence clock starts when the radio is ready
+        iface._rx_base = getattr(iface, "_rx_count", 0)
         print("[radio] Bluetooth: radio ready", flush=True)
         return iface
 
@@ -681,7 +793,7 @@ class BleEndpoint(Endpoint):
         return self.silent_too_long(iface)
 
     def failure_reason(self, label, error):
-        if isinstance(error, BleUnavailable):
+        if isinstance(error, LinkUnavailable):
             return 600, str(error)
         hint = _ble_pairing_hint(error)
         if hint:

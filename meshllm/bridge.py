@@ -811,16 +811,18 @@ class Bridge:
         """Live state for the web UI header and the status command. Safe to call with no radio attached."""
         self.sweep_pending()
         node = dict(self.radio_info)  # last known details, so the UI can still name the radio while it's away
+        iface = self.iface      # read once: the connect thread can set it to None at any moment
         try:
-            u = self.iface.getMyUser()
+            u = iface.getMyUser()
             node = {"id": u.get("id"), "long_name": u.get("longName"),
                     "short_name": u.get("shortName"), "hw": u.get("hwModel")}
         except Exception:
             pass
+        age = self.endpoint.silence(iface) if iface is not None else None
         return {
             # "connected" means the library's reader is alive (checked per connection mode), not just that self.iface is set
-            "connected": bool(self.iface and self.endpoint.alive(self.iface)),
-            "searching": self.iface is None,
+            "connected": bool(iface and self.endpoint.alive(iface)),
+            "searching": iface is None,
             # a plain string naming the connection: /dev/ttyUSB0, tcp://host:4403 or ble:ADDRESS ("auto" before a USB radio is found)
             "port": self.port or self.endpoint.initial_label(), "node": node, "model": self.model,
             "command": self.args.command, "ollama_ok": self.ollama_ok(),
@@ -832,7 +834,7 @@ class Bridge:
             "temp_unit": self.mesh.temp_unit(), "dist_unit": self.mesh.dist_unit(),
             "radio_change": self.mesh.radio_change_active(),
             # seconds since the radio last sent anything (None when this connection mode does not record it) and the silence that counts as dead
-            "last_rx_age_s": None if self.iface is None or self.endpoint.silence(self.iface) is None else int(self.endpoint.silence(self.iface)),
+            "last_rx_age_s": None if age is None else int(age),
             "silence_limit_s": self.endpoint.silence_limit or None,
             "demo": bool(getattr(self.args, "demo", False)),   # --demo: the dashboard shows a "Demo mode" badge
         }
@@ -1320,6 +1322,9 @@ class Bridge:
             reason = self.wait_for_loss(iface, label)
             print(f"[radio] lost {label}: {reason}. Searching again...")
             self.detach(iface)
+            wait = self.endpoint.loss_backoff(label)    # normally 0; positive after repeated silence losses that brought no data
+            if wait:
+                self.bad_until[label] = time.time() + wait
             self._search_logged = True  # already announced above
 
     def connect_demo(self):
@@ -1356,8 +1361,10 @@ class Bridge:
         except KeyboardInterrupt:
             pass
         finally:
-            if self.iface:
-                self._quiet_close(self.iface)
+            if self.iface:      # on a daemon thread with a short wait: a hung Bluetooth close must not keep the process from exiting
+                closer = threading.Thread(target=self._quiet_close, args=(self.iface,), daemon=True, name="exit-close")
+                closer.start()
+                closer.join(3.0)
 
 
 def build_parser():

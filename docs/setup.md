@@ -79,11 +79,11 @@ prints one line naming this as the likely cause. The fix is to remove the pairin
 BlueZ 5.87 and bleak 3.0.2 the library's own scan, which asks BlueZ to filter by service, crashed the Bluetooth daemon). Every phase is logged
 (`Bluetooth: scanning`, `connecting`, `waiting for the radio to send its settings`, `radio ready`), and the whole connect gives up after 90 seconds
 with a message naming the phase it was stuck in, then retries after a back-off (30 to 60 seconds) instead of hanging silently. The bridge also watches the link itself: it asks the Bluetooth stack whether the radio is still connected, and it
-counts the messages the radio sends. If nothing at all has arrived for 5 minutes (15 minutes over Wi-Fi) it treats the link as dead, closes it and
+counts the messages the radio sends. If nothing at all has arrived for 15 minutes (30 minutes over Wi-Fi; the library's own heartbeat goes out every 5) it treats the link as dead, closes it and
 reconnects, because after a radio reboot the system can reconnect underneath while the radio's data stream is gone and the connection still
-looks fine. A quiet mesh can cause an unneeded reconnect now and then; it is harmless. The dashboard shows "heard N s ago" next to the radio,
+looks fine. A reconnect interrupts anything in flight, so it is a last resort: on a very quiet mesh the radio may genuinely send nothing for that long, and if a silence reconnect is followed by another with no data in between, the bridge logs a warning, waits a minute before reopening and allows twice as much silence next time (up to four times; any data resets this). Raise the limit with `--link-silence` if your mesh is that quiet. The dashboard shows "heard N s ago" next to the radio,
 Diagnostics warns when the silence passes the limit, and the hidden `--link-silence SECONDS` flag changes the limit (0 turns it off). USB is not
-affected. Bluetooth support
+affected. The bridge depends on a few internals of the `meshtastic` library, so `requirements.txt` limits it to `meshtastic>=2.7.11,<2.8`; with another version the bridge stops with a one-line message instead of misbehaving. Bluetooth support
 comes with the `meshtastic` package (it installs `bleak`); if it is missing the bridge says so in one line and you can reinstall with
 `pip install -r requirements.txt`. Not yet tried on Windows or macOS.
 

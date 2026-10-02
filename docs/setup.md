@@ -123,7 +123,9 @@ not started in testing).
 > it on **this computer's loopback only** (`127.0.0.1:8080`) and does not publish Ollama's port at all. **Do not change that address to
 > `0.0.0.0` or to a LAN or public IP** until the login work (TODO.md item 3) is done. Docker adds its own firewall rules, so a port published on all
 > interfaces is reachable from the network even when a host firewall such as `ufw` says it is blocked. To use the dashboard from another
-> computer, forward the port over SSH (`ssh -L 8080:127.0.0.1:8080 host`) rather than publishing it.
+> computer, forward the port over SSH (`ssh -L 8080:127.0.0.1:8080 host`) rather than publishing it. If you run the image without Compose, publish with `-p 127.0.0.1:8080:8080`, never `-p 8080:8080` (that would expose a login-less dashboard on your network).
+>
+> If the container says `/data is not writable by uid 10001`, the volume or bind-mounted folder has the wrong owner: make it writable for user id 10001 (a new named volume already is).
 
 **What you need:** Docker Engine with the Compose plugin (`docker compose version` works), and disk space: about 250 MB for the bridge image, about 4 GB for the Ollama image (the demo does not need it), plus a few GB for
 each model.

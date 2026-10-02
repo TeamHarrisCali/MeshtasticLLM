@@ -1353,7 +1353,11 @@ class Bridge:
         print(f"Bridge starting: {mode}. Ollama model '{self.model}'. Ctrl+C to stop.")
         if not self.args.no_web:
             self.web_server = webui.start(self)
-            print(f"Web UI: http://{self.args.web_host}:{self.args.web_port}/  (audit log: {self.args.db})")
+            if self.args.web_host in webui.WILDCARD_HOSTS:     # a wildcard address is not one a browser should use
+                print(f"Web UI: http://127.0.0.1:{self.args.web_port}/  (listening on all interfaces inside a container; "
+                      f"what can reach it is decided by the published port)  (audit log: {self.args.db})")
+            else:
+                print(f"Web UI: http://{self.args.web_host}:{self.args.web_port}/  (audit log: {self.args.db})")
         try:
             if demo_mode:
                 self.connect_demo()

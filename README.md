@@ -109,7 +109,7 @@ docker compose -f docker-compose.yml -f docker-compose.usb.yml up -d
 ```
 
 > **The dashboard has no login yet**, so the compose file publishes it on this computer only (`127.0.0.1:8080`) and Ollama's port is not
-> published at all. Do not change the address to `0.0.0.0` or a LAN address. **Bluetooth does not work inside a container** (it needs the
+> published at all. Do not change the address to `0.0.0.0` or a LAN address. If you run the image without Compose, publish with `-p 127.0.0.1:8080:8080`, never `-p 8080:8080` (that would expose a login-less dashboard on your network). **Bluetooth does not work inside a container** (it needs the
 > host's Bluetooth service): run the bridge on the host for that. **Wi-Fi/TCP has not been tested on real hardware yet.** Full steps, backups,
 > updating and stopping are in [docs/setup.md](docs/setup.md#run-with-docker).
 

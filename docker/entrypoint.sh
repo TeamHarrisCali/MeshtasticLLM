@@ -20,7 +20,13 @@ done
 
 # --demo has a simulated radio, a temporary database and its own model, and says so if it is given these, so leave them out then
 if [ "$demo" = 0 ]; then
-    args+=(--db /data/audit.db)
+    data="${MESHLLM_DATA_DIR:-/data}"      # (the variable exists so tests can point it elsewhere)
+    # a volume or bind mount with the wrong owner would otherwise end in a bare database traceback
+    if [ ! -w "$data" ]; then
+        echo "$data is not writable by uid $(id -u): fix the volume/bind-mount ownership (see docs/setup.md)" >&2
+        exit 1
+    fi
+    args+=(--db "$data/audit.db")
     if [ -n "${MESHLLM_TCP:-}" ];   then args+=(--tcp "$MESHLLM_TCP"); fi
     if [ -n "${MESHLLM_PORT:-}" ];  then args+=(--port "$MESHLLM_PORT"); fi
     if [ -n "${MESHLLM_MODEL:-}" ]; then args+=(--model "$MESHLLM_MODEL"); fi
@@ -40,4 +46,5 @@ except ValueError as e:
 fi
 
 # exec: Python becomes process 1 and receives `docker stop`'s SIGTERM itself (the bridge turns it into a clean shutdown)
+echo "meshllm: the dashboard listens on 0.0.0.0 in this container; publish it only as 127.0.0.1:PORT:8080 (it has no login)" >&2
 exec python -m meshllm "${args[@]}" "$@"

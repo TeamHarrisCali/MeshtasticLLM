@@ -90,7 +90,7 @@ check("the entrypoint ends with `exec python -m meshllm` so signals reach Python
 check("the entrypoint never runs eval or `sh -c` on the environment", not re.search(r"\beval\b|\bsh -c\b|\bbash -c\b", "\n".join(code_lines(entry))))
 for var in ("MESHLLM_TCP", "MESHLLM_PORT", "MESHLLM_OLLAMA_URL", "MESHLLM_MODEL", "MESHLLM_EXTRA_ARGS"):
     check(f"the entrypoint reads {var}", var in entry)
-check("the entrypoint binds the container's own 0.0.0.0 and puts the database in /data", "--web-host 0.0.0.0" in entry and "/data/audit.db" in entry)
+check("the entrypoint binds the container's own 0.0.0.0 and puts the database in /data", "--web-host 0.0.0.0" in entry and '"${MESHLLM_DATA_DIR:-/data}"' in entry and "audit.db" in entry)
 
 # run the entrypoint for real with a stand-in `python` that prints what it was asked to run (POSIX with bash only)
 bash = shutil.which("bash")
@@ -102,14 +102,17 @@ if bash and os.name == "posix":
         f.write('#!/bin/sh\nif [ "$1" = "-c" ]; then exec "%s" "$@"; fi\nfor a in "$@"; do printf "[%%s]" "$a"; done; echo\n' % real)
     os.chmod(fake, 0o755)
 
+    datadir = os.path.join(tmp, "data")
+    os.makedirs(datadir)
+
     def run_entry(extra_env, argv=()):
-        env = {"PATH": tmp + os.pathsep + os.environ.get("PATH", "")}
+        env = {"PATH": tmp + os.pathsep + os.environ.get("PATH", ""), "MESHLLM_DATA_DIR": datadir}
         env.update(extra_env)
         r = subprocess.run([bash, os.path.join(ROOT, "docker", "entrypoint.sh"), *argv], env=env, capture_output=True, text=True, timeout=30)
         return r.returncode, r.stdout.strip()
 
     rc, out = run_entry({})
-    check("entrypoint, nothing set: the defaults only", rc == 0 and out == "[-m][meshllm][--web-host][0.0.0.0][--ollama-url][http://ollama:11434][--db][/data/audit.db]", (rc, out))
+    check("entrypoint, nothing set: the defaults only", rc == 0 and out == "[-m][meshllm][--web-host][0.0.0.0][--ollama-url][http://ollama:11434][--db][" + datadir + "/audit.db]", (rc, out))
     rc, out = run_entry({"MESHLLM_TCP": "192.0.2.7:4403", "MESHLLM_PORT": "/dev/ttyUSB0", "MESHLLM_MODEL": "llama3.2:3b", "MESHLLM_OLLAMA_URL": "http://other:1"})
     check("entrypoint maps each variable to its flag", rc == 0 and out.endswith("[--tcp][192.0.2.7:4403][--port][/dev/ttyUSB0][--model][llama3.2:3b]") and "[--ollama-url][http://other:1]" in out, (rc, out))
     rc, out = run_entry({"MESHLLM_EXTRA_ARGS": "--daily-cap 20 --command '/a b' \"--x=$(echo hi)\""})
@@ -119,6 +122,16 @@ if bash and os.name == "posix":
     rc, out = run_entry({"MESHLLM_TCP": "192.0.2.7", "MESHLLM_MODEL": "x"}, ["--demo", "--demo-scripted"])
     check("for --demo the radio, database and model settings are left out and the command's arguments come last",
           rc == 0 and out == "[-m][meshllm][--web-host][0.0.0.0][--ollama-url][http://ollama:11434][--demo][--demo-scripted]", (rc, out))
+    if hasattr(os, "geteuid") and os.geteuid() != 0:        # root can write anywhere, so this check cannot be made as root
+        os.chmod(datadir, 0o500)
+        rc, out = run_entry({})
+        check("an unwritable data folder gives exit 1 and no command line, not a database traceback", rc == 1 and out == "", (rc, out))
+        r = subprocess.run([bash, os.path.join(ROOT, "docker", "entrypoint.sh")], env={"PATH": tmp + os.pathsep + os.environ.get("PATH", ""), "MESHLLM_DATA_DIR": datadir},
+                           capture_output=True, text=True, timeout=30)
+        check("...and says so in one line that points at docs/setup.md", "is not writable by uid" in r.stderr and "docs/setup.md" in r.stderr and len(r.stderr.strip().splitlines()) == 1, r.stderr)
+        os.chmod(datadir, 0o700)
+    rc, out = run_entry({}, ["--demo"])
+    check("--demo does not need the data folder", rc == 0 and "--db" not in out, (rc, out))
     shutil.rmtree(tmp, ignore_errors=True)
 else:
     print("SKIP running the entrypoint (needs bash on a POSIX system)")
@@ -151,7 +164,46 @@ try:
 except KeyboardInterrupt:
     raised = True
 check("the SIGTERM handler ends the bridge like Ctrl+C (so `docker stop` is a clean, quick stop)", raised)
+# main() must actually INSTALL the SIGTERM handler (a handler nobody installs would leave `docker stop` waiting 10 s)
+import argparse, signal, http.client
+saved_attrs = {n: getattr(bridge, n) for n in ("parse_cli", "apply_staged_restore", "Bridge")}
+old_handler = signal.getsignal(signal.SIGTERM)
+seen = {}
+class FakeBridge:
+    def __init__(self, args): pass
+    def run(self): seen["handler"] = signal.getsignal(signal.SIGTERM)
+try:
+    bridge.parse_cli = lambda argv=None: (None, argparse.Namespace(ble_scan=False, ble=None, demo=False, db="x.db"))
+    bridge.apply_staged_restore = lambda db: None
+    bridge.Bridge = FakeBridge
+    bridge.main()
+finally:
+    for n, v in saved_attrs.items(): setattr(bridge, n, v)
+    signal.signal(signal.SIGTERM, old_handler)
+check("main() installs the SIGTERM handler before the bridge runs", seen.get("handler") is bridge._stop_on_sigterm, seen)
+
+# the dashboard must not accept a Host equal to a wildcard bind address (0.0.0.0 / ::), but still accepts loopback
+sys.path.insert(0, os.path.join(ROOT, "tests"))
+from fixture import make
+br, radio, _tmp = make(web_port=18461 + os.getpid() % 500)
+port = br.args.web_port
+def status_with_host(host):
+    c = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+    c.putrequest("GET", "/api/status", skip_host=True); c.putheader("Host", host); c.endheaders()
+    code = c.getresponse().status; c.close(); return code
+br.args.web_host = "0.0.0.0"                       # as in the container (the test server itself listens on loopback only)
+check("bind 0.0.0.0: Host 0.0.0.0:PORT is refused (403)", status_with_host("0.0.0.0:%d" % port) == 403)
+check("bind 0.0.0.0: Host 127.0.0.1:PORT is still accepted", status_with_host("127.0.0.1:%d" % port) == 200)
+br.args.web_host = "::"
+check("bind ::: Host [::]:PORT is refused", status_with_host("[::]:%d" % port) == 403)
+br.args.web_host = "dash.example"
+check("an explicitly named non-wildcard host is still accepted", status_with_host("dash.example:%d" % port) == 200)
+check("another name is refused", status_with_host("evil.example:%d" % port) == 403)
+
 check("the Dockerfile sets MESHLLM_CONTAINER=1 (what lets the demo bind 0.0.0.0 in the container)", "MESHLLM_CONTAINER=1" in dockerfile)
+NOTE = "-p 127.0.0.1:8080:8080"
+check("the Dockerfile, setup.md and README all say to publish a plain `docker run` as 127.0.0.1 only, never -p 8080:8080",
+      all(NOTE in t and "never `-p 8080:8080`" in t for t in (dockerfile, read("docs", "setup.md"), read("README.md"))))
 
 print(f"\n{len(fails)} failed" if fails else "\nall passed")
 sys.stdout.flush(); os._exit(1 if fails else 0)

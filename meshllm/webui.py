@@ -13,6 +13,7 @@ from meshllm import webroutes
 from meshllm.webroutes import HttpError, Reply
 
 STATIC = Path(__file__).parent / "static"
+WILDCARD_HOSTS = ("0.0.0.0", "::", "")     # bind addresses meaning "every interface"
 _bundle = {"stamp": None, "data": b""}
 MAX_JSON_BODY = 1024 * 1024    # the biggest JSON body any dashboard action sends is a few KB; more is a mistake or an attack
 
@@ -44,7 +45,9 @@ def make_handler(bridge):
         def _host_ok(self):
             """True if the Host header names this machine (or the configured web host); anything else is refused."""
             host = (self.headers.get("Host") or "").rsplit(":", 1)[0].strip("[]").lower()
-            return host in ("localhost", "127.0.0.1", "::1") or host == bridge.args.web_host
+            bound = bridge.args.web_host
+            # a wildcard bind (0.0.0.0, ::) is not a name anyone should browse to, so a Host equal to it is not accepted
+            return host in ("localhost", "127.0.0.1", "::1") or (host == bound and bound not in WILDCARD_HOSTS)
 
         def _send(self, code, body, ctype="application/json", extra=None):
             """Write a full response. Replies are not cached by default (they hold live data); `extra` headers can override that."""

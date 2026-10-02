@@ -3,6 +3,8 @@
 # Base image: the official Python 3.12 slim image (Debian 12 "bookworm"), pinned by tag AND by digest so a build always starts from
 # the same bytes. The digest is the multi-architecture index digest of python:3.12-slim-bookworm, so it works on amd64 and arm64.
 # Dependabot (docker ecosystem, .github/dependabot.yml) proposes new digests.
+#
+# The dashboard has NO LOGIN and the app listens on 0.0.0.0 inside the container. If you run the image without Compose, publish with `-p 127.0.0.1:8080:8080`, never `-p 8080:8080` (that would expose a login-less dashboard on your network).
 FROM python:3.12-slim-bookworm@sha256:54c85f3c47607a77f32adec749d3c81d1348bf25833671f512b26a9b6d778cb3
 
 # PYTHONUNBUFFERED: log lines reach `docker logs` at once. PYTHONDONTWRITEBYTECODE: nothing is written into the (read-only) code

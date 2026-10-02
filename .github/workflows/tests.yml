@@ -58,7 +58,7 @@ jobs:
           done
           echo "health: $health"
           test "$health" = healthy
-          docker stop --time 10 meshllm-ci-demo
+          docker stop -t 10 meshllm-ci-demo
           test "$(docker inspect --format '{{.State.ExitCode}}' meshllm-ci-demo)" = 0
       - name: The compose files are valid
         run: |

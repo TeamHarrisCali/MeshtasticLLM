@@ -664,6 +664,10 @@ check("csv_cell drops NUL characters (Python before 3.11 cannot write them, whic
 import csv as _c2, io as _i2
 _buf = _i2.StringIO(); _c2.writer(_buf).writerow([_cc("hello\x00world")])
 check("...so a message with a NUL in it still exports", _buf.getvalue().strip() == "helloworld")
+# end to end on every Python version: a stored request whose prompt holds a NUL comes out of the audit-log export without it
+cb.audit.new_request("!000000f8", None, "hello\x00world", status="answered", response="ok\x00")
+_export = cb.audit.export_csv()
+check("the audit-log export contains no NUL even when a stored message did", "\x00" not in _export and "helloworld" in _export)
 cb.audit.db.close()
 
 # ---- link-quality map and hop series -------------------------------------------------------------------------------------------------

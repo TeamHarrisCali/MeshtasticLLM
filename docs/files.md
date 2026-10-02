@@ -36,6 +36,12 @@
 ├── setup.sh, setup.ps1, setup.bat          launchers for setup_env.py (Linux / macOS, Windows)
 ├── start_bridge.sh, stop_bridge.sh         run the bridge in the background / stop it (Linux / macOS)
 ├── start_bridge.ps1, stop_bridge.ps1       the same on Windows
+├── Dockerfile                the container image: Python slim base pinned by tag and digest, numeric non-root user, healthcheck
+├── docker-compose.yml        the bridge + Ollama + a `demo` profile; dashboard published on 127.0.0.1 only, hardened container
+├── docker-compose.usb.yml    override that passes a USB serial radio into the container (Linux hosts only)
+├── docker/entrypoint.sh      container start-up: builds the bridge's command line from MESHLLM_* environment variables, then `exec`s it
+├── .env.example              the settings docker-compose.yml reads (copy to .env; every line is commented out)
+├── .dockerignore             keeps the database, backups, logs, tile cache, tests and git history out of the image
 ├── run_tests.py              runs every test file and prints one line each
 ├── requirements.txt          the Python dependencies (meshtastic, requests)
 ├── LICENSE, CONTRIBUTING.md, SECURITY.md, .github/    licence, contribution guide, security policy, CI and issue templates

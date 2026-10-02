@@ -110,3 +110,90 @@ text and the commands are unit-tested only.
 Tested: Windows 11 natively, and Linux (Ubuntu 24.04) under WSL (fresh build, a stale `.venv`, repairing line endings,
 starting and stopping the bridge). macOS is covered by unit tests of the detection and install-command logic only, not run on a Mac.
 The radio is not visible inside WSL; run the bridge on the Windows side, or attach the radio with usbipd-win.
+
+## Run with Docker
+
+The project can run as containers instead of through `setup.sh`: one for the bridge and dashboard, one for Ollama (the AI model server).
+The files are `Dockerfile`, `docker-compose.yml`, `docker-compose.usb.yml`, `.env.example` and `docker/entrypoint.sh`.
+It was built and tried on Linux with Docker 29.8.2 and Compose 5.5.1, running the demo and the bridge without a radio. **Not yet tried:**
+Docker Desktop on Windows or macOS, a real radio from inside a container (USB or Wi-Fi), and the Ollama container (the model server was
+not started in testing).
+
+> **The dashboard has no login.** It shows message text and has a box that sends on your radio. The compose file therefore publishes
+> it on **this computer's loopback only** (`127.0.0.1:8080`) and does not publish Ollama's port at all. **Do not change that address to
+> `0.0.0.0` or to a LAN or public IP** until the login work (TODO.md item 3) is done. Docker adds its own firewall rules, so a port published on all
+> interfaces is reachable from the network even when a host firewall such as `ufw` says it is blocked. To use the dashboard from another
+> computer, forward the port over SSH (`ssh -L 8080:127.0.0.1:8080 host`) rather than publishing it.
+
+**What you need:** Docker Engine with the Compose plugin (`docker compose version` works), and disk space: about 250 MB for the bridge image, about 4 GB for the Ollama image (the demo does not need it), plus a few GB for
+each model.
+
+**Try it first, with no radio and no Ollama.** One command builds the image (about half a minute the first time) and starts the demo, a
+simulated mesh with a scripted model, nothing transmitted and nothing kept:
+
+    docker compose --profile demo up demo        # then open http://127.0.0.1:8080/ ; Ctrl+C stops it
+
+**The real thing.**
+
+    cp .env.example .env                          # optional: every line in it is a comment; edit what you need
+    docker compose up -d --build                  # starts the bridge and Ollama
+    docker compose exec ollama ollama pull llama3.2:3b     # download the AI model once (about 2 GB); it is stored in a volume
+    docker compose logs -f bridge                 # what the bridge prints (the dashboard's log viewer reads log files, which this setup does not make)
+
+Open <http://127.0.0.1:8080/>. With no radio connected the dashboard is up and says it is waiting for one. If port 8080 is taken on your computer
+(for example by a bridge running outside Docker), set `MESHLLM_WEB_PORT=8081` in `.env`; only the number can change, not the address.
+To use another model, pull it the same way and set `MESHLLM_MODEL` in `.env` (or choose it on the dashboard's Model page, which is remembered in the database).
+
+**Choose how the radio is reached** (pick one; Bluetooth is not an option):
+
+- **USB, Linux computers only.** Docker Desktop on Windows and macOS cannot pass a USB serial device into a container. On Linux, find the group
+  that owns the device with `stat -c %g /dev/ttyUSB0`, put that number in `.env` as `MESHLLM_SERIAL_GID=<number>` (it is 20 on Debian and Ubuntu, but
+  other distributions differ), and start with the override file, which gives the container that one device and that one group and nothing else:
+
+      docker compose -f docker-compose.yml -f docker-compose.usb.yml up -d
+
+  If your radio is not `/dev/ttyUSB0` (for instance `/dev/ttyACM0`), edit the two lines marked `device` in `docker-compose.usb.yml`. Only one program can hold
+  the serial port, so stop any bridge running outside Docker first. This path has not been tried with a real radio yet.
+- **Wi-Fi (TCP), any computer.** Switch on the radio's Wi-Fi and give it a fixed address as described under *Connecting over Wi-Fi* above, then
+  put `MESHLLM_TCP=192.168.1.50` (its address, or `HOST:PORT`) in `.env` and run `docker compose up -d`. This is the way to use Docker on Windows
+  or macOS. **Wi-Fi/TCP has not been tested on real hardware, with or without Docker**, and Docker Desktop has not been tried at all.
+- **Bluetooth does not work in a container.** It needs the host's BlueZ service and D-Bus, which the container does not have. Run the bridge on the
+  host for a Bluetooth radio (the setup above).
+
+Any other bridge flag (see [flags.md](flags.md)) can go in `MESHLLM_EXTRA_ARGS` in `.env`, split the way a shell would, for example
+`MESHLLM_EXTRA_ARGS=--access-mode allowlist --daily-cap 20`. An unclosed quote stops the container with a message instead of starting with half the flags.
+
+**Your data.** Everything the bridge keeps is in the Docker volume `meshllm-data`, mounted at `/data`: the database `audit.db` (settings, chat memory, mesh
+data), its `backups/` folder (the automatic daily copy and your manual backups, as on the dashboard's Backups page) and the map-tile cache. It survives
+`docker compose stop`, `down`, restarts and image updates, and is deleted only by `docker compose down -v` or `docker volume rm`. The Ollama models are in
+the volume `ollama-models`. A backup copy lives in the same volume as the database, so it does not protect against losing the volume: copy the whole
+folder out now and then (the bridge can be running; stop it first for a perfectly consistent copy):
+
+    docker compose run --rm -T --no-deps --entrypoint tar bridge cf - -C /data . > meshllm-data.tar
+    # restore into an empty volume, with the bridge stopped:
+    docker compose run --rm -T --no-deps --entrypoint tar bridge xf - -C /data < meshllm-data.tar
+
+To move an existing `audit.db` from a non-Docker install into Docker, restore it from the dashboard's Backups page after the first start (or extract a tar of it
+into `/data` as above), rather than bind-mounting your project folder. If you do bind-mount a host folder over `/data`, make it writable by user id 10001.
+
+**How it is locked down.** The container runs as user id 10001 (not root), with every Linux capability dropped, `no-new-privileges`, a read-only
+root filesystem (only `/data` and a memory-backed `/tmp` are writable), and no host networking. It starts with `restart: unless-stopped`. `docker stop`
+ends the bridge in about a second with exit code 0 (the bridge turns SIGTERM into the same clean stop as Ctrl+C). Docker marks it *healthy* when
+`/api/status` answers, which says nothing about whether a radio is connected.
+
+**Updating.** Pull the new code, then rebuild and restart; the volume is kept:
+
+    git pull
+    docker compose up -d --build
+
+The base image is pinned by tag and digest in the `Dockerfile` (Dependabot proposes new digests monthly), and the Ollama image by version tag in
+`docker-compose.yml`. Both are updated by changing those lines in a normal pull request.
+
+**Stopping.** `docker compose stop` pauses everything (`start` resumes), `docker compose down` removes the containers but keeps the data, and
+`docker compose down -v` also deletes the volumes, which means your database and downloaded models.
+
+**GPU for Ollama (optional).** With an NVIDIA card and the NVIDIA Container Toolkit installed on the host, remove the `#` signs from the `deploy:`
+block under the `ollama` service in `docker-compose.yml`. It is left commented out and was not tested.
+
+CI builds the image on every pull request and smoke-tests the demo container (it checks the dashboard answers, the user id is not 0 and the healthcheck passes);
+nothing is pushed to any registry.

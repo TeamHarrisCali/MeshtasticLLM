@@ -889,7 +889,7 @@ def launch(args, bridge_class, parser):
     if args.web_host not in LOOPBACK:
         print(f"Demo mode only listens on this computer (127.0.0.1); --web-host {args.web_host} is not allowed with --demo.", flush=True)
         return 2
-    ignored = [flag for flag, given in (("--port", args.port != parser.get_default("port")), ("--db", args.db != parser.get_default("db")),
+    ignored = [flag for flag, given in (("--port", args.port != parser.get_default("port")), ("--tcp", bool(args.tcp)), ("--ble", bool(args.ble)), ("--db", args.db != parser.get_default("db")),
                                         ("--model", args.model is not None)) if given]
     if ignored:
         print(f"Note: {', '.join(ignored)} {'is' if len(ignored) == 1 else 'are'} ignored in demo mode "

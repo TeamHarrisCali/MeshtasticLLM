@@ -509,7 +509,7 @@ class MeshService:
         part = [r for r in rows if q in (r["name"] or "").lower() or q in (r["short"] or "").lower() or q in (r["id"] or "").lower()]
         return (part[0], []) if len(part) == 1 else (None, part[:5])
 
-    # ---- a different radio was plugged in ----------------------------------------------------------------------------------
+    # ---- a different radio was connected ----------------------------------------------------------------------------------
     def note_radio_change(self, old_id, new_id, old_name, new_name):
         """Called when the radio we're talking to is not the one we used last time. The clock verdict belonged to the old
         radio, so start over; and leave a banner (with a checklist) until the operator dismisses it."""

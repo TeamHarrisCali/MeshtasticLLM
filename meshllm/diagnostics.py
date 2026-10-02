@@ -104,9 +104,9 @@ class Diagnostics:
             add("radio", "Radio", "ok", f"Connected on {st['port']}" + (f" as {node.get('long_name') or node.get('id')}" if node else "") + ".")
         elif st["searching"]:
             add("radio", "Radio", "bad", "No radio is connected; the bridge is looking for one.",
-                "Plug it in by USB, and close any other program that has its serial port open (only one can hold it).")
+                b.endpoint.search_hint())
         else:
-            add("radio", "Radio", "warn", "The radio connection looks stalled.", "Unplug and replug the radio; the bridge reconnects by itself.")
+            add("radio", "Radio", "warn", "The radio connection looks stalled.", "Power-cycle or reconnect the radio; the bridge reconnects by itself.")
         # last packet
         try:
             last = max(b.mesh._seen.values(), default=None)

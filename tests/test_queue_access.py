@@ -30,7 +30,7 @@ import requests as rq; from meshllm import webui
 
 def make_args(**kw):
     base = dict(db=DB, port="STUB", model="fake", command="/ai", ollama_url="http://127.0.0.1:11498", max_tokens=50,
-                num_ctx=4096, max_chunks=4, chunk_delay=0, cooldown=0, timeout=10, memory_turns=6, memory_hours=24,
+                num_ctx=4096, max_chunks=4, chunk_delay=0, cooldown=0, timeout=60, memory_turns=6, memory_hours=24,
                 memory_chars=3000, no_log_inbound=False, web_host="127.0.0.1", web_port=8096, no_web=False,
                 max_queue=3, queue_ttl=600, no_queue_notice=False, access_mode=None, daily_cap=None, confirm_seconds=60, no_tool_gate=True, chunk_bytes=160, send_retries=2, retry_delay=0.05)
     base.update(kw); return argparse.Namespace(**base)

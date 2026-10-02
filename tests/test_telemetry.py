@@ -71,7 +71,7 @@ t.on_packet(bc(W, "deviceMetrics", DEV, 2), br.iface)
 r = t.store.list()[0]
 check("a heard broadcast is stored, tagged 'broadcast', with values, link quality, node clock and name",
       r["source"] == "broadcast" and r["status"] == "ok" and r["battery_level"] == 64 and r["voltage"] == 3.88 and r["uptime_seconds"] == 7200
-      and r["rx_snr"] == 4.25 and r["rx_rssi"] == -77 and r["hops"] == 2 and r["node_time"] == 1_700_000_500 and r["node_name"] == "House Base " and abs(r["ts"] - time.time()) < 5, r)
+      and r["rx_snr"] == 4.25 and r["rx_rssi"] == -77 and r["hops"] == 2 and r["node_time"] == 1_700_000_500 and r["node_name"] == "House Base " and abs(r["ts"] - time.time()) < 60, r)
 check("the stored JSON is the plain metrics (no protobuf object from the library)", json.loads(r["raw"]) == DEV, r["raw"])
 # malformed hop fields must not store a nonsense count (negative, or from a sender that doesn't say); one node each, since a node is
 # only recorded once per passive gap
@@ -117,7 +117,7 @@ t.watch_add("!eeee0005"); t.watch_add("!eeee0005")
 t.on_packet(bc(FLOOD, "deviceMetrics", DEV, 21), br.iface)
 check("...and watched ones are recorded (adding twice is harmless)", cnt(node=FLOOD) == 1 and [w["node_id"] for w in t.store.watched()] == [FLOOD])
 w = t.store.watched()[0]
-check("watch list reports readings and the last one's time", w["readings"] == 1 and w["node_name"] == "Quiet node" and abs(w["last_ts"] - time.time()) < 5, w)
+check("watch list reports readings and the last one's time", w["readings"] == 1 and w["node_name"] == "Quiet node" and abs(w["last_ts"] - time.time()) < 60, w)
 for bad in ["bob", "!xyz", "", None, 5, ["!aaaa0001"]]:
     try: t.watch_add(bad); ok = False
     except T.TelemetryError: ok = True

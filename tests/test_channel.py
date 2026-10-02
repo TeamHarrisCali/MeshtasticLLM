@@ -118,7 +118,6 @@ try: C.clean("x" * 250)
 except C.ChannelError as e: check("...too-long error states the size and that nothing is split", "250 of 200" in str(e) and "never split" in str(e), str(e))
 
 # ---- posting
-pass_gap()
 r = post("/api/channel/post", {"text": "  Anyone on the ridge?  "})
 check("posting works", r.status_code == 200 and "id" in r.json(), r.text)
 check("it goes out as ONE broadcast on channel 0, to everyone", wait(lambda: len(radio.sent) == 1) and radio.sent[0] == dict(text="Anyone on the ridge?", dest="^all", ack=True, ch=0), radio.sent)
@@ -152,7 +151,7 @@ br.channel._posts.clear(); br.iface = None
 r = post("/api/channel/post", {"text": "nobody home"})
 check("no radio: refused up front", r.status_code == 400 and "No radio" in r.json()["error"], r.text)
 br.iface = radio
-br.channel._posts.clear(); pass_gap()
+br.channel._posts.clear()
 br.iface = radio; rid = br.channel.post("queued then radio lost"); br.iface = None; br.down_since = time.time() - 60
 check("radio lost while queued: the post is marked failed, not sent", wait(lambda: [r for r in rows() if r["id"] == rid][0]["status"] == "failed", 4))
 br.iface = radio

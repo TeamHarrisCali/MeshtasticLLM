@@ -16,6 +16,7 @@ is also the key of the retry back-off table (`Bridge.bad_until`), so a failing e
 
 Nothing here transmits anything; it only opens and watches the link."""
 import socket
+import logging
 import os
 import re
 import sys
@@ -229,6 +230,24 @@ def bluez_device_path(mac):
     return f"/org/bluez/{adapters[0] if adapters else 'hci0'}/dev_{mac.replace('-', ':').upper().replace(':', '_')}"
 
 
+_closing_lost = threading.local()       # set while WE close an interface whose link is already gone (see _quiet_library_close_error)
+
+
+class _LostLinkCloseFilter(logging.Filter):
+    """Drops the library's 'Error closing mesh interface' log line, but only on a thread that is closing a link that is already lost."""
+    def filter(self, record):
+        return not (getattr(_closing_lost, "on", False) and record.getMessage().startswith("Error closing mesh interface"))
+
+
+def _quiet_library_close_error():
+    """Make sure the library's BLE logger carries the filter above (added once). Closing a dead link makes the library log a misleading
+    'are you in the bluetooth group? did you enter the pairing PIN?' error from its failed goodbye write; when the link is known to be lost
+    that is expected, not a problem. Real errors in any other situation are still logged."""
+    logger = logging.getLogger("meshtastic.ble_interface")
+    if not any(isinstance(f, _LostLinkCloseFilter) for f in logger.filters):
+        logger.addFilter(_LostLinkCloseFilter())
+
+
 def _device_unknown(error):
     """True if bleak/BlueZ is saying it has no such device (as opposed to a real connect failure such as a refused pairing)."""
     text = str(error).lower()
@@ -262,6 +281,23 @@ def _closing_on_error(cls, note=None, state=None):
                 except Exception:
                     pass
                 raise
+
+        def close(self):
+            """The library's close, except that closing a link that is already lost says so plainly instead of logging a misleading error."""
+            client = getattr(self, "client", None)
+            bleak = getattr(client, "bleak_client", None)
+            lost = client is not None and bleak is not None and not getattr(bleak, "is_connected", True)
+            if not lost:
+                return super().close()
+            _quiet_library_close_error()
+            _closing_lost.on = True
+            try:
+                super().close()
+            finally:
+                _closing_lost.on = False
+            if not getattr(self, "_lost_noted", False):
+                self._lost_noted = True
+                print("[radio] Bluetooth: closed the lost connection", flush=True)
 
         def _startConfig(self):
             """The library calls this once connected, right before it downloads the radio's settings."""
@@ -558,6 +594,24 @@ class TcpEndpoint(Endpoint):
         return 30, f"could not connect ({str(error)[:80]})"
 
 
+def _ble_pairing_hint(error):
+    """One actionable line for the host-side Bluetooth pairing failures seen in practice, with the raw error in parentheses; None otherwise.
+    All three come down to the computer's stored pairing being stale, classic (BR/EDR) or unauthenticated."""
+    text = str(error)
+    low = text.lower()
+    fix = "remove the pairing and re-pair as Low Energy with a PIN (docs/setup.md, Bluetooth)"
+    if "br-connection-canceled" in low:
+        why = f"Bluetooth refused the connection: the stored pairing is stale or recorded as classic (BR/EDR); {fix}"
+    elif "le-connection-abort-by-local" in low:
+        why = (f"the computer aborted the connection: the stored pairing is stale (a radio in 'No PIN' mode loses its bond when it "
+               f"reboots); {fix}")
+    elif "timed out waiting for" in low or "waiting for the radio to send its settings" in low:
+        why = f"connected, but the radio never sent its settings: usually a stale or unauthenticated pairing; {fix}"
+    else:
+        return None
+    return f"{why} ({text[:90]})"
+
+
 class BleEndpoint(Endpoint):
     """Bluetooth LE, by address or device name. Host-only: it needs the computer's Bluetooth adapter (on Linux BlueZ over D-Bus), so it
     cannot work inside a container.
@@ -629,6 +683,9 @@ class BleEndpoint(Endpoint):
     def failure_reason(self, label, error):
         if isinstance(error, BleUnavailable):
             return 600, str(error)
+        hint = _ble_pairing_hint(error)
+        if hint:
+            return 60, hint
         if isinstance(error, BleTimeout):
             return 60, str(error)
         if getattr(error, "kind", None) == "device_not_found":

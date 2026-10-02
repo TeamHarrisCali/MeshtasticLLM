@@ -32,7 +32,9 @@ radios, no crew groups, no job calculators. The AI stays read-only on a fixed to
     address (a radio the OS already holds does not advertise), a log line per phase and a 90 s limit on the whole connect.
   - [x] Bluetooth is host-only: on Linux it needs BlueZ and D-Bus and will not work inside a container (item 4). (Documented in `docs/setup.md`.)
   - [x] Done when: each mode connects, drops and reconnects in tests with the interface classes faked; the docs explain each mode.
-  - [ ] Real-hardware check: needs a radio with Wi-Fi or Bluetooth enabled; ask the owner first.
+  - [x] Real-hardware check, USB and Bluetooth: USB hot-plug, Bluetooth connect (with and without the OS holding the radio) and recovery after
+    a radio reboot were verified on a Heltec V3. Bluetooth needs a PIN and a Low Energy bond (see docs/setup.md).
+  - [ ] Real-hardware check, Wi-Fi/TCP: still unverified; needs a radio with Wi-Fi enabled (ask the owner first).
 - [ ] **3. Headless / LAN mode with a login** (so a phone or another PC can use the dashboard). **Needs an independent security review before merge.**
   - **Behaviour today to preserve:** on a loopback bind with no password configured, nothing changes (no login). A password becomes mandatory
     on any non-loopback bind (`0.0.0.0`, `::`, or any address outside `127.0.0.0/8` and `::1`); the bridge refuses to start without one.

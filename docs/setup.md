@@ -43,7 +43,10 @@ connection, the bridge asks the operating system to probe the idle connection, s
 other systems) and reconnects. That probe only runs while the connection is idle: if the radio vanishes while a reply is still unsent, the operating
 system's retransmission timeout (about 15 minutes on Linux) applies. On Windows, Ctrl+C may lag by up to the OS connect timeout during a connection attempt to an unreachable address (untested).
 
-**Bluetooth (BLE).** Get the radio's address, then pass it:
+**Bluetooth (BLE).** **Set a PIN first.** Before pairing, set the radio's Bluetooth mode to *Fixed PIN* (or *Random PIN*) in the Meshtastic app. In
+"No PIN" mode the radio pairs with anyone in range, and the unauthenticated pairing goes stale when the radio reboots (seen on BlueZ 5.87): after
+that the computer aborts every connect and the radio's settings never arrive. Pair with the PIN as shown below. (The radio also reboots when
+a USB serial connection to it is opened or closed, which is normal.) Then get the radio's address and pass it:
 
     python -m meshllm --ble-scan                  # nearby radios that are advertising (name and address)
     bluetoothctl devices Paired                   # Linux: radios the computer already knows
@@ -54,19 +57,23 @@ advertising and will not appear in a scan. Pass the **address** then: a Bluetoot
 and the bridge logs `Bluetooth: connecting to ...`. On Linux it reuses BlueZ's existing entry for the radio, including a connection the system already holds, so the radio need not be advertising. A **name** always needs a scan. If the address is not known to the system yet, the bridge says
 to pair the radio once in the system Bluetooth settings.
 
-Only one Bluetooth client can hold the radio at a time: disconnect the phone app first. A radio in the "No PIN" Bluetooth mode pairs with
-anyone in range, so set a PIN in the Meshtastic app. Bluetooth is host-only: it uses the computer's own Bluetooth adapter and does not work inside
+Only one Bluetooth client can hold the radio at a time: disconnect the phone app first. Bluetooth is host-only: it uses the computer's own Bluetooth adapter and does not work inside
 a container or a virtual machine without the adapter passed through. On **Linux** it needs BlueZ (the `bluetooth` service running, D-Bus available)
 and your user allowed to use it; if the scan fails, check `systemctl status bluetooth` and that `bluetoothctl show` lists a powered adapter.
 
-*Pairing pitfall (BlueZ).* A desktop pairing can be recorded as classic Bluetooth (BR/EDR) instead of Low Energy, and then every connect, even from
-a bare `bleak` script, fails with `org.bluez.Error.Failed br-connection-canceled`. Re-pair as Low Energy only:
+*Pairing as Low Energy with a PIN (BlueZ).* A desktop pairing can be recorded as classic Bluetooth (BR/EDR) instead of Low Energy, or can go stale,
+and then connects fail with `br-connection-canceled` or `le-connection-abort-by-local`, or the radio connects but never sends its settings. The bridge
+prints one line naming this as the likely cause. The fix is to remove the pairing and pair again as Low Energy, with the PIN:
 
     bluetoothctl remove AA:BB:CC:DD:EE:FF
+    bluetoothctl agent KeyboardOnly
+    bluetoothctl default-agent
     bluetoothctl --timeout 22 scan le             # leave this running ...
-    bluetoothctl pair AA:BB:CC:DD:EE:FF           # ... and run these in a second terminal
+    bluetoothctl pair AA:BB:CC:DD:EE:FF           # ... and in a second terminal run this; type the radio's PIN when asked
     bluetoothctl trust AA:BB:CC:DD:EE:FF
     bluetoothctl disconnect AA:BB:CC:DD:EE:FF     # let go, so the bridge can connect
+
+(If no PIN prompt appears, run the agent, scan and pair commands inside one interactive `bluetoothctl` session: a one-shot `agent` command may not outlive the command.)
 
 *How it connects.* Names are looked up with an unfiltered scan of about ten seconds (the bridge picks out Meshtastic radios itself: with
 BlueZ 5.87 and bleak 3.0.2 the library's own scan, which asks BlueZ to filter by service, crashed the Bluetooth daemon). Every phase is logged

@@ -2,7 +2,7 @@
 
 The library's TCPInterface and BLEInterface classes are replaced by fakes (the BLE module is a stand-in in sys.modules, so bleak is never
 imported); no network, Bluetooth adapter, serial port or radio is touched. USB serial behaviour is covered by test_connect.py."""
-import argparse, contextlib, io, os, subprocess, sys, tempfile, threading, time, types
+import argparse, contextlib, io, logging, os, subprocess, sys, tempfile, threading, time, types
 from types import SimpleNamespace
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -50,6 +50,7 @@ class World:
         self.fail_late = None       # BLE only: raise after the object (and its threads) exist
         self.block = None           # BLE only: an Event the constructor waits on after "connecting" (a hung connect)
         self.block_scan = None      # BLE only: an Event the discovery waits on (a hung scan)
+        self.close_error = False    # BLE only: close() logs the library's error even though the link is up
         self.node = "!00000a01"     # id of the radio answering at the endpoint
         self.made = []              # every fake interface created
         self.attempts = 0
@@ -100,7 +101,13 @@ class FakeBle:
         DEVICE_NOT_FOUND, MULTIPLE_DEVICES = "device_not_found", "multiple_devices"
         def __init__(self, message, kind="unknown"): super().__init__(message); self.kind = kind
     def getMyUser(self): return {"id": self.node, "longName": "Radio over Bluetooth", "shortName": "B", "hwModel": "FAKE"}
-    def close(self): self.closed = True; self.closed_by = threading.current_thread()
+    def close(self):
+        self.closed = True; self.closed_by = threading.current_thread()
+        c_ = getattr(self, "client", None)
+        if W.close_error or (c_ is not None and not getattr(c_, "bleak_client", SimpleNamespace(is_connected=True)).is_connected):
+            # what the real library logs when its goodbye write fails
+            import logging
+            logging.getLogger("meshtastic.ble_interface").error("Error closing mesh interface: Error writing BLE (are you in the 'bluetooth' user group?)")
     def drop(self): self.client = None; self._want_receive = False; self._receiveThread.alive = False   # the library's disconnect callback closes the interface
 FAKE_SERVICE = "6ba1b218-15a8-461f-9fa8-5dcae273eafd"
 DISCOVER_CALLS = []          # kwargs of every discover() call the code made
@@ -149,6 +156,7 @@ def reset_world():
     for br in BRIDGES: br.stop()
     BRIDGES.clear(); time.sleep(0.3)
     W.fail, W.fail_late, W.block, W.block_scan, W.node, W.attempts = None, None, None, None, "!00000a01", 0
+    W.close_error = False
     del CLIENT_FAILS[:]
     W.made.clear()
 
@@ -288,6 +296,34 @@ W.fail_late = None
 check("BLE: failure wording", "not found" in conn.BleEndpoint("x").failure_reason("x", FakeBleError("m", "device_not_found"))[1]
       and conn.BleEndpoint("x").failure_reason("x", RuntimeError("boom"))[0] >= 30)
 reset_world()
+
+# ---- pairing hints and the quiet close of a lost link ---------------------------------------------------------------------------
+bep = conn.BleEndpoint("AA:BB:CC:DD:EE:FF")
+for raw, word in (("org.bluez.Error.Failed br-connection-canceled", "classic (BR/EDR)"), ("org.bluez.Error.Failed le-connection-abort-by-local", "No PIN"),
+                  ("Timed out waiting for interface config", "never sent its settings")):
+    wait_, msg_ = bep.failure_reason("x", RuntimeError(raw))
+    check(f"BLE hint for {raw.split('.')[-1][:40]!r}: one line naming cause and fix, raw error kept", wait_ == 60 and "\n" not in msg_ and word in msg_ and "re-pair" in msg_ and "docs/setup.md" in msg_ and raw[:30] in msg_, msg_)
+wait_, msg_ = bep.failure_reason("x", conn.BleTimeout("Bluetooth connect timed out after 90 s while connected, waiting for the radio to send its settings"))
+check("BLE hint for a handshake that timed out in the settings phase", "never sent its settings" in msg_, msg_)
+check("other Bluetooth errors keep the generic wording", "could not connect over Bluetooth" in bep.failure_reason("x", RuntimeError("something else"))[1])
+logged = []
+class Grab(logging.Handler):
+    def emit(self, record): logged.append(record.getMessage())
+lib_logger = logging.getLogger("meshtastic.ble_interface"); grab = Grab(); lib_logger.addHandler(grab); lib_logger.setLevel(logging.DEBUG)
+with contextlib.redirect_stdout(io.StringIO()):
+    dead_ = bep.open(bep.label)
+dead_.client.bleak_client.is_connected = False         # the link is already gone
+out = io.StringIO()
+with contextlib.redirect_stdout(out):
+    dead_.close(); dead_.close()
+check("closing an already-lost link: the library's misleading error is not logged, one neutral line is printed", not any("Error closing mesh interface" in m for m in logged) and out.getvalue().count("closed the lost connection") == 1, (logged, out.getvalue()))
+with contextlib.redirect_stdout(io.StringIO()):
+    live_ = bep.open(bep.label)
+W.close_error = True
+live_.close()
+W.close_error = False
+check("...but the same error on a link that is still up is NOT hidden", any("Error closing mesh interface" in m for m in logged), logged)
+lib_logger.removeHandler(grab)
 
 # ---- the data watchdog and the real link state (injected clock: no sleeping) ---------------------------------------------------
 NOW = [1000.0]

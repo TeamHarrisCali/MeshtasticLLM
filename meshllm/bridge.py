@@ -151,6 +151,7 @@ def open_failure_reason(port, error, windows=os.name == "nt"):
     return 60, f"no Meshtastic radio answered ({str(error)[:70]})"  # a device that is not a radio, or one that did not handshake
 
 
+BLANK_REPLY_ANSWER = "I couldn't come up with an answer. Try asking another way."   # sent instead of an empty reply
 NO_TOOL_ANSWER = ("I couldn't tell which lookup to run. I can check: the mesh summary, nearest or low-battery nodes, "
                   "sensors, signal, quiet nodes, busy times, or one node.")
 
@@ -1084,7 +1085,8 @@ class Bridge:
             self.audit.update(rid, chunks=0)
             return
         if not (text or "").strip():                # an empty reply would send nothing yet be logged as answered, leaving the asker waiting
-            text = "I couldn't come up with an answer. Try asking another way."   # neutral: it may be the model's ignored tool call, not a result
+            text = BLANK_REPLY_ANSWER               # neutral wording: it may be the model's ignored tool call, not a result
+            self.audit.update(rid, response=text)   # keep the log (and the dashboard's chat view) in step with what was actually sent
         msgs = self.make_messages(text, self.args.max_chunks)
         self.audit.update(rid, chunks=len(msgs))
         self.outbox.put((rid, dest, msgs, 0))

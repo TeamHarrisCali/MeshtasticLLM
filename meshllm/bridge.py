@@ -321,6 +321,8 @@ class Bridge:
         self.down_since = time.time()   # when we last had no radio (outgoing messages wait up to --reconnect-hold)
         self.bad_until = {}             # port -> time before which we won't try it again
         self.connects = 0
+        self.web_server = None          # the dashboard's HTTP server once run() has started it (demo mode shuts it down on exit)
+        self.demo = None                # --demo only: {"radio", "traffic"}, the simulated radio and its traffic generator (see demo.py)
         self._search_logged = False
         self._stopping = False
         self._no_tools_warned = set()
@@ -864,6 +866,7 @@ class Bridge:
             "access_mode": self.mode,
             "temp_unit": self.mesh.temp_unit(), "dist_unit": self.mesh.dist_unit(),
             "radio_change": self.mesh.radio_change_active(),
+            "demo": bool(getattr(self.args, "demo", False)),   # --demo: the dashboard shows a "Demo mode" badge
         }
 
     def known_nodes(self):
@@ -1363,9 +1366,14 @@ class Bridge:
             self.detach(iface)
             self._search_logged = True  # already announced above
 
+    def connect_demo(self):
+        """--demo: attach the simulated radio instead of searching for a serial port, and block until stop() (see demo.py)."""
+        from meshllm import demo   # imported here so a normal start never loads the simulator
+        demo.run(self)
+
     def run(self):
-        """Start everything and block in connect_loop() until Ctrl+C or stop(). Subscribers are attached
-        before the first radio connects so no early packet is missed."""
+        """Start everything and block in connect_loop() (or connect_demo() with --demo) until Ctrl+C or stop().
+        Subscribers are attached before the first radio connects so no early packet is missed."""
         pub.subscribe(self.on_receive, "meshtastic.receive.text")
         pub.subscribe(self.coverage.on_packet, "meshtastic.receive")             # only records while you have a walk test running
         pub.subscribe(self.channel.on_text, "meshtastic.receive.text")           # channel posts: stored for the Channel page, never seen by the AI
@@ -1378,13 +1386,18 @@ class Bridge:
         if not getattr(self.args, "no_warm_up", True):
             self.warm_up()
         self.mesh.start()   # counts/snapshots for Home, and the hourly prune of old telemetry
-        mode = "auto-detecting the radio" if self.args.port.lower() == "auto" else f"using {self.args.port}"
+        demo_mode = getattr(self.args, "demo", False)
+        mode = ("with the simulated demo radio" if demo_mode else
+                "auto-detecting the radio" if self.args.port.lower() == "auto" else f"using {self.args.port}")
         print(f"Bridge starting: {mode}. Ollama model '{self.model}'. Ctrl+C to stop.")
         if not self.args.no_web:
-            webui.start(self)
+            self.web_server = webui.start(self)
             print(f"Web UI: http://{self.args.web_host}:{self.args.web_port}/  (audit log: {self.args.db})")
         try:
-            self.connect_loop()
+            if demo_mode:
+                self.connect_demo()
+            else:
+                self.connect_loop()
         except KeyboardInterrupt:
             pass
         finally:
@@ -1392,8 +1405,8 @@ class Bridge:
                 self._quiet_close(self.iface)
 
 
-def main():
-    """Command-line entry point: parse flags, apply any staged database restore, then run the bridge."""
+def build_parser():
+    """The command-line flags (a function of its own so tests can parse the same flags the real start-up uses)."""
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--port", default="auto",
                    help="serial port of the Meshtastic node, or 'auto' (default) to detect it, follow it if the "
@@ -1460,7 +1473,20 @@ def main():
     p.add_argument("--web-port", type=int, default=8080)
     p.add_argument("--no-web", action="store_true", help="disable the web UI")
     p.add_argument("--no-warm-up", action="store_true", help="don't load the model into Ollama's memory at start-up")
-    args = p.parse_args()
+    p.add_argument("--demo", action="store_true",
+                   help="try the dashboard with no radio and no Ollama: a simulated mesh, a temporary database, nothing transmitted")
+    p.add_argument("--demo-speed", type=float, default=1.0, help="with --demo: how fast the simulated mesh and its questions run (default 1)")
+    p.add_argument("--demo-scripted", action="store_true",
+                   help="with --demo: always use the built-in scripted model, even if Ollama is running")
+    return p
+
+
+def main():
+    """Command-line entry point: parse flags, apply any staged database restore, then run the bridge."""
+    args = build_parser().parse_args()
+    if args.demo:
+        from meshllm import demo
+        demo.configure(args)                # temporary database and folders, and the model to use; prints the banner
     apply_staged_restore(args.db)           # a database restore set aside from the dashboard is swapped in before anything opens it
     Bridge(args).run()
 

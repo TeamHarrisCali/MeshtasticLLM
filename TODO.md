@@ -70,14 +70,17 @@ radios, no crew groups, no job calculators. The AI stays read-only on a fixed to
   - **Docs that become false and must change in the same PR:** the "no login" lines in `README.md`, `docs/flags.md` (the `--web-host 0.0.0.0`
     paragraph) and `SECURITY.md`, and the "web panel password" idea in `docs/roadmap.md`.
   - Done when: every rule above has a test, an independent security review is clean, and the docs match.
-- [ ] **4. Docker and Docker Compose.** Depends on items 2 and 3.
-  - An image for the bridge, plus a Compose file with an Ollama service and a volume for the database. Run as a numeric non-root user and make
-    sure the database volume is writable by it. Pin the base image by tag **and digest**, and add Dependabot's Docker ecosystem to keep it current.
-  - The password hash comes from a Compose `secrets:` file (item 3), not from an environment variable (those show up in `docker inspect`).
-    Publish the dashboard port on one interface only (loopback by default, the LAN as an explicit opt-in) and do not publish Ollama's port.
-  - USB serial passthrough (`devices:`) works on Linux hosts only; on Windows and macOS use the Wi-Fi/TCP radio path (item 2). Bluetooth does not work in a container.
-  - CI builds the image (build only; nothing is pushed to a registry until the owner decides).
-  - Done when: `docker compose up` gives a working dashboard behind the login with a faked or real radio, the docs explain each platform.
+- [ ] **4. Docker and Docker Compose.** Depends on items 2 and 3. The parts that do not need the login are done; the LAN parts wait for item 3.
+  - [x] An image for the bridge (`Dockerfile`), plus a Compose file with an Ollama service and a volume for the database. Runs as a numeric non-root
+    user (10001) and the `/data` volume is writable by it. The base image is pinned by tag **and digest**, and Dependabot's Docker ecosystem keeps it current.
+    There is also a `demo` profile (`docker compose --profile demo up demo`) that needs no radio and no Ollama.
+  - [ ] The password hash comes from a Compose `secrets:` file (item 3), not from an environment variable (those show up in `docker inspect`).
+  - [x] Dashboard port published on the host loopback only (`127.0.0.1:8080`) and Ollama's port not published, with a warning in the compose file and the docs.
+  - [ ] The LAN as an explicit opt-in for the published address: only together with item 3's login.
+  - [x] USB serial passthrough (`docker-compose.usb.yml`, Linux hosts only); on Windows and macOS use the Wi-Fi/TCP radio path (item 2); Bluetooth does not work in a container. Documented in `docs/setup.md`.
+    The container, the image and the demo were tried on Linux; USB and Wi-Fi from inside a container have **not** been tried with a real radio, and Docker Desktop not at all.
+  - [x] CI builds the image and smoke-tests the demo container (build only; nothing is pushed to a registry until the owner decides).
+  - [ ] Done when: `docker compose up` gives a working dashboard behind the login with a faked or real radio, the docs explain each platform.
 - [ ] **5. Afterwards**
   - A whole-project security and bug pass: static analysis, a dependency scan, a secret scan over the full history, a review of every web route and of the installer scripts.
   - Install `qwen3.5` and re-run the tool-choice evaluation next to `llama3.2:3b` (the weak spot is choosing the right `mesh_report` topic).

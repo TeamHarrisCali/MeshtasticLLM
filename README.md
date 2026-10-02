@@ -90,6 +90,29 @@ Then open <http://127.0.0.1:8080/> and, from another node, send a direct message
 remembered in the database. Command-line flags exist as optional overrides ([docs/flags.md](docs/flags.md)). To run in the
 foreground instead: `.venv/bin/python -m meshllm`.
 
+### Run with Docker
+
+Docker and Docker Compose are an alternative to the installer. Try the dashboard with one command, no radio and no Ollama needed:
+
+```bash
+docker compose --profile demo up demo      # builds the image the first time, then open http://127.0.0.1:8080/
+```
+
+For the real thing (the bridge plus its own Ollama, with the database in a Docker volume):
+
+```bash
+docker compose up -d --build
+docker compose exec ollama ollama pull llama3.2:3b      # the AI model, downloaded once
+# a USB radio, on a Linux computer only (see docs/setup.md for the group number):
+docker compose -f docker-compose.yml -f docker-compose.usb.yml up -d
+# or a Wi-Fi radio on any computer: put MESHLLM_TCP=<its address> in a .env file (copy .env.example), then docker compose up -d
+```
+
+> **The dashboard has no login yet**, so the compose file publishes it on this computer only (`127.0.0.1:8080`) and Ollama's port is not
+> published at all. Do not change the address to `0.0.0.0` or a LAN address. If you run the image without Compose, publish with `-p 127.0.0.1:8080:8080`, never `-p 8080:8080` (that would expose a login-less dashboard on your network). **Bluetooth does not work inside a container** (it needs the
+> host's Bluetooth service): run the bridge on the host for that. **Wi-Fi/TCP has not been tested on real hardware yet.** Full steps, backups,
+> updating and stopping are in [docs/setup.md](docs/setup.md#run-with-docker).
+
 ### Connect over Wi-Fi or Bluetooth
 
 > **Status:** Bluetooth has been tested on one real radio (a Heltec V3: connect, and automatic recovery after a reboot). **Wi-Fi (`--tcp`) has not been tested on real hardware yet;** it is covered only by automated tests with a simulated connection. Try it and report what happens.

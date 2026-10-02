@@ -15,6 +15,7 @@ import os
 import queue
 import re
 import secrets
+import signal
 import sys
 import threading
 import time
@@ -1352,7 +1353,11 @@ class Bridge:
         print(f"Bridge starting: {mode}. Ollama model '{self.model}'. Ctrl+C to stop.")
         if not self.args.no_web:
             self.web_server = webui.start(self)
-            print(f"Web UI: http://{self.args.web_host}:{self.args.web_port}/  (audit log: {self.args.db})")
+            if self.args.web_host in webui.WILDCARD_HOSTS:     # a wildcard address is not one a browser should use
+                print(f"Web UI: http://127.0.0.1:{self.args.web_port}/  (listening on all interfaces inside a container; "
+                      f"what can reach it is decided by the published port)  (audit log: {self.args.db})")
+            else:
+                print(f"Web UI: http://{self.args.web_host}:{self.args.web_port}/  (audit log: {self.args.db})")
         try:
             if demo_mode:
                 self.connect_demo()
@@ -1481,6 +1486,12 @@ def ble_scan_main():
     return 0
 
 
+def _stop_on_sigterm(signum, frame):
+    """SIGTERM (`kill`, `docker stop`, systemd) ends the bridge like Ctrl+C, so it closes the radio and the database cleanly. It matters
+    most in a container, where the bridge is process 1 and Linux ignores SIGTERM for process 1 unless the program handles it."""
+    raise KeyboardInterrupt
+
+
 def main():
     """Command-line entry point: parse flags, apply any staged database restore, then run the bridge."""
     parser, args = parse_cli()
@@ -1494,6 +1505,10 @@ def main():
     if args.demo:
         from meshllm import demo
         sys.exit(demo.launch(args, Bridge, parser))     # temporary folders, signals and cleanup are all handled there
+    try:
+        signal.signal(signal.SIGTERM, _stop_on_sigterm)
+    except (ValueError, OSError, AttributeError):       # not the main thread, or no such signal here: Ctrl+C still works
+        pass
     apply_staged_restore(args.db)           # a database restore set aside from the dashboard is swapped in before anything opens it
     Bridge(args).run()
 

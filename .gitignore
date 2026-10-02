@@ -19,6 +19,9 @@ tile_cache/
 # Private working copies (originals of anonymized results, personal notes, screenshots)
 private/
 
+# Docker Compose settings (copy .env.example to .env)
+.env
+
 # Editors and OS
 .vscode/
 .idea/

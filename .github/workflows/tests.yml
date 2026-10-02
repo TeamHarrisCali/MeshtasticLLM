@@ -28,3 +28,40 @@ jobs:
           pip install -r requirements.txt
       - name: Run the test suite (radio and Ollama are faked)
         run: python run_tests.py -v
+
+  # Builds the container image and smoke-tests it. Nothing is pushed to a registry (no login, no push).
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build the image
+        run: docker build --tag meshllm-ci .
+      - name: Smoke test the demo container
+        run: |
+          set -eu
+          trap 'docker logs meshllm-ci-demo || true; docker rm -f meshllm-ci-demo >/dev/null 2>&1 || true' EXIT
+          # publish on the runner's loopback only, like docker-compose.yml does; a read-only root and no capabilities, like the compose file
+          docker run -d --name meshllm-ci-demo --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges:true \
+            -p 127.0.0.1:18080:8080 meshllm-ci --demo --demo-scripted
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:18080/api/status | grep -q '"connected": true'; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:18080/api/status | grep -q '"connected": true'
+          uid=$(docker exec meshllm-ci-demo id -u)
+          echo "container user id: $uid"
+          test "$uid" != "0"
+          for i in $(seq 1 30); do
+            health=$(docker inspect --format '{{.State.Health.Status}}' meshllm-ci-demo)
+            if [ "$health" = healthy ]; then break; fi
+            sleep 2
+          done
+          echo "health: $health"
+          test "$health" = healthy
+          docker stop -t 10 meshllm-ci-demo
+          test "$(docker inspect --format '{{.State.ExitCode}}' meshllm-ci-demo)" = 0
+      - name: The compose files are valid
+        run: |
+          docker compose config -q
+          docker compose --profile demo config -q
+          docker compose -f docker-compose.yml -f docker-compose.usb.yml config -q

@@ -59,6 +59,11 @@ demo=0
 for a in "$@"; do
     if [ "$a" = "--demo" ]; then demo=1; fi
 done
+# a --demo that arrives through MESHLLM_EXTRA_ARGS counts too (the quotes and backslashes a shell would remove are dropped first, so '--demo' is seen;
+# erring towards refusing: an extra that merely mentions --demo inside quotes is refused on a LAN address as well)
+extras=" ${MESHLLM_EXTRA_ARGS:-} "
+extras="${extras//[\'\"\\]/}"
+case "$extras" in *[[:space:]]--demo[[:space:]]*) demo=1 ;; esac
 
 # where Compose publishes the port: only a 127.x.x.x or ::1 host address keeps it on this computer
 publish="${MESHLLM_PUBLISH_ADDR:-127.0.0.1}"

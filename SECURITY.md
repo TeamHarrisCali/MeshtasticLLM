@@ -35,7 +35,7 @@ This bridge connects an untrusted radio mesh to a local language model, so the i
   a viewer can read message text; `--trusted-proxy` believes whatever the named proxy sends.
 - Docker: by default the dashboard runs without a login, published on the host's loopback only (`127.0.0.1`). With `docker-compose.login.yml` the password hash is a Compose secret file,
   never an environment variable (`docker inspect` shows those). Because Compose keeps the host file's owner and mode, the bridge container starts as root for a moment
-  with `DAC_OVERRIDE`, `SETUID` and `SETGID` only, copies the hash into a 0400 file for uid 10001 on a memory-only tmpfs and drops to 10001 with no capabilities; the bridge never runs as root.
+  with `DAC_OVERRIDE`, `SETUID` and `SETGID` only, copies the hash into a 0400 file for uid 10001 on a memory-only tmpfs and drops to 10001 with no effective, permitted or inheritable capabilities (the container's bounding set keeps those three, which grants nothing under `no-new-privileges`); the bridge never runs as root.
   `docker exec` and the healthcheck still run as that configured root user. Publishing beyond loopback (`MESHLLM_WEB_BIND`) makes the container refuse to start without the login and `MESHLLM_ALLOWED_HOSTS`;
   a hand-edited `ports:` line or `docker run -p 0.0.0.0:...` is invisible to it and unprotected. The traffic is clear text (no TLS in Compose), and every connection through Docker's proxy looks like it comes from the Docker gateway.
   See [docs/setup.md](docs/setup.md#run-with-docker).

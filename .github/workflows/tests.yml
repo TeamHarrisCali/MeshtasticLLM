@@ -95,9 +95,9 @@ jobs:
           # the hash is in a secret file, not in the container's configuration
           if docker inspect meshllm-ci-login-bridge-1 | grep -q scrypt; then echo "the password hash is visible in docker inspect"; exit 1; fi
           # PID 1 (the bridge) is not root and holds no capabilities; the root file system is read-only
-          docker exec meshllm-ci-login-bridge-1 grep -E '^(Uid|CapEff)' /proc/1/status | tee "$dir/proc"
+          docker exec meshllm-ci-login-bridge-1 grep -E '^(Uid|CapInh|CapPrm|CapEff|CapAmb)' /proc/1/status | tee "$dir/proc"
           grep -q '^Uid:[[:space:]]10001' "$dir/proc"
-          grep -q '^CapEff:[[:space:]]0000000000000000' "$dir/proc"
+          for cap in CapInh CapPrm CapEff CapAmb; do grep -q "^$cap:[[:space:]]0000000000000000" "$dir/proc"; done
           test "$(docker inspect --format '{{.HostConfig.ReadonlyRootfs}}' meshllm-ci-login-bridge-1)" = true
           test "$(docker port meshllm-ci-login-bridge-1 8080/tcp)" = "127.0.0.1:18081"
       - name: The image refuses a network-facing dashboard without a login

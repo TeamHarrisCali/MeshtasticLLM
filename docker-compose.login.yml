@@ -16,7 +16,7 @@
 # and 10001 cannot read it. So that bridge container starts as root for a moment: docker/entrypoint.sh copies the file into a tmpfs
 # (/run/meshllm: memory only, 0400, owned by 10001), then drops to 10001 and re-runs itself. Root never runs the bridge or parses
 # anything from the environment. What this file adds to the bridge container, and nothing else:
-#   user: "0:0"        only for that copy; the bridge itself (PID 1 after the drop) runs as 10001 with NO capabilities
+#   user: "0:0"        only for that copy; the bridge itself (PID 1 after the drop) runs as 10001 with no effective capabilities (only the bounding set keeps the three, which is inert)
 #   cap_add            DAC_OVERRIDE (read your 600 file), SETUID and SETGID (drop to 10001). Not CHOWN, not anything else
 #   tmpfs /run/meshllm the copy; it vanishes when the container stops, and no secret is written into the image or a volume
 # The root file system stays read-only and cap_drop: [ALL] from docker-compose.yml still applies to everything not listed above.

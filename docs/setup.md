@@ -276,7 +276,7 @@ To move an existing `audit.db` from a non-Docker install into Docker, restore it
 into `/data` as above), rather than bind-mounting your project folder. If you do bind-mount a host folder over `/data`, make it writable by user id 10001.
 
 **How it is locked down.** The container runs as user id 10001 (not root), with every Linux capability dropped, `no-new-privileges`, a read-only
-root filesystem (only `/data` and a memory-backed `/tmp` are writable), and no host networking. It starts with `restart: unless-stopped`. `docker stop`
+root filesystem (only `/data` and a memory-backed `/tmp` are writable), and no host networking. It starts with `restart: unless-stopped`, so a configuration the container refuses (exit 78 for an unsafe LAN publish, exit 1 or 2 for a missing file or a bad flag) shows up as a restart loop in `docker ps`: read `docker compose logs bridge` for the one-line reason. `docker stop`
 ends the bridge in about a second with exit code 0 (the bridge turns SIGTERM into the same clean stop as Ctrl+C). Docker marks it *healthy* when
 `/api/session` answers (the one data route that stays open under a login, so the check keeps working with one); it says nothing about whether a radio is connected.
 

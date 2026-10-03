@@ -89,7 +89,7 @@ radios, no crew groups, no job calculators. The AI stays read-only on a fixed to
   - [x] USB serial passthrough (`docker-compose.usb.yml`, Linux hosts only); on Windows and macOS use the Wi-Fi/TCP radio path (item 2); Bluetooth does not work in a container. Documented in `docs/setup.md`.
     The container, the image and the demo were tried on Linux; USB and Wi-Fi from inside a container have **not** been tried with a real radio, and Docker Desktop not at all.
   - [x] CI builds the image, smoke-tests the demo container and the login override (healthy with a login, sign-in through the published port, no hash in `docker inspect`, PID 1 uid 10001 with no capabilities, LAN publish refused without a login); nothing is pushed to a registry.
-  - [ ] Independent security review of the login-in-Docker change (the root-then-10001 copy and the LAN rule).
+  - [x] Independent security review of the login-in-Docker change (the root-then-10001 copy and the LAN rule): APPROVE WITH NITS; the one real finding (`--demo` through `MESHLLM_EXTRA_ARGS` on a LAN publish) and the wording nits were fixed and tested, not re-reviewed.
   - [ ] Done when: `docker compose up` gives a working dashboard behind the login with a faked or real radio, the docs explain each platform. Open: the login was proven with no radio attached (the demo profile ignores passwords, so there is no faked-radio login);
     a real radio from inside a container (USB, Wi-Fi), Docker Desktop on Windows/macOS, rootless Docker, and a real peer on a LAN (how the client address looks through Docker's proxy) have not been tried.
 - [ ] **5. Afterwards**

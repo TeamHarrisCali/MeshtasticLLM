@@ -3,11 +3,15 @@
 #   Try it with no radio and no Ollama:  docker compose --profile demo up demo     then open http://127.0.0.1:8080/
 #   The real thing:                      docker compose up -d                      (needs a radio: see below)
 #
-# The dashboard has NO LOGIN here (the app has an optional one, but this file does not pass it a password yet: TODO.md item 4) and shows message text and lets whoever opens it send on your radio. So it is published on this
-# computer's loopback only ("127.0.0.1:...").
-# WARNING: do NOT change that address to 0.0.0.0, to a LAN or public IP, or drop it so Docker publishes on every interface, until a
-# login is wired through this file (TODO.md item 4). Anyone who can reach the port would control your radio and read your messages. Docker also edits the
-# firewall itself, so a published port on 0.0.0.0 is reachable from the network even if a host firewall such as ufw says otherwise.
+# By default the dashboard has NO LOGIN here, shows message text and lets whoever opens it send on your radio, so it is published on
+# this computer's loopback only ("127.0.0.1:...").
+#   Login (dashboard password):  add  -f docker-compose.login.yml  (the password hash is a Compose secret, never an environment variable).
+#   Another computer or a phone: needs that login AND MESHLLM_WEB_BIND + MESHLLM_ALLOWED_HOSTS in .env (see .env.example). Without the login
+#                                the container REFUSES TO START when MESHLLM_WEB_BIND is anything but 127.0.0.1 / ::1.
+# WARNING: do NOT hand-edit the "ports:" address to 0.0.0.0, to a LAN or public IP, or drop it so Docker publishes on every interface:
+# the container cannot see that, so the checks above would not run and anyone who can reach the port would control your radio and
+# read your messages. Docker also edits the firewall itself, so a published port on 0.0.0.0 is reachable from the network even if a
+# host firewall such as ufw says otherwise. Use MESHLLM_WEB_BIND, which the container checks.
 #
 # Radio: pick ONE way.
 #   USB (Linux hosts only):  docker compose -f docker-compose.yml -f docker-compose.usb.yml up -d
@@ -34,14 +38,18 @@ services:
       MESHLLM_FALLBACK: "${MESHLLM_FALLBACK:-}"
       MESHLLM_MODEL: "${MESHLLM_MODEL:-}"
       MESHLLM_EXTRA_ARGS: "${MESHLLM_EXTRA_ARGS:-}"
+      # The entrypoint is told where the port is published so it can refuse a network-facing dashboard without a login (see above)
+      MESHLLM_PUBLISH_ADDR: "${MESHLLM_WEB_BIND:-127.0.0.1}"
+      MESHLLM_ALLOWED_HOSTS: "${MESHLLM_ALLOWED_HOSTS:-}"
     volumes:
       # The database (audit.db), the backups and the map-tile cache all live in this volume. It survives `docker compose down`
       # (but not `docker compose down -v`).
       - meshllm-data:/data
     ports:
-      # Loopback only, see the WARNING at the top. Inside the container the app listens on 0.0.0.0:8080; this line is what decides who
-      # can reach it. Only the host port number can be changed (MESHLLM_WEB_PORT in .env), never the address.
-      - "127.0.0.1:${MESHLLM_WEB_PORT:-8080}:8080"
+      # Loopback unless you opt in with MESHLLM_WEB_BIND (needs the login, see the top of this file); the same variable is handed to the
+      # container above, which refuses to start on a non-loopback address without a login. Inside the container the app listens on
+      # 0.0.0.0:8080; this line decides who can reach it. MESHLLM_WEB_PORT in .env changes the host port number.
+      - "${MESHLLM_WEB_BIND:-127.0.0.1}:${MESHLLM_WEB_PORT:-8080}:8080"
 
   ollama:
     # The AI model server. No `ports:` on purpose: only the bridge (on this Compose network) talks to it. Pulling a model:
@@ -69,6 +77,7 @@ services:
     restart: "no"
     command: ["--demo", "--demo-scripted"]
     ports:
+      # The demo has a send box and no login, so its address is fixed to this computer's loopback: no variable can change it.
       - "127.0.0.1:${MESHLLM_WEB_PORT:-8080}:8080"
 
 volumes:

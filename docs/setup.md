@@ -208,16 +208,16 @@ The radio is not visible inside WSL; run the bridge on the Windows side, or atta
 ## Run with Docker
 
 The project can run as containers instead of through `setup.sh`: one for the bridge and dashboard, one for Ollama (the AI model server).
-The files are `Dockerfile`, `docker-compose.yml`, `docker-compose.usb.yml`, `.env.example` and `docker/entrypoint.sh`.
+The files are `Dockerfile`, `docker-compose.yml`, `docker-compose.usb.yml`, `docker-compose.login.yml`, `.env.example` and `docker/entrypoint.sh`.
 It was built and tried on Linux with Docker 29.8.2 and Compose 5.5.1, running the demo and the bridge without a radio. **Not yet tried:**
 Docker Desktop on Windows or macOS, a real radio from inside a container (USB or Wi-Fi), and the Ollama container (the model server was
 not started in testing).
 
-> **The container's dashboard has no login.** The app now has an optional login (see [the LAN login section](#use-the-dashboard-from-a-phone-or-another-computer-lan-login)),
-> but Compose does not pass it a password yet (TODO.md item 4), so the image runs the way it always did: it shows message text and has a box that sends on your radio. The compose file therefore publishes
-> it on **this computer's loopback only** (`127.0.0.1:8080`) and does not publish Ollama's port at all. **Do not change that address to
-> `0.0.0.0` or to a LAN or public IP.** Docker adds its own firewall rules, so a port published on all
-> interfaces is reachable from the network even when a host firewall such as `ufw` says it is blocked. To use the dashboard from another
+> **By default the container's dashboard has no login.** It shows message text and has a box that sends on your radio, so the compose file publishes
+> it on **this computer's loopback only** (`127.0.0.1:8080`) and does not publish Ollama's port at all. For a password, use
+> [the login override](#the-dashboard-login-in-docker); for another computer or a phone, [the LAN opt-in](#reaching-it-from-another-computer-opt-in), which is refused
+> without that login. **Do not hand-edit the `ports:` address to `0.0.0.0` or to a LAN or public IP:** the container cannot see that edit, so none of its checks run. Docker adds its own firewall rules, so a port published on all
+> interfaces is reachable from the network even when a host firewall such as `ufw` says it is blocked. To use the no-login dashboard from another
 > computer, forward the port over SSH (`ssh -L 8080:127.0.0.1:8080 host`) rather than publishing it. If you run the image without Compose, publish with `-p 127.0.0.1:8080:8080`, never `-p 8080:8080` (that would expose a login-less dashboard on your network).
 >
 > If the container says `/data is not writable by uid 10001`, the volume or bind-mounted folder has the wrong owner: make it writable for user id 10001 (a new named volume already is).
@@ -238,7 +238,7 @@ simulated mesh with a scripted model, nothing transmitted and nothing kept:
     docker compose logs -f bridge                 # what the bridge prints (the dashboard's log viewer reads log files, which this setup does not make)
 
 Open <http://127.0.0.1:8080/>. With no radio connected the dashboard is up and says it is waiting for one. If port 8080 is taken on your computer
-(for example by a bridge running outside Docker), set `MESHLLM_WEB_PORT=8081` in `.env`; only the number can change, not the address.
+(for example by a bridge running outside Docker), set `MESHLLM_WEB_PORT=8081` in `.env`. That changes the number only; the address stays `127.0.0.1` unless you opt in to the LAN below.
 To use another model, pull it the same way and set `MESHLLM_MODEL` in `.env` (or choose it on the dashboard's Model page, which is remembered in the database).
 
 **Choose how the radio is reached** (pick one; Bluetooth is not an option):
@@ -278,7 +278,50 @@ into `/data` as above), rather than bind-mounting your project folder. If you do
 **How it is locked down.** The container runs as user id 10001 (not root), with every Linux capability dropped, `no-new-privileges`, a read-only
 root filesystem (only `/data` and a memory-backed `/tmp` are writable), and no host networking. It starts with `restart: unless-stopped`. `docker stop`
 ends the bridge in about a second with exit code 0 (the bridge turns SIGTERM into the same clean stop as Ctrl+C). Docker marks it *healthy* when
-`/api/status` answers, which says nothing about whether a radio is connected.
+`/api/session` answers (the one data route that stays open under a login, so the check keeps working with one); it says nothing about whether a radio is connected.
+
+### The dashboard login in Docker
+
+1. On the host, make the password hash (once; it asks twice and shows nothing you type): `python -m meshllm --set-password`. It writes a mode-600 file, by default `~/.config/meshllm/admin.hash`, that holds
+   only a scrypt hash. Treat it as a secret anyway: keep it out of git (`*.hash` is ignored) and out of backups you share.
+2. Put the file's **absolute** path in `.env` (Compose does not expand `~`): `MESHLLM_ADMIN_HASH_FILE=/absolute/path/to/admin.hash`.
+3. Start with the override file added: `docker compose -f docker-compose.yml -f docker-compose.login.yml up -d` (add `-f docker-compose.usb.yml` for a USB radio). To avoid typing it, put
+   `COMPOSE_FILE=docker-compose.yml:docker-compose.login.yml` in `.env`. The dashboard (still on `127.0.0.1:8080`) now shows the sign-in page; see [the LAN login section](#use-the-dashboard-from-a-phone-or-another-computer-lan-login)
+   for the accounts, throttling and what the login does not do. Only the admin account is wired in Docker, not the optional read-only viewer.
+4. After running `--set-password` again, run `docker compose restart bridge`: the container reads the hash when it starts (an already-running container does not see a replaced file).
+
+**Why a secret file and not an environment variable.** `docker inspect` shows every environment variable of a container to anyone who can use Docker. A Compose `secrets:` file is mounted at `/run/secrets/meshllm_admin_hash` and never appears there.
+The same goes for the image: `.dockerignore` keeps `*.hash` out of it.
+
+**The unreadable-secret problem, and the trade-off.** Compose mounts a file secret with the *host file's* owner and mode (it ignores `uid`, `gid` and `mode` for file secrets; Compose 5.5.1 prints a warning saying so). The file `--set-password` writes
+is mode 600 and belongs to you, so the container's user (uid 10001) cannot read it. What the override does about it:
+
+- The bridge container starts as **root for a moment**, with exactly three capabilities added back: `DAC_OVERRIDE` (to read your 600 file), `SETUID` and `SETGID` (to give up root). Everything else stays dropped, the root file system stays read-only and `no-new-privileges` stays on.
+- `docker/entrypoint.sh` copies the file into `/run/meshllm`, a **memory-only tmpfs** (mode 0700, 1 MB, `noexec`), as a file owned by 10001 with mode **0400**. The copy is written by the unprivileged user, so no `CHOWN` capability is needed. It disappears when the container stops; nothing is written into the image or a volume.
+- It then re-runs itself as 10001 (keeping only the groups Docker added with `group_add`, such as the USB serial group), and everything else (reading the environment, building the command line, Python, the bridge) runs as 10001 with **no capabilities at all**. Root never runs the bridge or parses `MESHLLM_EXTRA_ARGS`.
+- A container started as root **without** the secret refuses to run (so root is never left running the bridge).
+
+Seen from outside: PID 1 is uid 10001 with empty effective and permitted capability sets (the three capabilities remain only in the process's bounding set, which grants nothing without file capabilities, and `no-new-privileges` forbids those).
+Two things still run as the configured user, root: `docker compose exec bridge ...` and the healthcheck (a plain Python GET of `/api/session`). Anyone who can run `docker exec` already controls the Docker daemon, which is root on the host, so that adds no power for them.
+
+*The alternative, not used:* on the host `sudo chown 10001 admin.hash && chmod 400 admin.hash`, which needs no extra capabilities at all. It hands your own password file to a numeric user id that may not exist on your computer, you can no longer read or edit it without `sudo`,
+and it does not work under rootless Docker or user-namespace remapping (there, container uid 10001 is a different host user). If you prefer it anyway, mount your own `secrets:` entry on the base compose file: the entrypoint uses a secret it can read directly (and says what to do when it cannot). That route was only tested with the unreadable-file error, not with a real chown.
+
+### Reaching it from another computer (opt-in)
+
+By default the port is published on `127.0.0.1` only. To publish it on an address of this computer that other devices can reach, **all three** of these are required, and the bridge container **refuses to start** (exit code 78, with a message that says what is missing) if any is missing:
+
+1. the login above (`docker-compose.login.yml` and a valid `MESHLLM_ADMIN_HASH_FILE`);
+2. `MESHLLM_WEB_BIND=<an address of this computer>` in `.env`, for example `192.0.2.10` (the only way to change the published address; the demo ignores it and stays on `127.0.0.1`). Any address that is not `127.x.x.x` or `::1` counts as the network;
+3. `MESHLLM_ALLOWED_HOSTS=<every name or address you will type in the browser>` in `.env`, comma-separated, for example `192.0.2.10,radio.test` (one `--allowed-host` each; this is what stops DNS rebinding).
+
+`docker compose -f docker-compose.yml -f docker-compose.login.yml up -d` then publishes `192.0.2.10:8080`. Ollama's port is never published, and `--demo` is refused on a non-loopback address. Inside the container the app still listens on `0.0.0.0` (that is how a published port reaches it); the rule is enforced twice:
+the entrypoint refuses, and it sets `MESHLLM_PUBLISH_LAN=1` so the app's own start-up check refuses a wildcard bind without a login even if the entrypoint were bypassed. What neither can see is a hand-edited `ports:` line or a `docker run -p 0.0.0.0:...`: do not do that.
+`0.0.0.0` as `MESHLLM_WEB_BIND` follows the same rules (the login is then mandatory), but it publishes on every interface of the computer, including internet-facing ones, and Docker bypasses host firewalls such as `ufw`; name one address instead.
+
+Limits to know: the traffic is plain HTTP, so the password crosses your network in clear text (see [the LAN login section](#use-the-dashboard-from-a-phone-or-another-computer-lan-login)); TLS is not wired through Compose, and the container's healthcheck is plain HTTP too, so `--tls-cert` in `MESHLLM_EXTRA_ARGS` would make the container unhealthy (use a reverse proxy on the host instead).
+A connection to the published port from this same computer reaches the app through Docker's proxy, so the app sees Docker's gateway address as the client: the sign-in page then shows its clear-text-password warning even on this computer, and the login throttle counts all such connections as one source.
+How a peer on the real network appears to the app (its own address, or the gateway's) depends on Docker's networking settings and was **not** verified with a real LAN peer.
 
 **Updating.** Pull the new code, then rebuild and restart; the volume is kept:
 
@@ -294,5 +337,5 @@ The base image is pinned by tag and digest in the `Dockerfile` (Dependabot propo
 **GPU for Ollama (optional).** With an NVIDIA card and the NVIDIA Container Toolkit installed on the host, remove the `#` signs from the `deploy:`
 block under the `ollama` service in `docker-compose.yml`. It is left commented out and was not tested.
 
-CI builds the image on every pull request and smoke-tests the demo container (it checks the dashboard answers, the user id is not 0 and the healthcheck passes);
-nothing is pushed to any registry.
+CI builds the image on every pull request and smoke-tests the demo container (it checks the dashboard answers, the user id is not 0 and the healthcheck passes), then starts the bridge with the login override
+(a hash file made by the project's own helper): the healthcheck goes healthy, the sign-in works through the published port, the hash is not in `docker inspect`, PID 1 is uid 10001 with no capabilities, and the image refuses a LAN publish without a login. Nothing is pushed to any registry.

@@ -108,8 +108,10 @@ docker compose -f docker-compose.yml -f docker-compose.usb.yml up -d
 # or a Wi-Fi radio on any computer: put MESHLLM_TCP=<its address> in a .env file (copy .env.example), then docker compose up -d
 ```
 
-> **The container's dashboard has no login** (the app has an optional one, but Compose does not wire it yet), so the compose file publishes it on this computer only (`127.0.0.1:8080`) and Ollama's port is not
-> published at all. Do not change the address to `0.0.0.0` or a LAN address. If you run the image without Compose, publish with `-p 127.0.0.1:8080:8080`, never `-p 8080:8080` (that would expose a login-less dashboard on your network). **Bluetooth does not work inside a container** (it needs the
+> **By default the container's dashboard has no login**, so the compose file publishes it on this computer only (`127.0.0.1:8080`) and Ollama's port is not
+> published at all. For a password, make a hash with `python -m meshllm --set-password`, name the file in `.env` and add the override file (the hash goes in as a Compose secret, not an environment variable):
+> `docker compose -f docker-compose.yml -f docker-compose.login.yml up -d`. Reaching it from another computer is an explicit opt-in that needs that login (`MESHLLM_WEB_BIND` and `MESHLLM_ALLOWED_HOSTS` in `.env`); the container refuses to start otherwise.
+> Do not hand-edit the port address to `0.0.0.0` or a LAN address. If you run the image without Compose, publish with `-p 127.0.0.1:8080:8080`, never `-p 8080:8080` (that would expose a login-less dashboard on your network). **Bluetooth does not work inside a container** (it needs the
 > host's Bluetooth service): run the bridge on the host for that. **Wi-Fi/TCP has not been tested on real hardware yet.** Full steps, backups,
 > updating and stopping are in [docs/setup.md](docs/setup.md#run-with-docker).
 

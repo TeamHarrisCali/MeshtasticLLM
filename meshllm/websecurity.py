@@ -527,6 +527,8 @@ def check_args(parser, args, environ=None, err=None):
         return                                        # nothing is served (or, in demo, nothing is protected and non-loopback is refused there)
     args.password_hash_file = args.password_hash_file or environ.get("MESHLLM_PASSWORD_HASH_FILE") or None
     args.viewer_password_hash_file = args.viewer_password_hash_file or environ.get("MESHLLM_VIEWER_PASSWORD_HASH_FILE") or None
+    args.password_hash_file = os.path.abspath(args.password_hash_file) if args.password_hash_file else None      # a relative path must not depend on the folder later
+    args.viewer_password_hash_file = os.path.abspath(args.viewer_password_hash_file) if args.viewer_password_hash_file else None
     if bool(args.tls_cert) != bool(args.tls_key):
         parser.error("--tls-cert and --tls-key go together.")
     if args.tls_cert:

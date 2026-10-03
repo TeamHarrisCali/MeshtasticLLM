@@ -29,7 +29,7 @@ This bridge connects an untrusted radio mesh to a local language model, so the i
   and an untagged one is admin-only; a `viewer` account cannot transmit, change the radio or settings, or fetch backups, and its AI
   questions are log-only. What is **not** covered: without `--tls-cert`/`--tls-key` (or a reverse proxy doing HTTPS) the password and the
   dashboard travel in clear text, which is an owner-accepted risk on a trusted LAN and the login page warns about it; there are two shared accounts, not
-  per-person logins, and no two-factor; anyone on the network can slow the sign-in by guessing (the wait is capped at a minute and never a lockout);
+  per-person logins, and no two-factor; anyone on the network can slow the sign-in by guessing (a wait of up to a minute from another address, five if they share yours, never a lockout);
   a viewer can read message text; `--trusted-proxy` believes whatever the named proxy sends. The Docker image still runs without a login,
   published on the host's loopback only. See [docs/setup.md](docs/setup.md#use-the-dashboard-from-a-phone-or-another-computer-lan-login).
 - A public key proves a device, not a person. A lost or stolen radio or phone carries a valid key; unpin it in the Access page.

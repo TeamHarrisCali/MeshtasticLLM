@@ -219,6 +219,23 @@ check("in a container WITH a password the allowed hosts are required like anywhe
 a, e = parse(["--demo", "--web-host", "0.0.0.0"]); check("demo mode skips these checks (it has its own, stricter rule)", a is not None)
 check("demo mode never has a login even if a hash file is given", not ws.WebSecurity.from_args(type("A", (), {"demo": True, "password_hash_file": admin_file})()).auth_required)
 a, e = parse(["--set-password"]); check("--set-password needs none of this and exits before the server starts", a is not None and a.set_password)
+a, e = parse(["--password-hash-file", os.path.relpath(admin_file)])
+check("a relative hash file path is made absolute at start-up", a is not None and os.path.isabs(a.password_hash_file) and a.password_hash_file == os.path.abspath(admin_file))
+wired = []
+real_set = passwords.set_password_main
+passwords.set_password_main = lambda role, path, other, **kw: wired.append((role, path, other)) or 0
+try:
+    a, _ = parse(["--set-password", "--role", "viewer", "--password-hash-file", admin_file, "--viewer-password-hash-file", viewer_file])
+    code_v = bridgemod.set_password_main(a, environ={})
+    a, _ = parse(["--set-password"])
+    code_a = bridgemod.set_password_main(a, environ={"MESHLLM_PASSWORD_HASH_FILE": admin_file})
+    a, _ = parse(["--set-password"])
+    bridgemod.set_password_main(a, environ={})
+finally:
+    passwords.set_password_main = real_set
+check("--set-password --role viewer writes the viewer file and checks against the admin file; the admin run uses the env path; with nothing given the default paths are used",
+      code_v == 0 and code_a == 0 and wired[0] == ("viewer", viewer_file, admin_file) and wired[1][:2] == ("admin", admin_file) and wired[2][1] == passwords.default_path("admin") and wired[2][2] == passwords.default_path("viewer"), wired)
+check("the default paths are in the user's configuration folder, never inside the project", not passwords.default_path("admin").startswith(ROOT) and passwords.default_path("admin").endswith(os.path.join("meshllm", "admin.hash")))
 
 # ======================================================================================================================
 # the live server

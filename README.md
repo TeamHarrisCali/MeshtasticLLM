@@ -132,6 +132,21 @@ and **set the radio's Bluetooth to a Fixed PIN before pairing** (a radio in "No 
 goes stale when the radio reboots, after which connects are aborted; the pairing steps are in setup.md). Either way the bridge reconnects by itself after a drop or a power cycle,
 and the dashboard shows the connection as `tcp://host:4403` or `ble:ADDRESS`. Details and tips in [docs/setup.md](docs/setup.md#connecting-over-wi-fi-or-bluetooth).
 
+#### Failover
+
+To carry on over another connection when the first is unavailable, add `--fallback KIND:VALUE` (repeatable; KIND is `usb`, `tcp` or `ble`). The
+priority order is the primary connection, then the fallbacks as you wrote them. For example, USB first, Bluetooth when the radio is unplugged:
+
+```bash
+.venv/bin/python -m meshllm --fallback ble:AA:BB:CC:DD:EE:FF      # USB auto-detect, then Bluetooth
+.venv/bin/python -m meshllm --tcp 192.168.1.50 --fallback ble:AA:BB:CC:DD:EE:FF --fallback usb:auto
+```
+
+When the radio is unplugged the bridge opens the next connection; when USB shows a radio again and stays there for 10 seconds, it closes the
+Bluetooth link and switches back. Only one connection to the radio is held at a time, and the radio reboots when USB is opened or closed, so expect a
+short gap at each switch. The dashboard shows `via Bluetooth (USB not connected)` while a fallback is in use. Failover is **not yet tested on real
+hardware**. How it works and its limits: [docs/setup.md](docs/setup.md#failover-between-connections).
+
 ### Try it without hardware
 
 No radio and no Ollama? Run the whole bridge and dashboard against a simulated mesh:

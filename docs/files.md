@@ -5,7 +5,7 @@
 ├── meshllm/                  the Python package: all of the bridge's code
 │   ├── bridge.py             the bridge: radio <-> Ollama, queue, access rules, acked replies, memory (entry point)
 │   ├── __main__.py           `python -m meshllm` starts the bridge
-│   ├── connection.py         how the radio is reached: USB serial, Wi-Fi (TCP) or Bluetooth (BLE) endpoints, their health checks and retry wording, `--tcp`/`--ble` parsing
+│   ├── connection.py         how the radio is reached: USB serial, Wi-Fi (TCP) or Bluetooth (BLE) endpoints, their health checks and retry wording, `--tcp`/`--ble`/`--fallback` parsing, and the `FailoverChain` that strings them into one prioritised connection
 │   ├── demo.py               `--demo`: a simulated radio and mesh, a traffic generator and a scripted fake Ollama, so the dashboard works with no hardware
 │   ├── actions.py            the AI's fixed menu of read-only mesh lookups, with parameter validation
 │   ├── audit.py              the SQLite database (audit.db, next to the project): requests, settings, access rules

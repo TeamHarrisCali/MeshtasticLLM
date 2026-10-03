@@ -91,6 +91,40 @@ comes with the `meshtastic` package (it installs `bleak`); if it is missing the 
 the first Wi-Fi run as a trial and report what happens. USB and Bluetooth (`--ble`) have been tested on a real Heltec V3 radio:
 hot-plug reconnect, connecting with and without the computer already holding the radio, and recovery after the radio rebooted.
 
+### Failover between connections
+
+Add `--fallback KIND:VALUE` (repeatable) to name other ways to reach the same radio. KIND is `usb`, `tcp` or `ble`; only the first colon separates
+the kind from the value, so values may contain colons:
+
+    python -m meshllm --fallback ble:AA:BB:CC:DD:EE:FF                       # USB first, Bluetooth when the radio is unplugged
+    python -m meshllm --tcp 192.168.1.50 --fallback ble:AA:BB:CC:DD:EE:FF --fallback usb:auto
+    # other forms: tcp:HOST[:PORT]  tcp:[fe80::1]:4403  usb:/dev/ttyUSB1  usb:COM4  ble:NAME
+
+*The order.* Priority is the primary connection (`--port`, `--tcp`, `--ble`, or USB auto-detect when none is given), then each `--fallback` in the order
+written. Whenever the bridge needs a connection it takes the highest entry that has something to try: a USB entry when a radio port is listed, a
+Wi-Fi or Bluetooth entry always. An entry that fails to open is left alone for its normal back-off (30 to 60 seconds, doubling up to five minutes for entries that have
+something below them), so the bridge moves on to the next one instead of retrying a dead entry forever. A fallback may not repeat another entry
+(same Bluetooth address, same host and port, same serial port).
+
+*Failback.* While a lower entry is in use, the bridge checks (every `--scan-interval`) whether a **higher USB entry** is listed again. If it has stayed
+listed for 10 seconds without a break, the bridge logs `a preferred connection is available again: switching from ... to ...`, closes the current link
+and opens USB. A port that appears and disappears inside the 10 seconds starts the count over, so a loose cable does not make it switch back and forth.
+Wi-Fi and Bluetooth entries cannot be checked without opening them, so they are **not probed**: they are used when everything above them is
+unavailable, and a bridge running on a lower entry never goes back up to one of them by itself. If the radio is unplugged or its link drops, the
+next connection attempt starts again from the top of the list.
+
+*One transport at a time.* The bridge never holds two connections to the radio: a switch closes the old link first and opens the new one after. (What the
+firmware does with USB and Bluetooth open together is not known, so this is deliberate.) The radio reboots whenever USB serial is opened or closed, so
+expect a short gap when switching to or from USB. The radio's identity is compared across transports: the same radio behind USB and Bluetooth is not
+"a different radio" (no banner, history kept). Messages queued meanwhile wait up to `--reconnect-hold` seconds, as for any reconnect.
+
+*Where you see it.* The dashboard's radio status says `via Bluetooth (USB not connected)` while a fallback is in use (the connection label itself stays a plain
+string), Diagnostics has a line listing the chain and each entry's state, and the log names the connection in use.
+
+*Limits.* Bluetooth entries work on the host only, so they make no sense in a container (the Docker setting `MESHLLM_FALLBACK` takes a comma-separated list,
+for example `usb:/dev/ttyUSB1,tcp:192.168.1.50`; see [Run with Docker](#run-with-docker)). Wi-Fi has not been tested on real hardware, and **failover
+as a whole has not been tested on real hardware yet** (USB unplug and replug with a Bluetooth fallback is the first check to run). `--demo` ignores `--fallback`.
+
 ## Start at login (optional)
 
     python setup_env.py --autostart       # start the bridge every time you log in (asks first; --yes skips the question)
@@ -159,6 +193,8 @@ To use another model, pull it the same way and set `MESHLLM_MODEL` in `.env` (or
 - **Wi-Fi (TCP), any computer.** Switch on the radio's Wi-Fi and give it a fixed address as described under *Connecting over Wi-Fi* above, then
   put `MESHLLM_TCP=192.168.1.50` (its address, or `HOST:PORT`) in `.env` and run `docker compose up -d`. This is the way to use Docker on Windows
   or macOS. **Wi-Fi/TCP has not been tested on real hardware, with or without Docker**, and Docker Desktop has not been tried at all.
+- **Failover.** `MESHLLM_FALLBACK` is a comma-separated list of `KIND:VALUE` entries tried after the primary, in order (for example `usb:/dev/ttyUSB1,tcp:192.168.1.50`; see
+  [Failover](#failover-between-connections)). Leave `ble:` entries out: they cannot work here.
 - **Bluetooth does not work in a container.** It needs the host's BlueZ service and D-Bus, which the container does not have. Run the bridge on the
   host for a Bluetooth radio (the setup above).
 

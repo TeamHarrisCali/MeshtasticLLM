@@ -2,6 +2,7 @@
 # One-step setup for Linux and macOS. Finds a Python (3.9 or newer), then runs setup_env.py, which builds the private
 # environment, installs the dependencies and checks Ollama and the radio. Safe to run again any time.
 #   ./setup.sh [options]        e.g. ./setup.sh --check      ./setup.sh --pull-model      ./setup.sh --recreate
+#   ./setup.sh --docker         run it in Docker instead (checks Docker, finds the radio, offers a password, starts the containers)
 # If no suitable Python is installed it says which command installs one (and offers to run it).
 dir=$(cd "$(dirname "$0")" && pwd)
 cd "$dir" || exit 1

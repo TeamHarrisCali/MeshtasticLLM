@@ -13,6 +13,11 @@
     python setup_env.py --no-autostart  remove that again (the --check report says whether it is installed)
     python setup_env.py --yes           don't ask questions (for scripts)
 
+Docker instead of a Python environment (the only thing needed is Docker; see setup_docker.py and docs/setup.md, "Run with Docker"):
+    python setup_env.py --docker        check Docker, find the radio, offer a dashboard password, write .env and start the containers
+    python setup_env.py --docker --tcp ADDRESS | --lan ADDRESS | --web-port N | --demo | --no-login | --no-start | --check
+    python setup_env.py --docker-stop   stop the containers again
+
 Moving the project to another computer: copy the folder (audit.db holds all your data and settings; the .venv folder is
 specific to a computer and is rebuilt automatically when it doesn't work any more) and run setup.bat (Windows) or ./setup.sh
 (Linux / macOS), which find Python and call this script. Only the standard library is used here, so it runs before anything is installed,
@@ -768,7 +773,27 @@ def main(argv=None, root=None, out=None, which=shutil.which, runner=run, ask=ask
     ap.add_argument("--python", help="build the environment with this Python (default: the one running this script)")
     ap.add_argument("--dir", help="the project folder (default: where this script is)")
     ap.add_argument("--ollama-url", default=OLLAMA_URL, help=argparse.SUPPRESS)
+    dk = ap.add_argument_group("Docker (instead of the Python environment)")
+    dk.add_argument("--docker", action="store_true", help="set up and start the project as Docker containers (checks Docker, finds the radio, offers a dashboard password)")
+    dk.add_argument("--docker-stop", action="store_true", help="stop and remove the containers (the database volume stays)")
+    dk.add_argument("--demo", action="store_true", help="with --docker: a simulated mesh, no radio, no Ollama, no password (this computer only)")
+    dk.add_argument("--tcp", metavar="ADDRESS", help="with --docker: the radio is a Wi-Fi one at this address (off: back to USB)")
+    dk.add_argument("--lan", metavar="ADDRESS", help="with --docker: publish the dashboard on this address of this computer (needs the password; off: this computer only)")
+    dk.add_argument("--allowed-host", action="append", metavar="NAME", help="with --lan: another name you will type in the browser (repeatable)")
+    dk.add_argument("--web-port", type=int, metavar="N", help="with --docker: the dashboard's port on this computer (default 8080)")
+    dk.add_argument("--no-login", action="store_true", help="with --docker: no dashboard password (published on this computer only)")
+    dk.add_argument("--no-start", action="store_true", help="with --docker: write .env but do not start the containers")
     opts = ap.parse_args(argv)
+    if (opts.docker or opts.docker_stop) and (opts.autostart or opts.no_autostart or opts.start or opts.recreate or opts.pull_model or opts.install_ollama):
+        ap.error("--docker does not combine with the options for the Python environment (--start, --autostart, --recreate, --pull-model, --install-ollama)")
+    if opts.docker and opts.docker_stop:
+        ap.error("--docker and --docker-stop can't be used together")
+    if (opts.demo or opts.tcp or opts.lan or opts.allowed_host or opts.web_port or opts.no_login or opts.no_start) and not opts.docker:
+        ap.error("--demo, --tcp, --lan, --allowed-host, --web-port, --no-login and --no-start go with --docker")
+    if opts.web_port is not None and not 1 <= opts.web_port <= 65535:
+        ap.error("--web-port must be between 1 and 65535")
+    if opts.demo and (opts.tcp or opts.lan or opts.no_login):
+        ap.error("--demo has no radio and no login: it can't be combined with --tcp, --lan or --no-login")
     # the sections below are checks first, changes second: --check must never modify anything
     if opts.autostart and opts.no_autostart:
         ap.error("--autostart and --no-autostart can't be used together")
@@ -781,6 +806,11 @@ def main(argv=None, root=None, out=None, which=shutil.which, runner=run, ask=ask
     if not os.path.isfile(os.path.join(root, "meshllm", "bridge.py")):
         rep.fail("this isn't the project folder (meshllm/bridge.py is missing)", "Run this script from the project folder, or pass --dir.")
         return 1
+
+    if opts.docker or opts.docker_stop:                                   # its own job: no Python environment is needed for Docker
+        import setup_docker
+        code = setup_docker.run_docker(rep, root, info, opts, runner, lambda q, d=True: setup_docker.ask_default(q, d, yes=opts.yes), which)
+        return 1 if (code or rep.fails) else 0
 
     if (opts.autostart or opts.no_autostart) and not opts.check:          # its own job: the rest of the setup is not run (that is python setup_env.py)
         return run_autostart(rep, root, info, opts, runner, ask, which, home, uid, isdir)

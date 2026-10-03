@@ -92,17 +92,18 @@ foreground instead: `.venv/bin/python -m meshllm`.
 
 ### Run with Docker
 
-Docker and Docker Compose are an alternative to the installer. Try the dashboard with one command, no radio and no Ollama needed:
+Docker is an alternative to the installer, and the only thing you need is Docker. One command checks Docker, finds your USB radio, offers a dashboard password, writes the settings and starts everything
+(the bridge, its own Ollama, and the one-time AI model download of about 2 GB):
 
 ```bash
-docker compose --profile demo up demo      # builds the image the first time, then open http://127.0.0.1:8080/
+./setup.sh --docker          # Linux / macOS         (Windows: setup.bat --docker, with a Wi-Fi radio: add --tcp ADDRESS)
 ```
 
-For the real thing (the bridge plus its own Ollama, with the database in a Docker volume):
+Then open <http://127.0.0.1:8080/>. Afterwards plain `docker compose up -d`, `docker compose logs -f bridge` and `docker compose down` work too. To try the dashboard first with no radio, no Ollama and no password:
+`./setup.sh --docker --demo` (or `docker compose --profile demo up demo`). The same thing by hand:
 
 ```bash
-docker compose up -d --build
-docker compose exec ollama ollama pull llama3.2:3b      # the AI model, downloaded once
+docker compose up -d --build        # also downloads the AI model the first time: docker compose logs -f model-pull
 # a USB radio, on a Linux computer only (see docs/setup.md for the group number):
 docker compose -f docker-compose.yml -f docker-compose.usb.yml up -d
 # or a Wi-Fi radio on any computer: put MESHLLM_TCP=<its address> in a .env file (copy .env.example), then docker compose up -d
@@ -231,7 +232,7 @@ meshllm/static/    the dashboard: plain HTML, CSS and JavaScript, no build step
 meshllm/tools/     developer tools: tool-choice evaluation and the usefulness audit
 tests/             the suite (radio and Ollama are faked)
 docs/              documentation          eval_results/   saved evaluation runs
-setup_env.py       installer (launched by setup.sh / setup.bat)       start_bridge.* / stop_bridge.*   run in the background
+setup_env.py       installer (launched by setup.sh / setup.bat); --docker for Docker       start_bridge.* / stop_bridge.*   run in the background
 ```
 
 Every module starts with a docstring that says what it is for; [docs/files.md](docs/files.md) lists them all. Run the bridge in the

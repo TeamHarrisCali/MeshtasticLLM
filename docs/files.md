@@ -34,7 +34,8 @@
 ├── tests/                    the test suite (radio and Ollama are faked); run it with `python run_tests.py`
 ├── docs/                     these pages (the dashboard also shows them, on Evaluation under Write-ups)
 ├── eval_results/             saved evaluation runs (CSV for tool choice, JSON for the usefulness audit)
-├── setup_env.py              the one-step setup for a new computer (also sets up start at login)
+├── setup_env.py              the one-step setup for a new computer (also sets up start at login; `--docker` hands over to setup_docker.py)
+├── setup_docker.py           `setup_env.py --docker`: checks Docker, finds the radio, offers a dashboard password, writes .env and starts the containers
 ├── setup.sh, setup.ps1, setup.bat          launchers for setup_env.py (Linux / macOS, Windows)
 ├── start_bridge.sh, stop_bridge.sh         run the bridge in the background / stop it (Linux / macOS)
 ├── start_bridge.ps1, stop_bridge.ps1       the same on Windows

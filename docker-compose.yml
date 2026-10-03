@@ -1,7 +1,10 @@
 # The Meshtastic LLM bridge and its Ollama, as containers. Full instructions: docs/setup.md ("Run with Docker").
 #
 #   Try it with no radio and no Ollama:  docker compose --profile demo up demo     then open http://127.0.0.1:8080/
-#   The real thing:                      docker compose up -d                      (needs a radio: see below)
+#   The real thing:                      docker compose up -d                      (needs a radio: see below; the first start also
+#                                        downloads the AI model, about 2 GB: `docker compose logs -f model-pull`)
+#   Easiest:                             python setup_env.py --docker             (checks Docker, finds your radio, offers a
+#                                        dashboard password, writes .env and starts everything: docs/setup.md, "Run with Docker")
 #
 # By default the dashboard has NO LOGIN here, shows message text and lets whoever opens it send on your radio, so it is published on
 # this computer's loopback only ("127.0.0.1:...").
@@ -66,6 +69,36 @@ services:
     #         - driver: nvidia
     #           count: all
     #           capabilities: [gpu]
+
+  model-pull:
+    # Downloads the AI model the first time, so `docker compose up` is the only step (about 2 GB for the default llama3.2:3b; watch it with
+    # `docker compose logs -f model-pull`). It does nothing when a model is already installed, unless MESHLLM_MODEL names one, and it exits
+    # when done. MESHLLM_PULL_MODEL=0 turns it off (for example to download a model yourself). The bridge works meanwhile and says the model is
+    # missing until the download finishes.
+    image: ollama/ollama:0.35.1
+    depends_on: [ollama]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    tmpfs: ["/root/.ollama"]          # the client keeps a throwaway key here; the models are in the ollama service's volume
+    restart: "no"
+    environment:
+      OLLAMA_HOST: "http://ollama:11434"
+      WANT: "${MESHLLM_MODEL:-}"
+      PULL: "${MESHLLM_PULL_MODEL:-1}"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        [ "$$PULL" = 0 ] && { echo "model download is turned off (MESHLLM_PULL_MODEL=0)"; exit 0; }
+        until ollama list >/dev/null 2>&1; do sleep 2; done
+        if [ -n "$$WANT" ]; then
+          ollama pull "$$WANT" || echo "could not download $$WANT (no network?): run  docker compose up -d  again later"
+        elif ollama list | tail -n +2 | grep -q .; then
+          echo "a model is already installed: nothing to download"
+        else
+          ollama pull llama3.2:3b || echo "could not download llama3.2:3b (no network?): run  docker compose up -d  again later"
+        fi
+        exit 0
 
   demo:
     # A simulated mesh with a built-in scripted model: no radio, no Ollama, nothing is transmitted and nothing is kept.

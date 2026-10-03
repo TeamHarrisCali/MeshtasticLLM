@@ -207,8 +207,31 @@ The radio is not visible inside WSL; run the bridge on the Windows side, or atta
 
 ## Run with Docker
 
-The project can run as containers instead of through `setup.sh`: one for the bridge and dashboard, one for Ollama (the AI model server).
-The files are `Dockerfile`, `docker-compose.yml`, `docker-compose.usb.yml`, `docker-compose.login.yml`, `.env.example` and `docker/entrypoint.sh`.
+The project can run as containers instead of through `setup.sh`: one for the bridge and dashboard, one for Ollama (the AI model server), and a small one-off
+container (`model-pull`) that downloads the AI model the first time. The files are `Dockerfile`, `docker-compose.yml`, `docker-compose.usb.yml`,
+`docker-compose.login.yml`, `.env.example`, `docker/entrypoint.sh` and the helper `setup_docker.py`.
+
+### The easy way: one command
+
+With Docker running, from the project folder:
+
+    ./setup.sh --docker                          # Linux / macOS            (Windows: setup.bat --docker)
+
+(The same thing as `python setup_env.py --docker`; the script only needs Python itself, not the project's packages.) It does, in order, and tells you at each step what it found:
+
+1. **Checks Docker**: the program, Compose version 2, and that the engine is running and you may use it. If not, it prints the exact install or start command for your system.
+2. **Finds the radio.** On Linux it uses the USB serial device it sees (`/dev/ttyUSB*` or `/dev/ttyACM*`) and the group that owns it. Docker Desktop on Windows and macOS cannot pass USB through,
+   so there you give a Wi-Fi radio's address: `--tcp ADDRESS` (`--tcp off` goes back to USB). With no radio found the dashboard still starts and waits for one.
+3. **Offers a dashboard password** (recommended; asked in your terminal, typed twice, nothing shown, stored only as a scrypt hash in a mode-600 file). If you already made one with `--set-password` it offers to reuse it.
+   `--no-login` skips it (the dashboard then stays on this computer only). Run it without `--yes`, in a terminal, to be asked.
+4. **Checks the port** (8080 unless `--web-port N`) so you get a clear message, not Docker's, when a bridge outside Docker is already using it.
+5. **Writes `.env`** (git ignores it; no secret goes in it: only which compose files to use, the hash file's *path*, the USB device, a Wi-Fi address, the port), then runs `docker compose up -d --build`
+   and waits until the bridge reports healthy. The first start also downloads the AI model in the background (about 2 GB): `docker compose logs -f model-pull`.
+
+Afterwards the plain Docker commands do the same thing because `.env` carries the choices: `docker compose up -d`, `docker compose logs -f bridge`, `docker compose down`. Re-running the script is safe (it changes `.env` only when
+something changed). Other options: `--demo` (a simulated mesh, no radio, no Ollama, no password), `--lan ADDRESS [--allowed-host NAME]` (the dashboard on your network; needs the password, see
+[below](#reaching-it-from-another-computer-opt-in)), `--no-start` (write `.env` only), `--check` (look and report, change nothing) and `--docker-stop` (stop everything; the database stays).
+Stop the bridge you run outside Docker first (`./stop_bridge.sh`): it holds the same port and the same radio. The model downloaded here lives in Docker's volume and is separate from any Ollama you run on the host.
 It was built and tried on Linux with Docker 29.8.2 and Compose 5.5.1, running the demo and the bridge without a radio. **Not yet tried:**
 Docker Desktop on Windows or macOS, a real radio from inside a container (USB or Wi-Fi), and the Ollama container (the model server was
 not started in testing).
@@ -230,26 +253,27 @@ simulated mesh with a scripted model, nothing transmitted and nothing kept:
 
     docker compose --profile demo up demo        # then open http://127.0.0.1:8080/ ; Ctrl+C stops it
 
-**The real thing.**
+**The real thing, by hand** (what the script above automates).
 
     cp .env.example .env                          # optional: every line in it is a comment; edit what you need
-    docker compose up -d --build                  # starts the bridge and Ollama
-    docker compose exec ollama ollama pull llama3.2:3b     # download the AI model once (about 2 GB); it is stored in a volume
+    docker compose up -d --build                  # starts the bridge and Ollama, and downloads the AI model the first time (about 2 GB)
+    docker compose logs -f model-pull             # the download's progress (it exits when done; MESHLLM_PULL_MODEL=0 turns it off)
     docker compose logs -f bridge                 # what the bridge prints (the dashboard's log viewer reads log files, which this setup does not make)
 
 Open <http://127.0.0.1:8080/>. With no radio connected the dashboard is up and says it is waiting for one. If port 8080 is taken on your computer
 (for example by a bridge running outside Docker), set `MESHLLM_WEB_PORT=8081` in `.env`. That changes the number only; the address stays `127.0.0.1` unless you opt in to the LAN below.
-To use another model, pull it the same way and set `MESHLLM_MODEL` in `.env` (or choose it on the dashboard's Model page, which is remembered in the database).
+To use another model, choose it on the dashboard's Model page (remembered in the database), or set `MESHLLM_MODEL` in `.env`, which makes `model-pull` download that one. With no `MESHLLM_MODEL`, `model-pull` downloads
+`llama3.2:3b` only when no model is installed yet.
 
 **Choose how the radio is reached** (pick one; Bluetooth is not an option):
 
-- **USB, Linux computers only.** Docker Desktop on Windows and macOS cannot pass a USB serial device into a container. On Linux, find the group
+- **USB, Linux computers only.** Docker Desktop on Windows and macOS cannot pass a USB serial device into a container. `./setup.sh --docker` does the next two steps for you. On Linux, find the group
   that owns the device with `stat -c %g /dev/ttyUSB0`, put that number in `.env` as `MESHLLM_SERIAL_GID=<number>` (it is 20 on Debian and Ubuntu, but
-  other distributions differ), and start with the override file, which gives the container that one device and that one group and nothing else:
+  other distributions differ) and, if the radio is not `/dev/ttyUSB0` (for instance `/dev/ttyACM0`), the device as `MESHLLM_SERIAL_DEVICE=/dev/ttyACM0`. Then start with the override file, which gives the container that one device and that one group and nothing else:
 
       docker compose -f docker-compose.yml -f docker-compose.usb.yml up -d
 
-  If your radio is not `/dev/ttyUSB0` (for instance `/dev/ttyACM0`), edit the two lines marked `device` in `docker-compose.usb.yml`. Only one program can hold
+  The device is handed to the container when it is created, so after unplugging and replugging the radio run `docker compose up -d` again (or `./setup.sh --docker`). Only one program can hold
   the serial port, so stop any bridge running outside Docker first. This path has not been tried with a real radio yet.
 - **Wi-Fi (TCP), any computer.** Switch on the radio's Wi-Fi and give it a fixed address as described under *Connecting over Wi-Fi* above, then
   put `MESHLLM_TCP=192.168.1.50` (its address, or `HOST:PORT`) in `.env` and run `docker compose up -d`. This is the way to use Docker on Windows
@@ -281,6 +305,8 @@ ends the bridge in about a second with exit code 0 (the bridge turns SIGTERM int
 `/api/session` answers (the one data route that stays open under a login, so the check keeps working with one); it says nothing about whether a radio is connected.
 
 ### The dashboard login in Docker
+
+(`./setup.sh --docker` does these steps for you, asking for the password in your terminal.)
 
 1. On the host, make the password hash (once; it asks twice and shows nothing you type): `python -m meshllm --set-password`. It writes a mode-600 file, by default `~/.config/meshllm/admin.hash`, that holds
    only a scrypt hash. Treat it as a secret anyway: keep it out of git (`*.hash` is ignored) and out of backups you share.

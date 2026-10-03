@@ -13,6 +13,7 @@
 #   USB (Linux hosts only):  docker compose -f docker-compose.yml -f docker-compose.usb.yml up -d
 #   Wi-Fi/TCP (any host):    set MESHLLM_TCP=<radio address> in .env (see .env.example). NOT yet tested on real hardware.
 #   Bluetooth does NOT work in a container (it needs the host's BlueZ and D-Bus): run the bridge on the host for that.
+#   Failover:                set MESHLLM_FALLBACK=usb:/dev/ttyUSB1,tcp:<address> (priority order after the primary); no ble: entries here.
 
 x-hardening: &hardening
   # The bridge needs none of root's powers: it reads a USB device through a group, a socket, and writes under /data and /tmp.
@@ -30,6 +31,7 @@ services:
     environment:
       MESHLLM_OLLAMA_URL: "http://ollama:11434"
       MESHLLM_TCP: "${MESHLLM_TCP:-}"
+      MESHLLM_FALLBACK: "${MESHLLM_FALLBACK:-}"
       MESHLLM_MODEL: "${MESHLLM_MODEL:-}"
       MESHLLM_EXTRA_ARGS: "${MESHLLM_EXTRA_ARGS:-}"
     volumes:

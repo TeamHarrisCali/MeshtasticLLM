@@ -96,7 +96,8 @@ def make_handler(bridge):
             self.send_header("Cross-Origin-Opener-Policy", "same-origin")
             self.send_header("Cross-Origin-Resource-Policy", "same-origin")
             for k, v in (extra or {}).items():
-                self.send_header(k, v)
+                for item in (v if isinstance(v, list) else [v]):      # a list sends the header once per entry (two Set-Cookie lines)
+                    self.send_header(k, item)
             self.end_headers()
             self.wfile.write(data)
 
@@ -248,12 +249,27 @@ class Server(ThreadingHTTPServer):
     """The dashboard's HTTP server: IPv4 or IPv6 as the bind address says, optionally TLS (handshake done per connection in its own
     thread, see Handler.setup), and a one-line note instead of a traceback when a client misbehaves."""
     daemon_threads = True
+    MAX_CONNECTIONS = 64     # connections served at once; more are closed at once, so a LAN client holding sockets open cannot exhaust threads
 
     def __init__(self, address, handler, tls_ctx=None):
         self.address_family = socket.AF_INET6 if ":" in address[0] else socket.AF_INET
+        self._slots = threading.BoundedSemaphore(self.MAX_CONNECTIONS)
         super().__init__(address, handler)
         if tls_ctx is not None:
             self.socket = tls_ctx.wrap_socket(self.socket, server_side=True, do_handshake_on_connect=False)
+
+    def process_request(self, request, client_address):
+        """Start a thread for the connection unless MAX_CONNECTIONS are already being served."""
+        if not self._slots.acquire(blocking=False):
+            self.shutdown_request(request)
+            return
+        super().process_request(request, client_address)
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._slots.release()
 
     def handle_error(self, request, client_address):
         """A failed handshake or a connection that died mid-request: one line, no traceback."""

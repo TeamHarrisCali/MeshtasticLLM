@@ -165,10 +165,18 @@ def w_logout(b, body, req):
 # ======================================================================================================================
 # status, the AI log, conversations
 # ======================================================================================================================
-@get("/api/status", VIEWER)
-def r_status(b, q):
-    """GET /api/status: live bridge state for the page header (radio, model, queue, paused flag). Works with no radio attached."""
-    return b.status()
+@get("/api/status", VIEWER, ctx=True)
+def r_status(b, q, req):
+    """GET /api/status: live bridge state for the page header (radio, model, queue, paused flag). Works with no radio attached.
+    A read-only account gets the kind of connection but not its address (a serial path, a LAN host or a Bluetooth address)."""
+    data = b.status()
+    if b.web_security.auth_required and req.role != ADMIN:
+        from meshllm.connection import KIND_NAMES
+        conn = dict(data.get("connection") or {})
+        entries = [dict(e, label=KIND_NAMES.get(e.get("kind"), "radio")) for e in conn.get("entries") or []]
+        active = next((e["label"] for e in entries if e.get("state") == "active"), None)
+        data = dict(data, connection=dict(conn, entries=entries), port=(active or "radio") if data.get("port") else data.get("port"))
+    return data
 
 
 @get("/api/stats", VIEWER)

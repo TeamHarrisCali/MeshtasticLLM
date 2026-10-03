@@ -182,7 +182,7 @@ owner out, the wait just ends, and while it lasts even the right password is not
 public, viewer or admin in `meshllm/webroutes.py`, and an untagged one is admin-only.
 
 **What it does not do.** There are only two shared accounts (no per-person logins, no two-factor, no password change from the browser; use `--set-password`). Someone on your network can still slow
-your sign-in down by guessing: up to a minute from another address, up to five minutes if they share yours (for example everyone behind a proxy you did not list in `--trusted-proxy`); it never locks you out, and can see that the bridge exists. Without HTTPS they can read and replay everything. A viewer sees message text. Non-browser
+your sign-in down by guessing: a new browser can be made to wait up to a minute (from another address) or up to five minutes (if they share yours, for example everyone behind a proxy you did not list in `--trusted-proxy`), and a determined guesser can renew that for as long as they keep guessing. A browser you have signed in to as admin before (it holds a 30-day device cookie) skips the one-minute wait and only ever waits for its own failures, so you can still get in. Existing sessions are never affected. They can see that the bridge exists. Without HTTPS they can read and replay everything. A viewer sees message text. Non-browser
 clients (curl) must send an `Origin` header and, after signing in, the `X-CSRF-Token` from `GET /api/session`. See [SECURITY.md](../SECURITY.md).
 
 ## Start at login (optional)

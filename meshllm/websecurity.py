@@ -30,6 +30,9 @@ ROLES = (PUBLIC, VIEWER, ADMIN)                       # the tags a route can car
 RANK = {PUBLIC: 0, VIEWER: 1, ADMIN: 2}
 ACCOUNTS = ("admin", "viewer")                        # the two logins
 COOKIE = "meshllm_session"
+DEVICE_COOKIE = "meshllm_device"                     # set when the ADMIN signs in; lets that browser past the global sign-in wait (never past its own)
+DEVICE_DAYS = 30
+HOST_PREFIX = "__Host-"                              # over TLS the cookies carry this prefix: the browser then refuses one set by a sibling domain
 CSRF_HEADER = "X-CSRF-Token"
 LOOPBACK_NAMES = frozenset(("localhost", "127.0.0.1", "::1"))
 WILDCARD_HOSTS = ("0.0.0.0", "::", "")                # bind addresses meaning "every interface"
@@ -37,7 +40,7 @@ WILDCARD_HOSTS = ("0.0.0.0", "::", "")                # bind addresses meaning "
 PUBLIC_STATIC = frozenset(("/login.js", "/style.css"))
 MAX_LOGIN_BODY = 4096
 IDLE_MINUTES, ABSOLUTE_HOURS = 120, 12
-MAX_SESSIONS = 64
+MAX_SESSIONS = 64                                    # live sessions PER ACCOUNT: one account filling its slots can never push out the other's
 
 
 # ---- host names, addresses, Origin ----------------------------------------------------------------------------------------------
@@ -207,8 +210,11 @@ class SessionStore:
         with self.lock:
             now = self.clock()
             self._expire(now)
-            while len(self.items) >= self.max_sessions:
-                del self.items[min(self.items, key=lambda k: self.items[k].last_seen)]
+            mine = [k for k, v in self.items.items() if v.role == role]
+            while len(mine) >= self.max_sessions:       # evict only this account's oldest: a viewer cannot sign the admin out
+                oldest = min(mine, key=lambda k: self.items[k].last_seen)
+                del self.items[oldest]
+                mine.remove(oldest)
             s = Session(self._sid(token), role, generation, now)
             self.items[s.sid] = s
         return token, s
@@ -288,6 +294,7 @@ class Req:
     """What the server knows about one request once it has looked at the connection and the headers."""
     peer = client = host = token = session = None
     secure = False
+    known_device = False          # carries the cookie the admin's sign-in handed out
 
     @property
     def role(self):
@@ -313,15 +320,20 @@ class WebSecurity:
         self.slots = threading.BoundedSemaphore(2)    # at most two password hashes (32 MiB each) at once
         self._dummy = passwords.dummy_hash() if self.auth_required else None    # verified against when the account does not exist, so timing tells nothing
         self._csrf_key = secrets.token_bytes(32)
+        self._device_key = secrets.token_bytes(32)    # per run: after a restart a browser simply needs one more successful sign-in
 
     @classmethod
     def from_args(cls, args):
         """Build from parsed command-line arguments (missing attributes mean the default, so older test namespaces still work).
         Demo mode never has a login."""
         demo = bool(getattr(args, "demo", False))
+        allowed = list(getattr(args, "allowed_host", None) or ())
+        bind = getattr(args, "web_host", None)
+        if bind and bind not in WILDCARD_HOSTS and bind_is_loopback(bind) and _canon_ip(bind.strip("[]")):
+            allowed.append(bind)       # a loopback bind on another address (say 127.0.1.1) answers to its own address, as it always did
         return cls(admin_file=None if demo else getattr(args, "password_hash_file", None),
                    viewer_file=None if demo else getattr(args, "viewer_password_hash_file", None),
-                   allowed_hosts=getattr(args, "allowed_host", None) or (), trusted_proxies=getattr(args, "trusted_proxy", None) or (),
+                   allowed_hosts=allowed, trusted_proxies=getattr(args, "trusted_proxy", None) or (),
                    tls=bool(getattr(args, "tls_cert", None)), viewer_exports=bool(getattr(args, "viewer_exports", False)),
                    idle_minutes=getattr(args, "session_idle_minutes", None) or IDLE_MINUTES,
                    absolute_hours=getattr(args, "session_hours", None) or ABSOLUTE_HOURS)
@@ -361,7 +373,8 @@ class WebSecurity:
         req.client = self.client_address(peer, headers)
         req.secure = self.is_secure(peer, headers)
         req.host = parse_host_header(headers.get("Host"))
-        req.token = self.cookie_token(headers)
+        req.token = self.cookie_token(headers, req.secure)
+        req.known_device = self.auth_required and self.device_ok(self.cookie_token(headers, req.secure, DEVICE_COOKIE))
         if self.auth_required and req.token:
             s = self.sessions.get(req.token)
             if s is not None:
@@ -373,15 +386,33 @@ class WebSecurity:
         return req
 
     @staticmethod
-    def cookie_token(headers):
-        """The session token from the Cookie header (the last cookie of that name wins), or None."""
-        token = None
+    def cookie_name(secure, base=COOKIE):
+        """The cookie's name: with the __Host- prefix over TLS (see HOST_PREFIX), plain otherwise."""
+        return (HOST_PREFIX if secure else "") + base
+
+    @classmethod
+    def cookie_token(cls, headers, secure=False, base=COOKIE):
+        """The value of our cookie from the Cookie header (the last cookie of that name wins), or None. Over TLS only the prefixed name counts."""
+        want, token = cls.cookie_name(secure, base), None
         for header in headers.get_all("Cookie") or []:
             for part in header.split(";"):
                 name, _, value = part.strip().partition("=")
-                if name == COOKIE and value:
+                if name == want and value:
                     token = value
         return token
+
+    def new_device_token(self):
+        """A fresh 'known device' value: random part plus its HMAC under the per-run key (nothing is stored)."""
+        nonce = secrets.token_hex(16)
+        return nonce + "." + hmac.new(self._device_key, b"device|" + nonce.encode(), hashlib.sha256).hexdigest()
+
+    def device_ok(self, value):
+        """True if `value` is a device token this run handed out (constant-time)."""
+        if not isinstance(value, str) or value.count(".") != 1 or len(value) > 200:
+            return False
+        nonce, _, sig = value.partition(".")
+        good = hmac.new(self._device_key, b"device|" + nonce.encode("utf-8", "replace"), hashlib.sha256).hexdigest()
+        return hmac.compare_digest(good.encode(), sig.encode("utf-8", "replace"))
 
     # -- Host, Origin, CSRF --
     def host_ok(self, req):
@@ -426,9 +457,10 @@ class WebSecurity:
         return None
 
     # -- login, logout, session probe --
-    def cookie(self, token, secure, clear=False):
-        """The Set-Cookie value: HttpOnly, SameSite=Strict, Path=/, no Domain, Secure over TLS."""
-        return (f"{COOKIE}={'' if clear else token}; HttpOnly; SameSite=Strict; Path=/" + ("; Max-Age=0" if clear else "") + ("; Secure" if secure else ""))
+    def cookie(self, token, secure, clear=False, base=COOKIE, max_age=None):
+        """The Set-Cookie value: HttpOnly, SameSite=Strict, Path=/, no Domain, Secure (and the __Host- name) over TLS."""
+        age = "; Max-Age=0" if clear else (f"; Max-Age={max_age}" if max_age else "")
+        return f"{self.cookie_name(secure, base)}={'' if clear else token}; HttpOnly; SameSite=Strict; Path=/{age}" + ("; Secure" if secure else "")
 
     def login(self, req, body):
         """POST /api/login {account, password}: returns (status, JSON dict, extra headers). Every failure looks the same (401, same
@@ -440,13 +472,13 @@ class WebSecurity:
         if not isinstance(account, str) or not isinstance(password, str) or not password:
             raise HttpError(400, "Choose an account and type its password.")
         key = source_key(req.client)
-        wait = max(self.per_source.wait(key), self.global_.wait("*"))
+        wait = self._login_wait(req, key)
         if wait > 0:
             return self._throttled(wait)
         if not self.slots.acquire(timeout=3):
             return self._throttled(2.0)
         try:
-            wait = max(self.per_source.wait(key), self.global_.wait("*"))     # another attempt may have failed while we queued
+            wait = self._login_wait(req, key)     # another attempt may have failed while we queued
             if wait > 0:
                 return self._throttled(wait)
             cred = self.creds.get(account) if account in ACCOUNTS else None
@@ -464,7 +496,16 @@ class WebSecurity:
             self.sessions.destroy(req.token)          # a brand new token at every login (no session fixation)
         token, session = self.sessions.create(account, cred[1])
         print(f"[web] {account} signed in from {key}")
-        return 200, {"ok": True, "role": account, "csrf": self.csrf_token(session)}, {"Set-Cookie": self.cookie(token, req.secure)}
+        headers = {"Set-Cookie": self.cookie(token, req.secure)}
+        if account == ADMIN:       # a second cookie: this browser has proven the admin password, so the global wait does not apply to it
+            headers["Set-Cookie"] = [headers["Set-Cookie"], self.cookie(self.new_device_token(), req.secure, base=DEVICE_COOKIE, max_age=DEVICE_DAYS * 86400)]
+        return 200, {"ok": True, "role": account, "csrf": self.csrf_token(session)}, headers
+
+    def _login_wait(self, req, key):
+        """Seconds this request must wait before a password is looked at. The global wait (which slows a guesser using many addresses)
+        does not apply to a browser the admin has already signed in from, or a stranger could keep the owner out for as long as they like
+        by failing once a minute. The per-source wait always applies."""
+        return max(self.per_source.wait(key), 0.0 if req.known_device else self.global_.wait("*"))
 
     @staticmethod
     def _throttled(wait):

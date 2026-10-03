@@ -2,7 +2,7 @@
 
 No radio, no Ollama, no network beyond loopback: the radio and the model are faked and every file lives in a temp folder. Fake addresses
 only (192.0.2.x, 198.51.100.x, radio.test). Passwords used here are throwaway strings made up for the tests."""
-import warnings, contextlib, hashlib, inspect, io, ipaddress, json, os, shutil, socket, ssl, stat, subprocess, sys, tempfile, threading, time
+import argparse, warnings, contextlib, hashlib, inspect, io, ipaddress, json, os, shutil, socket, ssl, stat, subprocess, sys, tempfile, threading, time
 from email.message import Message
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -298,7 +298,7 @@ def call(method, base, path, tok=None, csrf=None, origin=True, body=None, header
         if origin: h.setdefault("Origin", base if origin is True else origin)
     if csrf: h["X-CSRF-Token"] = csrf
     kw = dict(headers=h, timeout=10, verify=verify, allow_redirects=False)
-    if tok: kw["cookies"] = {ws.COOKIE: tok}
+    if tok: kw["cookies"] = {ws.WebSecurity.cookie_name(base.startswith("https")): tok}      # over TLS the cookie has the __Host- prefix
     if method == "POST":
         kw["data"] = raw if raw is not None else json.dumps({} if body is None else body)
     return rq.request(method, base + path, **kw)
@@ -306,7 +306,7 @@ def call(method, base, path, tok=None, csrf=None, origin=True, body=None, header
 
 def login(base, account="admin", pw=ADMIN_PW, **kw):
     r = call("POST", base, "/api/login", body={"account": account, "password": pw}, **kw)
-    tok = r.cookies.get(ws.COOKIE) if r.status_code == 200 else None
+    tok = (r.cookies.get(ws.COOKIE) or r.cookies.get(ws.HOST_PREFIX + ws.COOKIE)) if r.status_code == 200 else None
     return r, tok, (r.json().get("csrf") if r.status_code == 200 else None)
 
 
@@ -633,7 +633,8 @@ check("tiles are cached privately, not by shared caches", "private" in call("GET
 
 # ---- the AI and viewers ---------------------------------------------------------------------------------------------------------
 tier0 = [a for a in actions.ACTIONS.values() if a.tier == 0]
-words = ("sendText", "sendData", "send_manual", "outbox", "channel.post", "iface.send", "start_manual")
+words = ("sendText", "sendData", "send_manual", "outbox", "channel.post", "iface.send", "start_manual", "writeConfig", "writeChannel", "setFixedPosition",
+         "removeFixedPosition", "setTime", "sendTraceRoute", "_admin", "sendPosition", "sendTelemetry", "beginSettingsTransaction")
 check("every tool a viewer-reachable question can use (tier 0) is read-only: none of their handlers mention anything that transmits", tier0 and all(not any(w in inspect.getsource(a.handler) for w in words) for a in tier0), [a.name for a in tier0])
 check("the web question is always queued at tier 0", "tier=0" in inspect.getsource(bridgemod.Bridge.ask_web))
 # a poisoned mesh: node names and messages that give orders, which the (fake, jailbroken) model then tries to follow
@@ -678,6 +679,88 @@ if have_v6:
     check("an IPv6 --allowed-host in any spelling matches a bracketed Host", rq.get(base6b + "/api/session", headers={"Host": "[2001:DB8:0:0:0:0:0:5]:80"}, timeout=5).status_code == 200 and rq.get(base6b + "/api/session", headers={"Host": "[2001:db8::6]"}, timeout=5).status_code == 403)
 else:
     print("SKIP IPv6 (no IPv6 loopback on this machine)")
+
+# ---- review fixes (PR 18): one account cannot push out the other, a signed-in admin browser gets past the global wait, and more -----------
+# a viewer filling its session slots cannot sign the admin out
+ss2 = ws.SessionStore(idle=1000, absolute=10000, max_sessions=3, clock=clk)
+adm_toks = [ss2.create("admin", "g")[0] for _ in range(2)]
+vw_toks = [ss2.create("viewer", "g")[0] for _ in range(10)]
+check("a viewer filling its session slots never evicts an admin session (the cap is per account)", all(ss2.get(t) is not None for t in adm_toks) and sum(1 for t in vw_toks if ss2.get(t)) == 3, [bool(ss2.get(t)) for t in vw_toks])
+adm_toks += [ss2.create("admin", "g")[0] for _ in range(3)]
+check("...and an account over its own cap loses its own oldest session (the newest three survive)", sum(1 for t in adm_toks if ss2.get(t)) == 3 and ss2.get(adm_toks[-1]) is not None and ss2.get(adm_toks[0]) is None)
+check("each account may hold the full cap at once (64 by default)", ws.MAX_SESSIONS == 64 and ws.SessionStore(1, 1).max_sessions == 64)
+
+# a stranger keeping the global wait alive cannot keep the owner out once the owner's browser has signed in before
+clk.t += 400
+with contextlib.redirect_stdout(printed):
+    r_dev, _, _ = login(base4, "admin", ADMIN_PW, headers={"X-Forwarded-For": "198.18.7.1"})
+    dev = r_dev.cookies.get(ws.DEVICE_COOKIE)
+check("an admin sign-in hands out a device cookie (HttpOnly, SameSite=Strict, 30 days)", r_dev.status_code == 200 and dev and "Max-Age=2592000" in str(r_dev.raw.headers.getlist("Set-Cookie")) and all("HttpOnly" in c and "SameSite=Strict" in c for c in r_dev.raw.headers.getlist("Set-Cookie")))
+with contextlib.redirect_stdout(printed):
+    for i in range(14):
+        login(base4, "admin", "bad bad bad bad bad", headers={"X-Forwarded-For": f"198.18.8.{i + 1}"})
+    r_stranger, _, _ = login(base4, "admin", ADMIN_PW, headers={"X-Forwarded-For": "198.18.9.1"})
+    r_forged, _, _ = login(base4, "admin", ADMIN_PW, headers={"X-Forwarded-For": "198.18.9.2", "Cookie": f"{ws.DEVICE_COOKIE}=abc.def"})
+    r_owner, _, _ = login(base4, "admin", ADMIN_PW, headers={"X-Forwarded-For": "198.18.9.3", "Cookie": f"{ws.DEVICE_COOKIE}={dev}"})
+check("while the global wait is on, a stranger and a forged device cookie wait", r_stranger.status_code == 429 and r_forged.status_code == 429, (r_stranger.status_code, r_forged.status_code))
+check("...and the owner's browser, which has a real device cookie, still signs in", r_owner.status_code == 200, r_owner.status_code)
+with contextlib.redirect_stdout(printed):
+    login(base4, "admin", "bad bad bad bad bad", headers={"X-Forwarded-For": "198.18.9.4", "Cookie": f"{ws.DEVICE_COOKIE}={dev}"})
+    r_again, _, _ = login(base4, "admin", ADMIN_PW, headers={"X-Forwarded-For": "198.18.9.4", "Cookie": f"{ws.DEVICE_COOKIE}={dev}"})
+check("...but a device cookie never lifts the per-source wait (a guesser holding one still backs off)", r_again.status_code == 429)
+clk.t += 400
+with contextlib.redirect_stdout(printed):
+    r_vw, _, _ = login(base1, "viewer", VIEWER_PW)
+check("a viewer sign-in does not hand out a device cookie", r_vw.status_code == 200 and not r_vw.cookies.get(ws.DEVICE_COOKIE))
+check("a device value is checked with its own HMAC (junk, wrong signature, another run's key all fail)",
+      sec4.device_ok(sec4.new_device_token()) and not sec4.device_ok("a.b") and not sec4.device_ok(None) and not sec4.device_ok("x" * 300) and not sec4.device_ok(sec4.new_device_token()[:-2] + "00")
+      and not ws.WebSecurity(admin_file=admin_file, clock=clk).device_ok(sec4.new_device_token()))
+
+# the __Host- cookie names over TLS (a sibling domain cannot plant a session cookie)
+check("over TLS the cookies carry the __Host- prefix and Secure; plain HTTP keeps the plain name",
+      sec4.cookie("t", True).startswith("__Host-meshllm_session=t;") and "; Secure" in sec4.cookie("t", True) and "Domain" not in sec4.cookie("t", True) and sec4.cookie("t", False).startswith("meshllm_session=t;"))
+check("...and over TLS only the prefixed cookie is believed (a plain one planted by a sibling is ignored)",
+      ws.WebSecurity.cookie_token(headers(Cookie="meshllm_session=planted"), True) is None and ws.WebSecurity.cookie_token(headers(Cookie="meshllm_session=planted; __Host-meshllm_session=real"), True) == "real"
+      and ws.WebSecurity.cookie_token(headers(Cookie="__Host-meshllm_session=x"), False) is None)
+
+# a loopback bind on another address answers to its own address
+ns_lo = argparse.Namespace(web_host="127.0.1.1", allowed_host=[], password_hash_file=None)
+check("--web-host 127.0.1.1 (loopback, not one of the three names) accepts its own address as Host; a wildcard bind adds nothing",
+      "127.0.1.1" in ws.WebSecurity.from_args(ns_lo).allowed and "0.0.0.0" not in ws.WebSecurity.from_args(argparse.Namespace(web_host="0.0.0.0", allowed_host=[], password_hash_file=None)).allowed)
+
+# viewers do not see where the radio is
+clk.t += 400
+with contextlib.redirect_stdout(printed):
+    _, tok_adm2, _ = login(base1, "admin", ADMIN_PW); clk.t += 400
+    _, tok_vw2, _ = login(base1, "viewer", VIEWER_PW)
+st_adm, st_vw = call("GET", base1, "/api/status", tok=tok_adm2).json(), call("GET", base1, "/api/status", tok=tok_vw2).json()
+check("the admin's status names the radio's connection; the viewer's does not (kind only), and the rest of the status is the same",
+      st_adm["port"] == "STUB" and "STUB" not in json.dumps(st_vw["connection"]) and st_vw["port"] == "radio" and st_vw["model"] == st_adm["model"] and st_vw["queue_depth"] == st_adm["queue_depth"], (st_adm["port"], st_vw["port"]))
+
+# the server refuses to run more connections at once than its cap
+webui.Server.MAX_CONNECTIONS = 2
+br_cap, base_cap = serve()
+host_cap, port_cap = base_cap.split("//")[1].split(":")
+idle = [socket.create_connection((host_cap, int(port_cap)), timeout=5) for _ in range(2)]
+time.sleep(0.3)
+extra = socket.create_connection((host_cap, int(port_cap)), timeout=5)
+try: extra_data = extra.recv(10)
+except (OSError, socket.timeout): extra_data = None
+check("a connection beyond the cap is closed at once (it gets no thread)", extra_data == b"", extra_data)
+for sk in idle + [extra]: sk.close()
+time.sleep(0.5)
+check("...and the server serves again as soon as the idle ones are gone", rq.get(base_cap + "/api/status", timeout=5).status_code == 200)
+webui.Server.MAX_CONNECTIONS = 64
+
+# a one-byte-off key must not verify (the comparison covers every byte)
+line_pw = passwords.hash_password("correct horse battery staple")
+real_scrypt = hashlib.scrypt
+def last_byte_off(*a, **k):
+    key = real_scrypt(*a, **k); return key[:-1] + bytes([key[-1] ^ 1])
+hashlib.scrypt = last_byte_off
+try: off_by_one = passwords.verify_password("correct horse battery staple", line_pw)
+finally: hashlib.scrypt = real_scrypt
+check("a derived key that differs only in its last byte does not verify", off_by_one is False and passwords.verify_password("correct horse battery staple", line_pw) is True)
 
 # ---- TLS -----------------------------------------------------------------------------------------------------------------------
 cert, keyf = os.path.join(HERE, "c.pem"), os.path.join(HERE, "k.pem")

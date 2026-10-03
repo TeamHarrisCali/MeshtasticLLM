@@ -42,3 +42,12 @@ setInterval(() => {
 }, 3000);
 // The known-nodes list used by the chat pages' pickers is refreshed less often (every 30 s).
 setInterval(() => { if (view === "chat" || view === "dm") loadNodes(); }, 30000);
+
+// With a login: say who is signed in (a viewer can look and ask the AI, nothing more) and offer to sign out. Without one nothing shows.
+loadSession().then(s => {
+  if (!s.auth_required) return;
+  $("roleBadge").textContent = s.role === "viewer" ? "Viewer (read-only)" : "Admin";
+  $("roleBadge").hidden = $("logoutBtn").hidden = false;
+  if (s.role === "viewer") $("pauseBtn").disabled = true;
+});
+$("logoutBtn").addEventListener("click", async () => { await post("/api/logout", {}); location.reload(); });

@@ -29,7 +29,9 @@ from pubsub import pub
 
 from meshllm import actions
 from meshllm import connection
+from meshllm import passwords
 from meshllm import webui
+from meshllm import websecurity
 from meshllm.audit import Audit
 from meshllm.ollama_models import ModelManager, OllamaError, same_model
 from meshllm.mesh import MeshService, clean as clean_text, summarize as mesh_summarize
@@ -290,6 +292,7 @@ class Bridge:
         self.bad_until = {}             # label -> time before which we won't try it again
         self.connects = 0
         self.web_server = None          # the dashboard's HTTP server once run() has started it (demo mode shuts it down on exit)
+        self.web_security = None        # the access rules of that server (login, sessions, roles); built by webui when it starts
         self.demo = None                # --demo only: {"radio", "traffic"}, the simulated radio and its traffic generator (see demo.py)
         self._search_logged = False
         self._stopping = False
@@ -1363,11 +1366,13 @@ class Bridge:
         print(f"Bridge starting: {mode}. Ollama model '{self.model}'. Ctrl+C to stop.")
         if not self.args.no_web:
             self.web_server = webui.start(self)
+            scheme = "https" if getattr(self.args, "tls_cert", None) else "http"
+            login = "  [login required]" if self.web_security.auth_required else ""
             if self.args.web_host in webui.WILDCARD_HOSTS:     # a wildcard address is not one a browser should use
-                print(f"Web UI: http://127.0.0.1:{self.args.web_port}/  (listening on all interfaces inside a container; "
-                      f"what can reach it is decided by the published port)  (audit log: {self.args.db})")
+                where = "" if self.web_security.auth_required else " inside a container; what can reach it is decided by the published port"
+                print(f"Web UI: {scheme}://127.0.0.1:{self.args.web_port}/  (listening on all interfaces{where}){login}  (audit log: {self.args.db})")
             else:
-                print(f"Web UI: http://{self.args.web_host}:{self.args.web_port}/  (audit log: {self.args.db})")
+                print(f"Web UI: {scheme}://{self.args.web_host}:{self.args.web_port}/{login}  (audit log: {self.args.db})")
         try:
             if demo_mode:
                 self.connect_demo()
@@ -1384,7 +1389,7 @@ class Bridge:
 
 def build_parser():
     """The command-line flags (a function of its own so tests can parse the same flags the real start-up uses)."""
-    p = argparse.ArgumentParser(description=__doc__)
+    p = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     p.add_argument("--port", default="auto",
                    help="serial port of the Meshtastic node, or 'auto' (default) to detect it, follow it if the "
                         "port number changes, and reconnect after it is unplugged")
@@ -1460,9 +1465,11 @@ def build_parser():
                    help="don't record plain (non-/ai) DMs to this node")
     p.add_argument("--db", default=str(Path(__file__).resolve().parent.parent / "audit.db"), help="audit database file")
     p.add_argument("--web-host", default="127.0.0.1",
-                   help="web UI bind address (default localhost only; it shows message content)")
+                   help="web UI bind address (default localhost only; it shows message content). Any other address needs a login "
+                        "(--password-hash-file) and --allowed-host")
     p.add_argument("--web-port", type=int, default=8080)
     p.add_argument("--no-web", action="store_true", help="disable the web UI")
+    websecurity.add_arguments(p)
     p.add_argument("--no-warm-up", action="store_true", help="don't load the model into Ollama's memory at start-up")
     p.add_argument("--demo", action="store_true",
                    help="try the dashboard with no radio and no Ollama: a simulated mesh, a temporary database, nothing transmitted")
@@ -1478,6 +1485,7 @@ def parse_cli(argv=None):
     parser = build_parser()
     args = parser.parse_args(argv)
     connection.check_args(parser, args)
+    websecurity.check_args(parser, args)
     return parser, args
 
 
@@ -1501,6 +1509,16 @@ def ble_scan_main():
     return 0
 
 
+def set_password_main(args, environ=None):
+    """--set-password: prompt for the dashboard password of one account and store its hash; returns the exit code. The file is the
+    one named by --password-hash-file / --viewer-password-hash-file (or MESHLLM_*_HASH_FILE), else a file in the user's config folder."""
+    environ = os.environ if environ is None else environ
+    admin = args.password_hash_file or environ.get("MESHLLM_PASSWORD_HASH_FILE") or passwords.default_path("admin")
+    viewer = args.viewer_password_hash_file or environ.get("MESHLLM_VIEWER_PASSWORD_HASH_FILE") or passwords.default_path("viewer")
+    target, other = (admin, viewer) if args.role == "admin" else (viewer, admin)
+    return passwords.set_password_main(args.role, target, other)
+
+
 def _stop_on_sigterm(signum, frame):
     """SIGTERM (`kill`, `docker stop`, systemd) ends the bridge like Ctrl+C, so it closes the radio and the database cleanly. It matters
     most in a container, where the bridge is process 1 and Linux ignores SIGTERM for process 1 unless the program handles it."""
@@ -1512,6 +1530,8 @@ def main():
     parser, args = parse_cli()
     if args.ble_scan:
         sys.exit(ble_scan_main())
+    if getattr(args, "set_password", False):
+        sys.exit(set_password_main(args))
     if args.ble and not args.demo:
         try:
             connection.load_ble()       # fail now with one friendly line instead of retrying forever in the background

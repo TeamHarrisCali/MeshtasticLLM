@@ -104,10 +104,29 @@ function render() {
 // Search text and status filter as query parameters for /api/requests.
 const filters = () => new URLSearchParams({ q: $("q").value.trim(), status: $("status").value });
 
+// ---- the login: every request the page makes goes through authFetch ----------------------------------------------------------
+// When the dashboard has a password, each non-GET request must carry the session's CSRF token (read once from /api/session), and a
+// 401 means the session ended (idle, signed out elsewhere, password changed): reloading shows the login page again.
+let csrfToken = null, sessionInfo = {};
+async function loadSession() {
+  try { sessionInfo = await (await fetch("/api/session")).json(); csrfToken = sessionInfo.csrf || ""; } catch { csrfToken = ""; }
+  return sessionInfo;
+}
+async function authFetch(path, opts = {}) {
+  const o = { ...opts };
+  if ((o.method || "GET") !== "GET") {
+    if (csrfToken === null) await loadSession();
+    if (csrfToken) o.headers = { ...(o.headers || {}), "X-CSRF-Token": csrfToken };
+  }
+  const r = await fetch(path, o);
+  if (r.status === 401) location.reload();
+  return r;
+}
+
 // GET a JSON endpoint and return the parsed body; throws on a non-2xx status so callers can catch and skip that refresh.
 // Used by every page.
 async function api(path) {
-  const r = await fetch(path);
+  const r = await authFetch(path);
   if (!r.ok) throw new Error(path + " " + r.status);
   return r.json();
 }

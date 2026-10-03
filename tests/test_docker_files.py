@@ -202,7 +202,9 @@ check("bind 0.0.0.0: Host 127.0.0.1:PORT is still accepted", status_with_host("1
 br.args.web_host = "::"
 check("bind ::: Host [::]:PORT is refused", status_with_host("[::]:%d" % port) == 403)
 br.args.web_host = "dash.example"
-check("an explicitly named non-wildcard host is still accepted", status_with_host("dash.example:%d" % port) == 200)
+check("a named --web-host is no longer enough by itself: the name must be in --allowed-host", status_with_host("dash.example:%d" % port) == 403)
+br.web_security.allowed.add("dash.example")        # what --allowed-host dash.example does
+check("a name given with --allowed-host is accepted", status_with_host("dash.example:%d" % port) == 200)
 check("another name is refused", status_with_host("evil.example:%d" % port) == 403)
 
 check("the Dockerfile sets MESHLLM_CONTAINER=1 (what lets the demo bind 0.0.0.0 in the container)", "MESHLLM_CONTAINER=1" in dockerfile)

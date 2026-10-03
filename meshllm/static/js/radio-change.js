@@ -44,7 +44,7 @@ function renderRadioBanner(d) {
 // Pause/resume toggle in the header: flips the state, then refreshes the header.
 $("pauseBtn").addEventListener("click", async () => {
   const paused = !$("pauseBtn").dataset.paused;
-  await fetch("/api/pause", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ paused }) });
+  await authFetch("/api/pause", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ paused }) });
   refreshTop();
 });
 // AI log controls: Load older, a debounced (250 ms) text search, and the status filter.

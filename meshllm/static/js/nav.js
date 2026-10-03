@@ -7,7 +7,7 @@ let view = "", selected = null, selectedName = null, convSig = "", threadSig = "
 
 // POSTs a JSON body. Returns { ok, data }, where data is the parsed reply or {} if it was not JSON. Does not throw on HTTP errors; callers show data.error.
 async function post(path, body) {
-  const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const r = await authFetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   let data = {}; try { data = await r.json(); } catch {}
   return { ok: r.ok, data };
 }

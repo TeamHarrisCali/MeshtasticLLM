@@ -134,6 +134,13 @@ check("arguments given as a JSON string are accepted (after validation)", last_r
 dm(P, "/ai demo"); settle()
 check("action above the node's tier refused", last_row(P)["status"] == "action_denied" and "aren't authorised" in sent_to(P)[-1], sent_to(P)[-1])
 check("undeclared parameters are dropped, not passed on", actions.validate("list_nodes", {"sort": "RECENT", "evil": "x"}, 0)[1] == {"sort": "recent"})
+check("a value in the wrong slot is moved to the parameter it belongs to (the 3B model sent role=nearest for 'closest node')",
+      actions.validate("list_nodes", {"role": "nearest"}, 0)[1] == {"sort": "nearest"} and actions.validate("list_nodes", {"sort": "router"}, 0)[1] == {"role": "router"}
+      and actions.validate("list_nodes", {"role": "Nearest"}, 0)[1] == {"sort": "nearest"})
+for args_bad in ({"role": "nearest", "sort": "recent"}, {"role": "banana"}, {"sort": "banana"}, {"role": "nearest", "sort": "banana"}):
+    try: actions.validate("list_nodes", args_bad, 0); ok = False
+    except actions.ActionError: ok = True
+    check(f"...but a value that fits no slot, or whose right slot is already taken, is still refused: {args_bad}", ok)
 for bad in [("mesh_summary_x", {}), (None, {}), (["x"], {})]:
     try: actions.validate(bad[0], bad[1], 1); ok = False
     except actions.ActionError: ok = True

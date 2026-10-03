@@ -42,6 +42,11 @@ MAX_LIMIT_MULTIPLE = 4      # the silence limit may grow to this many times its 
 REQUIRED_LIBRARY = "meshtastic>=2.7.11,<2.8"
 FAILBACK_STABLE = 10        # seconds a preferred (higher-priority) USB radio must stay listed before the chain switches back to it
 PARK_CAP = 300              # seconds: the longest a failing, non-last entry of a failover chain is left alone
+FAILBACK_OPEN_TIMEOUT = 45  # seconds a failover chain waits for a preferred USB radio's settings (the library's own default is 300)
+FAILBACK_GIVE_UP = 3        # failed switch-backs to the same port after which the chain stops trying until the port is unplugged and replugged
+FLAP_LIFETIME = 60          # a preferred link that ends sooner than this counts as a flap and doubles the next failback wait
+FLAP_CAP = 300              # seconds: the longest failback wait that flapping can cause
+PROBE_CACHE = 1.0           # seconds the dashboard reuses a port-list answer (many browsers poll the status at once)
 clock = time.monotonic      # tests replace this with a fake clock
 BLUETOOTH_SYSFS = "/sys/class/bluetooth"    # Linux lists the Bluetooth adapters (hci0, ...) here; tests point it elsewhere
 MAC_RE = re.compile(r"[0-9A-Fa-f]{2}([:-][0-9A-Fa-f]{2}){5}")     # used with fullmatch
@@ -490,8 +495,10 @@ def endpoint_key(endpoint):
     if isinstance(endpoint, TcpEndpoint):
         return ("tcp", endpoint.host.lower(), endpoint.port)
     if isinstance(endpoint, BleEndpoint):
-        return ("ble", endpoint.target.strip().lower())
-    return ("usb", "auto" if endpoint.auto else endpoint.port)
+        target = endpoint.target.strip().lower().replace("-", ":")      # Windows and macOS write a Bluetooth address with dashes
+        return ("ble", target if re.fullmatch(r"([0-9a-f]{2}:){5}[0-9a-f]{2}", target) else endpoint.target.strip().lower())
+    port = endpoint.port.strip()
+    return ("usb", "auto" if endpoint.auto else port.lower() if port.upper().startswith("COM") else port)
 
 
 def _fallback_endpoint(kind, value, silence=None):
@@ -643,6 +650,7 @@ class SerialEndpoint(Endpoint):
     def __init__(self, port="auto", probe_unknown=False):
         self.port = port
         self.probe_unknown = probe_unknown
+        self.open_timeout = None    # seconds to wait for the radio's settings; None keeps the library's default (a failover chain sets it)
 
     @property
     def auto(self):
@@ -679,7 +687,8 @@ class SerialEndpoint(Endpoint):
 
     def open(self, label):
         # looked up on the module at call time so tests can replace SerialInterface
-        return meshtastic.serial_interface.SerialInterface(devPath=label)
+        extra = {"timeout": self.open_timeout} if self.open_timeout else {}
+        return meshtastic.serial_interface.SerialInterface(devPath=label, **extra)
 
     def alive(self, iface):
         rx = getattr(iface, "_rxThread", None)
@@ -898,29 +907,38 @@ class FailoverChain(Endpoint):
     * Watching: link checks go to the entry that is live. When it reports a loss, the next connect attempt starts again from the top.
     * Failback: while a lower entry is live, a higher entry that can be checked without opening it (`probeable`: in practice USB, whose port
       list shows the radio again) must stay available for `stable_for` seconds. Then the live link is ended cleanly (`link_problem` says why)
-      and the normal connect path opens the higher entry. Wi-Fi and Bluetooth entries are never probed, so they are only tried when the
-      entries above them are unavailable, never switched *back* to while a lower entry works.
-    * One transport at a time: the old link is closed before the new one is opened (the bridge waits for the close when `switching`), because
-      what the firmware does with USB and Bluetooth open together is not known."""
+      and the normal connect path opens the higher entry. Wi-Fi and Bluetooth entries are not probed (that would mean opening them), so they are only tried when the
+      entries above them are unavailable, and the chain does not switch *back* to one of them while a lower entry works.
+      A preferred link that keeps dying soon after it opens makes the chain wait longer each time (flap hysteresis), and a port that keeps
+      failing to open is given up on until it is unplugged and replugged.
+    * One transport at a time: the bridge waits (up to its SWITCH_CLOSE_WAIT) for the old link to finish closing before it opens the next one,
+      because what the firmware does with USB and Bluetooth open together is not known. If a close hangs past that wait, the bridge moves on."""
     kind = "failover"
 
     def __init__(self, endpoints, stable_for=FAILBACK_STABLE, now=None):
         self.endpoints = list(endpoints)
         self.stable_for = stable_for
         self._now = now or (lambda: clock())    # looked up at call time so tests can replace `clock`
+        for ep in self.endpoints[:-1]:
+            if isinstance(ep, SerialEndpoint) and ep.open_timeout is None:
+                ep.open_timeout = FAILBACK_OPEN_TIMEOUT     # a preferred USB radio that opens but never answers must not hold the working link for 300 s
         self.active = None          # the endpoint whose link is open, else None
         self.active_label = None
         self._owner = {}            # label -> endpoint that offered it (open and failure_reason need to find it again)
         self._parked = {}           # label -> chain-clock time before which it is left alone
         self._fails = {}            # label -> failed opens in a row (grows the park time of non-last entries)
         self._since = {}            # index of a preferred entry -> chain-clock time it was first seen available
+        self._opened_at = None      # chain-clock time the live link was opened
+        self._flaps = 0             # preferred links in a row that ended within FLAP_LIFETIME of opening (lengthens the failback wait)
+        self._probes = {}           # id(endpoint) -> (time, labels): the dashboard's short-lived cache of port-list answers
         self.switching = False
 
     # ---- what the bridge asks of an endpoint ----------------------------------------------------------
     @property
     def silence_limit(self):
         """The live entry's silence limit (0 when nothing is open)."""
-        return self.active.silence_limit if self.active else 0
+        ep = self.active        # read once: the watchdog thread and the connect thread both touch it
+        return ep.silence_limit if ep else 0
 
     def initial_label(self):
         return self.endpoints[0].initial_label()
@@ -950,6 +968,7 @@ class FailoverChain(Endpoint):
         self.active, self.active_label, self.switching = ep, label, False
         self._fails.pop(label, None)
         self._since.clear()
+        self._opened_at = self._now()
         return iface
 
     def alive(self, iface):
@@ -957,7 +976,9 @@ class FailoverChain(Endpoint):
         return bool(ep and ep.alive(iface))
 
     def link_problem(self, iface, label):
-        ep = self.active or self._owner.get(label, self.endpoints[0])
+        ep = self.active
+        if ep is None:
+            ep = self._owner.get(label, self.endpoints[0])
         return ep.link_problem(iface, label) or self._better_available(ep, label)
 
     def loss_backoff(self, label):
@@ -965,6 +986,10 @@ class FailoverChain(Endpoint):
         wait = ep.loss_backoff(label)
         if wait:
             self._park(label, wait)
+        if self._opened_at is not None and ep is not self.endpoints[-1] and not self.switching:
+            # a preferred link that dies soon after it opened is a flap: wait longer before the next switch-back to it
+            self._flaps = 0 if self._now() - self._opened_at >= FLAP_LIFETIME else min(self._flaps + 1, 10)
+        self._opened_at = None
         self.active = self.active_label = None
         self._since.clear()
         return wait
@@ -993,26 +1018,47 @@ class FailoverChain(Endpoint):
         for i, ep in enumerate(self.endpoints):
             if ep is active:
                 break
-            offer = [t for t in ep.candidates(self.active_label) if not self._is_parked(t)] if ep.probeable else []
+            seen = list(ep.candidates(self.active_label)) if ep.probeable else []
+            if not seen:        # it went away again: a flapping port starts its window over, and a port that is replugged gets a fresh start
+                self._since.pop(i, None)
+                for t in [t for t, owner in self._owner.items() if owner is ep]:
+                    self._fails.pop(t, None)
+                continue
+            offer = [t for t in seen if not self._is_parked(t) and self._fails.get(t, 0) < FAILBACK_GIVE_UP]
             if not offer:
-                self._since.pop(i, None)        # it went away again: a flapping port starts its window over
-            elif now - self._since.setdefault(i, now) >= self.stable_for:
+                self._since.pop(i, None)
+            elif now - self._since.setdefault(i, now) >= min(self.stable_for * 2 ** self._flaps, max(self.stable_for, FLAP_CAP)):
                 self.switching = True
                 return f"a preferred connection is available again: switching from {label} to {offer[0]}"
         return None
 
     # ---- dashboard ------------------------------------------------------------------------------------
+    def _probe(self, ep, preferred):
+        """What a probeable entry offers, for the dashboard: the answer is reused for PROBE_CACHE seconds and a failing port listing counts as
+        'nothing', so polling browsers neither hammer the OS nor break the status page. (The connect thread asks `candidates` directly.)"""
+        now = time.monotonic()
+        hit = self._probes.get(id(ep))
+        if hit and now - hit[0] < PROBE_CACHE:
+            return hit[1]
+        try:
+            labels = list(ep.candidates(preferred))
+        except Exception:
+            labels = []
+        self._probes[id(ep)] = (now, labels)
+        return labels
+
     def connection_info(self, connected):
         """The chain as plain data: one entry per endpoint with its kind, label and state (active, available, parked, unavailable or
         standby), plus a short text such as 'via Bluetooth (USB not connected)' when a lower entry is live."""
         entries, active_index = [], None
+        active, active_label = self.active, self.active_label       # read once: another thread may end the link while this runs
         for i, ep in enumerate(list(self.endpoints)):
             entry = {"kind": ep.kind, "label": ep.display()}
-            if connected and ep is self.active:
+            if connected and ep is active:
                 active_index = i
-                entry.update(label=self.active_label or ep.display(), state="active")
+                entry.update(label=active_label or ep.display(), state="active")
             else:
-                labels = ep.candidates(self.active_label) if ep.probeable else [ep.initial_label()]
+                labels = self._probe(ep, active_label) if ep.probeable else [ep.initial_label()]
                 wait = max([self._parked.get(t, 0) - self._now() for t in labels] or [0])
                 if not labels:
                     entry["state"] = "unavailable"

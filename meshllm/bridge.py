@@ -1332,8 +1332,7 @@ class Bridge:
             else:
                 print(f"[radio] lost {label}: {reason}. Searching again...")
             closer = self.detach(iface)
-            if switching:
-                closer.join(self.SWITCH_CLOSE_WAIT)     # one transport at a time: the old link is closed before the new one is opened
+            closer.join(self.SWITCH_CLOSE_WAIT)     # one transport at a time: let the old link finish closing before opening the next
             wait = self.endpoint.loss_backoff(label)    # normally 0; positive after repeated silence losses that brought no data
             if wait:
                 self.bad_until[label] = time.time() + wait

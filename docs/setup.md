@@ -102,18 +102,18 @@ the kind from the value, so values may contain colons:
 
 *The order.* Priority is the primary connection (`--port`, `--tcp`, `--ble`, or USB auto-detect when none is given), then each `--fallback` in the order
 written. Whenever the bridge needs a connection it takes the highest entry that has something to try: a USB entry when a radio port is listed, a
-Wi-Fi or Bluetooth entry always. An entry that fails to open is left alone for its normal back-off (30 to 60 seconds, doubling up to five minutes for entries that have
+Wi-Fi or Bluetooth entry always. An entry that fails to open is left alone for its normal back-off (10 to 60 seconds for USB, 15 to 60 for Wi-Fi and Bluetooth, longer for a radio that needs fixing first; it doubles with each failure, up to five minutes, for entries that have
 something below them), so the bridge moves on to the next one instead of retrying a dead entry forever. A fallback may not repeat another entry
 (same Bluetooth address, same host and port, same serial port).
 
 *Failback.* While a lower entry is in use, the bridge checks (every `--scan-interval`) whether a **higher USB entry** is listed again. If it has stayed
 listed for 10 seconds without a break, the bridge logs `a preferred connection is available again: switching from ... to ...`, closes the current link
-and opens USB. A port that appears and disappears inside the 10 seconds starts the count over, so a loose cable does not make it switch back and forth.
+and opens USB. A port that appears and disappears inside the 10 seconds starts the count over, so a loose cable does not make it switch back and forth. If the USB link then dies within a minute of opening, the next wait doubles (up to five minutes), and a port that fails to open three times in a row is left alone until it is unplugged and plugged in again. While a lower entry is live, a USB open that gets no answer from the radio gives up after 45 seconds instead of the library's five minutes.
 Wi-Fi and Bluetooth entries cannot be checked without opening them, so they are **not probed**: they are used when everything above them is
 unavailable, and a bridge running on a lower entry never goes back up to one of them by itself. If the radio is unplugged or its link drops, the
 next connection attempt starts again from the top of the list.
 
-*One transport at a time.* The bridge never holds two connections to the radio: a switch closes the old link first and opens the new one after. (What the
+*One transport at a time.* The bridge waits for the old link to finish closing (up to 10 seconds) before it opens the next, so it does not normally hold two connections to the radio. (What the
 firmware does with USB and Bluetooth open together is not known, so this is deliberate.) The radio reboots whenever USB serial is opened or closed, so
 expect a short gap when switching to or from USB. The radio's identity is compared across transports: the same radio behind USB and Bluetooth is not
 "a different radio" (no banner, history kept). Messages queued meanwhile wait up to `--reconnect-hold` seconds, as for any reconnect.

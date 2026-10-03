@@ -226,14 +226,119 @@ check("status chain on the fallback: Bluetooth active with its label, and the 'v
       [(e["kind"], e["state"]) for e in info["entries"]] == [("usb", "unavailable"), ("ble", "active")] and info["entries"][1]["label"] == f"ble:{MAC}"
       and info["text"] == "via Bluetooth (USB not connected)", info)
 plug("/dev/ttyUSB7")
+chain._probes.clear()      # the dashboard reuses a port-list answer for a second; the fake ports changed just now
 check("status chain: USB shows as available while the fallback is live", chain.connection_info(True)["entries"][0]["state"] == "available")
 chain._park("/dev/ttyUSB7", 20)
 e0 = chain.connection_info(True)["entries"][0]
 check("status chain: a parked entry says so and when it will be retried", e0["state"] == "parked" and e0["retry_in_s"] == 21, e0)
 lose(chain, r[2]); plug("/dev/ttyUSB7"); chain._parked.clear()
-r = connect(chain); info = chain.connection_info(True)
+r = connect(chain); chain._probes.clear(); info = chain.connection_info(True)
 check("status chain on the primary: USB active and no 'via' text", info["entries"][0]["state"] == "active" and info["entries"][0]["label"] == "/dev/ttyUSB7" and info["text"] == "", info)
 check("a plain endpoint reports no chain", conn.SerialEndpoint().connection_info(True) == {"failover": False, "entries": [], "text": ""})
+
+# ---- review fixes: give-up, flap hysteresis, open timeout, dashboard probing, key normalisation ------------------------
+U = "/dev/ttyUSB7"
+class FailUsb(Usb):
+    """A USB entry whose open always fails (the port is listed but the radio never answers)."""
+    def open(self, label): EVENTS.append(("open", label)); raise OSError("no radio answered")
+
+PORTS.clear(); plug(U)
+chain, clk, _ = make_chain(("usb", "ble"))
+chain.endpoints[0] = FailUsb("auto")
+chain._parked[U] = clk.t + 1; r = connect(chain); clk.advance(2)     # BT is live; USB is listed but broken
+check("setup: the broken USB port is skipped and Bluetooth is live", r[:2] == ("opened", f"ble:{MAC}"), r[:2])
+def failed_switch(chain, clk, link, label):
+    """One switch-back attempt that fails to open USB, then the chain re-opens the fallback. Returns (link, label, why-it-switched or None)."""
+    chain.link_problem(link, label); clk.advance(chain.stable_for + 1)
+    why = chain.link_problem(link, label)
+    if not why: return link, label, None
+    lose(chain, link); connect(chain)                    # USB fails to open here and is parked
+    r = connect(chain)                                   # so the next pass re-opens the fallback
+    clk.advance(400)                                     # past any park time
+    return r[2], r[1], why
+link, label = r[2], r[1]
+attempts = 0
+for _ in range(6):
+    link, label, why = failed_switch(chain, clk, link, label)
+    if not why: break
+    attempts += 1
+check(f"a USB port that listed but never opens is tried {conn.FAILBACK_GIVE_UP} times, then left alone (it does not keep dragging the working link down)",
+      attempts == conn.FAILBACK_GIVE_UP, attempts)
+unplug(U); chain.link_problem(link, label); plug(U)
+chain.link_problem(link, label); clk.advance(chain.stable_for + 1)
+check("...until it is unplugged and plugged in again, which gives it a fresh start", (chain.link_problem(link, label) or "").startswith("a preferred connection"))
+
+# flap hysteresis: a preferred link that dies quickly doubles the next failback wait; one that lasted resets it
+PORTS.clear(); plug(U)
+chain, clk, _ = make_chain(("usb", "ble"))
+r = connect(chain); clk.advance(5); unplug(U); lose(chain, r[2]); r = connect(chain)
+plug(U); chain.link_problem(r[2], r[1]); clk.advance(chain.stable_for + 1)
+check("after USB died within a minute of opening, the normal window is not enough any more", chain.link_problem(r[2], r[1]) is None and chain._flaps == 1, chain._flaps)
+clk.advance(chain.stable_for)
+why = chain.link_problem(r[2], r[1])
+check("...it takes twice as long (20 s instead of 10)", (why or "").startswith("a preferred connection"), why)
+lose(chain, r[2]); r = connect(chain); clk.advance(conn.FLAP_LIFETIME + 1); unplug(U); lose(chain, r[2])
+check("a USB link that lasted a minute resets the hysteresis", chain._flaps == 0, chain._flaps)
+for _ in range(30):         # many quick deaths cannot make the wait unbounded
+    chain._flaps = min(chain._flaps + 1, 10)
+check("the doubling is capped (flap count and seconds)", chain._flaps == 10 and min(chain.stable_for * 2 ** chain._flaps, conn.FLAP_CAP) == conn.FLAP_CAP)
+
+# silence_limit with nothing live, and a link that vanishes while the dashboard reads the chain
+chain, clk, _ = make_chain(("usb", "ble"))
+check("silence_limit is 0 with nothing open", chain.silence_limit == 0)
+class Racy(conn.FailoverChain):
+    """`active` reads as the live endpoint the first time and None afterwards, like a link ending on another thread mid-call."""
+    _reads = 0
+    @property
+    def active(self):
+        Racy._reads += 1
+        return self._a if Racy._reads == 1 else None
+    @active.setter
+    def active(self, v): self._a = v
+PORTS.clear()
+racy = Racy([Usb("auto"), Bt(MAC)], now=Clock()); racy.active = racy.endpoints[1]; Racy._reads = 0
+try:
+    lim = racy.silence_limit
+    check("silence_limit reads `active` once (no AttributeError when the link ends mid-call)", lim == racy.endpoints[1].silence_limit and Racy._reads == 1, (lim, Racy._reads))
+except Exception as e:
+    check("silence_limit reads `active` once (no AttributeError when the link ends mid-call)", False, repr(e))
+
+# dashboard probing: cached for a moment, and a failing port listing cannot break the status page
+PORTS.clear(); plug(U)
+chain, clk, (usb, ble) = make_chain(("usb", "ble"))
+calls = []
+real_candidates = usb.candidates
+usb.candidates = lambda preferred: (calls.append(1), real_candidates(preferred))[1]
+chain.connection_info(False); chain.connection_info(False); chain.connection_info(False)
+check("several dashboard polls in a row list the ports once", len(calls) == 1, len(calls))
+usb.candidates = lambda preferred: (_ for _ in ()).throw(OSError("port list failed"))
+chain._probes.clear()
+try:
+    info = chain.connection_info(False)
+    check("a failing port listing shows the entry as unavailable instead of an error", info["entries"][0]["state"] == "unavailable", info)
+except Exception as e:
+    check("a failing port listing shows the entry as unavailable instead of an error", False, repr(e))
+
+# a USB open that gets no answer is cut short while a lower entry is live; the last/only entry keeps the library's default
+seen = []
+class SpySerial:
+    def __init__(self, devPath=None, **kw): seen.append(kw)
+real_serial = meshtastic.serial_interface.SerialInterface
+meshtastic.serial_interface.SerialInterface = SpySerial
+try:
+    conn.SerialEndpoint("auto").open(U)
+    chained = conn.FailoverChain([conn.SerialEndpoint("auto"), conn.BleEndpoint(MAC)]); chained.endpoints[0].open(U)
+    only = conn.FailoverChain([conn.BleEndpoint(MAC), conn.SerialEndpoint("auto")]); only.endpoints[1].open(U)
+finally:
+    meshtastic.serial_interface.SerialInterface = real_serial
+check("a plain USB open passes no timeout (library default); a chain's preferred USB gets the short one; the last entry does not",
+      seen == [{}, {"timeout": conn.FAILBACK_OPEN_TIMEOUT}, {}], seen)
+
+# duplicate detection survives the other spelling of an address or port
+same = lambda a, b_: conn.endpoint_key(a) == conn.endpoint_key(b_)
+check("a Bluetooth address with dashes or lower case is the same entry as the colon form", same(conn.BleEndpoint("aa-bb-cc-dd-ee-ff"), conn.BleEndpoint(MAC)))
+check("COM ports compare case-insensitively, device paths do not", same(conn.SerialEndpoint("com3"), conn.SerialEndpoint("COM3")) and not same(conn.SerialEndpoint("/dev/ttyUSB1"), conn.SerialEndpoint("/dev/ttyusb1")))
+check("a device NAME is still compared by name", same(conn.BleEndpoint("Radio_1234"), conn.BleEndpoint("radio_1234")) and not same(conn.BleEndpoint("Radio_1234"), conn.BleEndpoint(MAC)))
 
 # ---- the bridge: USB radio and Wi-Fi radio are the same radio ---------------------------------------------------------
 class OutBuf(io.StringIO):
@@ -250,7 +355,10 @@ class FakeSerial:
         self.devPath, self.stream, self._rxThread, self.closed = devPath, object(), None, False
         EVENTS.append(("open", devPath))
     def getMyUser(self): return {"id": FakeSerial.node, "longName": "Radio over USB", "shortName": "R", "hwModel": "FAKE"}
-    def close(self): self.closed = True; EVENTS.append(("close", self.devPath))
+    close_gate = None       # an Event: while set up and not triggered, close() blocks (a hung close)
+    def close(self):
+        if FakeSerial.close_gate: FakeSerial.close_gate.wait(20)
+        self.closed = True; EVENTS.append(("close", self.devPath))
 meshtastic.serial_interface.SerialInterface = FakeSerial
 
 class FakeThread:
@@ -265,7 +373,10 @@ class FakeTcp:
         EVENTS.append(("open", f"tcp://{hostname}:{portNumber}"))
         self.label = f"tcp://{hostname}:{portNumber}"
     def getMyUser(self): return {"id": FakeTcp.node, "longName": "Radio over Wi-Fi", "shortName": "W", "hwModel": "FAKE"}
-    def close(self): self.closed = True; EVENTS.append(("close", self.label))
+    close_gate = None
+    def close(self):
+        if FakeTcp.close_gate: FakeTcp.close_gate.wait(20)
+        self.closed = True; EVENTS.append(("close", self.label))
 meshtastic.tcp_interface.TCPInterface = FakeTcp
 
 def bridge_args(**over):
@@ -327,6 +438,32 @@ try:
     check("bridge: with USB present at start the primary is used and nothing is switched", until(lambda: br.port == "/dev/ttyUSB7" and br.status()["connected"]) and br.status()["connection"]["text"] == "")
     check("diagnostics gets one line about the chain",
           any(c["id"] == "failover" and "/dev/ttyUSB7 (active)" in c["detail"] and f"{TCP} (not checked until needed)" in c["detail"] for c in Diagnostics(br).report()["checks"]))
+    br.stop()
+
+    # the old link must have finished closing before the next one opens, on a plain loss as well as on a deliberate switch
+    br, clk = run_bridge(usb_present=True)
+    until(lambda: br.port == "/dev/ttyUSB7" and br.status()["connected"])
+    FakeSerial.close_gate = threading.Event()
+    unplug("/dev/ttyUSB7")
+    until(lambda: br.iface is None)
+    time.sleep(1.0)
+    check("a lost USB link whose close is still running: the next connection is not opened yet", ("open", TCP) not in EVENTS, EVENTS)
+    FakeSerial.close_gate.set()
+    check("...and it is opened as soon as the close has finished", until(lambda: br.port == TCP and br.status()["connected"]), EVENTS)
+    check("...with the close recorded first", [e for e in EVENTS if e[1] in (TCP, "/dev/ttyUSB7")][-2:] == [("close", "/dev/ttyUSB7"), ("open", TCP)], EVENTS)
+    FakeSerial.close_gate = None
+    br.stop()
+
+    br, clk = run_bridge()
+    until(lambda: br.port == TCP and br.status()["connected"])
+    FakeTcp.close_gate = threading.Event()
+    plug("/dev/ttyUSB7")
+    until(lambda: (clk.advance(1), br.iface is None)[1], 15)
+    time.sleep(1.0)
+    check("a deliberate switch whose close is still running: USB is not opened yet", ("open", "/dev/ttyUSB7") not in EVENTS, EVENTS)
+    FakeTcp.close_gate.set()
+    check("...and it is opened once the Wi-Fi close has finished", until(lambda: br.port == "/dev/ttyUSB7" and br.status()["connected"], 15), EVENTS)
+    FakeTcp.close_gate = None
     br.stop()
 finally:
     sys.stdout = real_stdout

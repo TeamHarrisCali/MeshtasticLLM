@@ -4,7 +4,7 @@
 # the same bytes. The digest is the multi-architecture index digest of python:3.12-slim-bookworm, so it works on amd64 and arm64.
 # Dependabot (docker ecosystem, .github/dependabot.yml) proposes new digests.
 #
-# The dashboard has NO LOGIN in this image (the app's optional login is not wired through Docker yet) and the app listens on 0.0.0.0 inside the container. If you run the image without Compose, publish with `-p 127.0.0.1:8080:8080`, never `-p 8080:8080` (that would expose a login-less dashboard on your network).
+# By default the dashboard has NO LOGIN in this image and the app listens on 0.0.0.0 inside the container. If you run the image without Compose, publish with `-p 127.0.0.1:8080:8080`, never `-p 8080:8080` (that would expose a login-less dashboard on your network). The login (a password hash from a Compose secret) is wired by docker-compose.login.yml; see docs/setup.md.
 FROM python:3.12-slim-bookworm@sha256:54c85f3c47607a77f32adec749d3c81d1348bf25833671f512b26a9b6d778cb3
 
 # PYTHONUNBUFFERED: log lines reach `docker logs` at once. PYTHONDONTWRITEBYTECODE: nothing is written into the (read-only) code
@@ -42,8 +42,10 @@ USER 10001:10001
 
 EXPOSE 8080
 
-# "Healthy" means the dashboard's status route answers. It does not mean a radio is connected.
+# "Healthy" means the dashboard's server answers. /api/session is the one data route that is open even when a login is configured
+# (it only says whether a login is needed; a status route would answer 401 and the container would never be healthy). The request
+# names Host 127.0.0.1, which is always accepted. It does not mean a radio is connected. (Plain HTTP: it does not fit --tls-cert here.)
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/status', timeout=4).read()"]
+    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/session', timeout=4).read()"]
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

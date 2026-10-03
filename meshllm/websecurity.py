@@ -564,6 +564,8 @@ def check_args(parser, args, environ=None, err=None):
     (password files from MESHLLM_PASSWORD_HASH_FILE / MESHLLM_VIEWER_PASSWORD_HASH_FILE, normalised host and proxy lists)."""
     environ = os.environ if environ is None else environ
     err = err or (lambda text: print(text, file=sys.stderr))
+    if args.demo and environ.get("MESHLLM_PUBLISH_LAN") == "1":
+        parser.error("--demo has no login and must not be published beyond this computer (MESHLLM_PUBLISH_LAN is set).")
     if args.set_password or args.ble_scan or args.demo or args.no_web:
         return                                        # nothing is served (or, in demo, nothing is protected and non-loopback is refused there)
     args.password_hash_file = args.password_hash_file or environ.get("MESHLLM_PASSWORD_HASH_FILE") or None
@@ -604,7 +606,10 @@ def check_args(parser, args, environ=None, err=None):
     if bind_is_loopback(args.web_host):
         return
     container = environ.get("MESHLLM_CONTAINER") == "1" and args.web_host in WILDCARD_HOSTS
-    if container and not args.password_hash_file:
+    # MESHLLM_PUBLISH_LAN=1 is set by docker/entrypoint.sh when Compose publishes the port beyond the host's loopback: then the
+    # container exception below does not apply, whatever else went wrong, and a login is mandatory like on any other network bind
+    published_on_lan = environ.get("MESHLLM_PUBLISH_LAN") == "1"
+    if container and not published_on_lan and not args.password_hash_file:
         return                                        # the Docker image: the published port, bound to the host's loopback, is the only exposure
     if not args.password_hash_file:
         parser.error(f"--web-host {args.web_host} is reachable from other computers, so the dashboard needs a login. "

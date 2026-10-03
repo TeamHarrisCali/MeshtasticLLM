@@ -74,19 +74,24 @@ radios, no crew groups, no job calculators. The AI stays read-only on a fixed to
   - Things the builder could not check: a real browser through a real reverse proxy; real hardware; long-run memory use of the in-memory tables; Python 3.9 on this machine (CI runs it).
   - Known gaps, honestly: two shared accounts only (no per-person logins, no 2FA, no browser password change); a stranger with several addresses can keep NEW browsers at the global wait (the owner's usual browser is exempt); sessions are in memory (a restart signs everyone out);
     the login page only shows the clear-text warning, it does not refuse; `Secure` cookies and the Origin scheme behind a proxy rely on `X-Forwarded-Proto` from a `--trusted-proxy`.
-- [ ] **4. Docker and Docker Compose.** Depends on items 2 and 3. The parts that do not need the login are done; the LAN parts wait for item 3.
+- [ ] **4. Docker and Docker Compose.** Depends on items 2 and 3. Everything below is ticked only where the files and a test exist; what could not be tried is listed under "Done when".
   - [x] An image for the bridge (`Dockerfile`), plus a Compose file with an Ollama service and a volume for the database. Runs as a numeric non-root
     user (10001) and the `/data` volume is writable by it. The base image is pinned by tag **and digest**, and Dependabot's Docker ecosystem keeps it current.
     There is also a `demo` profile (`docker compose --profile demo up demo`) that needs no radio and no Ollama.
-  - [ ] The password hash comes from a Compose `secrets:` file (item 3), not from an environment variable (those show up in `docker inspect`). **Not done in the item 3 PR on purpose:**
-    the app already reads `MESHLLM_PASSWORD_HASH_FILE`, but a Compose file secret is a bind mount that keeps the host file's owner and mode, so a `600` file made by `--set-password` is unreadable by the container's uid 10001 and a
-    `644` one makes the app warn; the fix (and how to test it with a real `docker compose up`) needs its own change. The image's healthcheck hits `/api/status`, which a login would answer 401: it needs a public `/api/health` route first.
+  - [x] The password hash comes from a Compose `secrets:` file (`docker-compose.login.yml`, path in `MESHLLM_ADMIN_HASH_FILE`), not from an environment variable (those show up in `docker inspect`; checked with a real
+    `docker compose up`). The unreadable-secret problem (a Compose file secret keeps the host file's owner and mode, so the `600` file from `--set-password` is unreadable by uid 10001; Compose ignores `uid`/`gid`/`mode` for file secrets) is solved by
+    the entrypoint: the container starts as root with only `DAC_OVERRIDE`, `SETUID` and `SETGID`, copies the hash into a 0400 file owned by 10001 on a memory-only tmpfs (`/run/meshllm`), drops to 10001 and re-runs itself;
+    the bridge then runs as 10001 with no capabilities, the root file system stays read-only. Trade-off and the rejected host-side `chown 10001` alternative: `docs/setup.md`. Only the admin account is wired (no viewer file in Docker); changing the password needs `docker compose restart bridge`.
+  - [x] The healthcheck works with a login: it now asks `/api/session` (public and data-free) instead of `/api/status` (401 under a login), so no new route was added. It is plain HTTP, so it does not fit `--tls-cert` inside the container.
   - [x] Dashboard port published on the host loopback only (`127.0.0.1:8080`) and Ollama's port not published, with a warning in the compose file and the docs.
-  - [ ] The LAN as an explicit opt-in for the published address: only together with item 3's login (the login now exists; this waits for the secret and healthcheck work above). The default publish stays `127.0.0.1` only.
+  - [x] The LAN as an explicit opt-in for the published address: `MESHLLM_WEB_BIND` plus `MESHLLM_ALLOWED_HOSTS` in `.env`, only together with the login. The default publish stays `127.0.0.1`. The container refuses to start (exit 78, clear message) on a non-loopback
+    publish address without the login or without allowed hosts, and never for `--demo`; the entrypoint also sets `MESHLLM_PUBLISH_LAN=1` so the app's own check refuses a login-less wildcard bind. Not covered by design: a hand-edited `ports:` line or `docker run -p 0.0.0.0:...`.
   - [x] USB serial passthrough (`docker-compose.usb.yml`, Linux hosts only); on Windows and macOS use the Wi-Fi/TCP radio path (item 2); Bluetooth does not work in a container. Documented in `docs/setup.md`.
     The container, the image and the demo were tried on Linux; USB and Wi-Fi from inside a container have **not** been tried with a real radio, and Docker Desktop not at all.
-  - [x] CI builds the image and smoke-tests the demo container (build only; nothing is pushed to a registry until the owner decides).
-  - [ ] Done when: `docker compose up` gives a working dashboard behind the login with a faked or real radio, the docs explain each platform.
+  - [x] CI builds the image, smoke-tests the demo container and the login override (healthy with a login, sign-in through the published port, no hash in `docker inspect`, PID 1 uid 10001 with no capabilities, LAN publish refused without a login); nothing is pushed to a registry.
+  - [x] Independent security review of the login-in-Docker change (the root-then-10001 copy and the LAN rule): APPROVE WITH NITS; the one real finding (`--demo` through `MESHLLM_EXTRA_ARGS` on a LAN publish) and the wording nits were fixed and tested, not re-reviewed.
+  - [ ] Done when: `docker compose up` gives a working dashboard behind the login with a faked or real radio, the docs explain each platform. Open: the login was proven with no radio attached (the demo profile ignores passwords, so there is no faked-radio login);
+    a real radio from inside a container (USB, Wi-Fi), Docker Desktop on Windows/macOS, rootless Docker, and a real peer on a LAN (how the client address looks through Docker's proxy) have not been tried.
 - [ ] **5. Afterwards**
   - A whole-project security and bug pass: static analysis, a dependency scan, a secret scan over the full history, a review of every web route and of the installer scripts.
   - Install `qwen3.5` and re-run the tool-choice evaluation next to `llama3.2:3b` (the weak spot is choosing the right `mesh_report` topic).

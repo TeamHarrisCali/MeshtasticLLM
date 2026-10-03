@@ -65,3 +65,47 @@ jobs:
           docker compose config -q
           docker compose --profile demo config -q
           docker compose -f docker-compose.yml -f docker-compose.usb.yml config -q
+          # the dashboard-login override needs the path of the hash file, and says so when it is missing
+          if docker compose -f docker-compose.yml -f docker-compose.login.yml config -q 2>/dev/null; then echo "login override accepted a missing MESHLLM_ADMIN_HASH_FILE"; exit 1; fi
+          MESHLLM_ADMIN_HASH_FILE=/nonexistent/admin.hash docker compose -f docker-compose.yml -f docker-compose.login.yml config -q
+          MESHLLM_ADMIN_HASH_FILE=/nonexistent/admin.hash docker compose -f docker-compose.yml -f docker-compose.login.yml -f docker-compose.usb.yml config -q
+      - name: Smoke test the dashboard login (hash from a Compose secret file)
+        run: |
+          set -eu
+          export COMPOSE_PROJECT_NAME=meshllm-ci-login MESHLLM_WEB_PORT=18081
+          dc="docker compose -f docker-compose.yml -f docker-compose.login.yml"
+          dir=$(mktemp -d)
+          pw=$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')      # a throwaway password for this run only
+          # the project's own helper makes the hash; the file is mode 600 and owned by the runner user, exactly the unreadable-secret case
+          (umask 077; PW="$pw" python3 -c 'import os; from meshllm import passwords; print(passwords.hash_password(os.environ["PW"]))' > "$dir/admin.hash")
+          export MESHLLM_ADMIN_HASH_FILE="$dir/admin.hash"
+          trap '$dc logs bridge || true; $dc down -v >/dev/null 2>&1 || true' EXIT
+          $dc up -d --build --no-deps bridge          # no Ollama: the dashboard is up without it
+          for i in $(seq 1 45); do
+            health=$(docker inspect --format '{{.State.Health.Status}}' meshllm-ci-login-bridge-1)
+            if [ "$health" = healthy ]; then break; fi
+            sleep 2
+          done
+          echo "health: $health"
+          test "$health" = healthy
+          base=http://127.0.0.1:18081
+          test "$(curl -s -o /dev/null -w '%{http_code}' $base/api/status)" = 401
+          curl -fsS -c "$dir/jar" -H "Origin: $base" -H 'Content-Type: application/json' -d "{\"account\":\"admin\",\"password\":\"$pw\"}" $base/api/login >/dev/null
+          test "$(curl -s -b "$dir/jar" -o /dev/null -w '%{http_code}' $base/api/status)" = 200
+          # the hash is in a secret file, not in the container's configuration
+          if docker inspect meshllm-ci-login-bridge-1 | grep -q scrypt; then echo "the password hash is visible in docker inspect"; exit 1; fi
+          # PID 1 (the bridge) is not root and holds no capabilities; the root file system is read-only
+          docker exec meshllm-ci-login-bridge-1 grep -E '^(Uid|CapInh|CapPrm|CapEff|CapAmb)' /proc/1/status | tee "$dir/proc"
+          grep -q '^Uid:[[:space:]]10001' "$dir/proc"
+          for cap in CapInh CapPrm CapEff CapAmb; do grep -q "^$cap:[[:space:]]0000000000000000" "$dir/proc"; done
+          test "$(docker inspect --format '{{.HostConfig.ReadonlyRootfs}}' meshllm-ci-login-bridge-1)" = true
+          test "$(docker port meshllm-ci-login-bridge-1 8080/tcp)" = "127.0.0.1:18081"
+      - name: The image refuses a network-facing dashboard without a login
+        run: |
+          set -eu
+          for extra in "" "-e MESHLLM_ALLOWED_HOSTS=192.0.2.10"; do
+            rc=0
+            docker run --rm --read-only --tmpfs /tmp --cap-drop ALL -e MESHLLM_PUBLISH_ADDR=192.0.2.10 $extra meshllm-ci || rc=$?
+            echo "exit code: $rc"
+            test "$rc" = 78
+          done

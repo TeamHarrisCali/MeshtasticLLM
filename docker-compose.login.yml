@@ -1,0 +1,37 @@
+# The dashboard login for the bridge container. Full instructions: docs/setup.md ("Run with Docker", "The dashboard login").
+#
+#   1. Make the password hash on the host (once; it asks twice, no echo):   python -m meshllm --set-password
+#      It writes a mode-600 file (by default ~/.config/meshllm/admin.hash). Only a scrypt hash is in it, but treat it as a secret.
+#   2. In .env put the file's ABSOLUTE path (Compose does not expand ~):     MESHLLM_ADMIN_HASH_FILE=/absolute/path/to/admin.hash
+#   3. Start with this file added:
+#        docker compose -f docker-compose.yml -f docker-compose.login.yml up -d
+#      (or set COMPOSE_FILE=docker-compose.yml:docker-compose.login.yml in .env; add :docker-compose.usb.yml for a USB radio)
+#   After changing the password with --set-password again:  docker compose restart bridge   (the hash is read once at container start)
+#
+# Why the secret is a file and not an environment variable: `docker inspect` shows a container's environment to anyone who can use
+# Docker. A Compose `secrets:` file is mounted at /run/secrets/meshllm_admin_hash instead.
+#
+# The unreadable-secret problem, and what the three extra lines cost. Compose bind-mounts a file secret with the HOST file's owner and
+# mode (it ignores uid/gid/mode here), so the mode-600 file --set-password writes belongs to you, not to the container's user 10001,
+# and 10001 cannot read it. So that bridge container starts as root for a moment: docker/entrypoint.sh copies the file into a tmpfs
+# (/run/meshllm: memory only, 0400, owned by 10001), then drops to 10001 and re-runs itself. Root never runs the bridge or parses
+# anything from the environment. What this file adds to the bridge container, and nothing else:
+#   user: "0:0"        only for that copy; the bridge itself (PID 1 after the drop) runs as 10001 with no effective capabilities (only the bounding set keeps the three, which is inert)
+#   cap_add            DAC_OVERRIDE (read your 600 file), SETUID and SETGID (drop to 10001). Not CHOWN, not anything else
+#   tmpfs /run/meshllm the copy; it vanishes when the container stops, and no secret is written into the image or a volume
+# The root file system stays read-only and cap_drop: [ALL] from docker-compose.yml still applies to everything not listed above.
+# (A `docker compose exec bridge ...` shell and the healthcheck are started as the configured user, so they run as root with those
+# three capabilities; the bridge process does not.) The alternative that needs none of this is `sudo chown 10001 FILE && chmod 400 FILE`
+# on the host, which hands your own password file to a numeric uid and breaks under rootless Docker, so it is not the default.
+services:
+  bridge:
+    user: "0:0"
+    cap_add: [DAC_OVERRIDE, SETUID, SETGID]
+    tmpfs:
+      - "/run/meshllm:uid=10001,gid=10001,mode=0700,size=1m,noexec,nosuid,nodev"
+    secrets:
+      - meshllm_admin_hash
+
+secrets:
+  meshllm_admin_hash:
+    file: "${MESHLLM_ADMIN_HASH_FILE:?MESHLLM_ADMIN_HASH_FILE must be set (in .env) to the absolute path of the file that 'python -m meshllm --set-password' wrote}"

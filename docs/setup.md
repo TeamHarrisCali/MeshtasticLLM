@@ -126,6 +126,65 @@ for example `usb:/dev/ttyUSB1,tcp:192.168.1.50`; see [Run with Docker](#run-with
 Heltec V3, unplugging USB switched to Bluetooth and replugging switched back to USB after the 10 s window, and the bridge recognised the same radio each
 time. Wi-Fi as a fallback, and failover with several radios, are untested. `--demo` ignores `--fallback`.
 
+## Use the dashboard from a phone or another computer (LAN login)
+
+By default the dashboard only listens on this computer (`127.0.0.1`) and has no login. To open it from a phone or another PC it needs a **password**, a list of the
+**names you will browse to**, and ideally **HTTPS**. The bridge refuses to start on any other address without the first two.
+
+**1. Set a password** (the bridge never takes one on the command line or from the environment):
+
+```bash
+python -m meshllm --set-password                  # the admin account: everything. Asks twice, no echo, at least 12 characters
+python -m meshllm --set-password --role viewer    # optional: a read-only account to hand to someone else
+```
+
+Each writes one file that holds only a scrypt hash, readable by you alone (`~/.config/meshllm/admin.hash` and `viewer.hash`, or the path you give with
+`--password-hash-file` / `--viewer-password-hash-file`). Running it again changes the password, and a bridge that is already running signs everyone out of that account within a few seconds.
+Keep the files out of git (`*.hash` is ignored) and out of backups you share.
+
+**2. Start the bridge with the address, the names and the files:**
+
+```bash
+python -m meshllm --web-host 0.0.0.0 --allowed-host 192.0.2.10 --allowed-host radio.test \
+    --password-hash-file ~/.config/meshllm/admin.hash --viewer-password-hash-file ~/.config/meshllm/viewer.hash
+```
+
+`--allowed-host` is every host name or address you will type in the browser (192.0.2.10 and radio.test are made-up examples); a request that names anything else is refused, which
+is what stops another web page from borrowing your browser to reach the bridge (DNS rebinding). Then browse to `http://192.0.2.10:8080/` and sign in. The same flags can be set
+as `MESHLLM_PASSWORD_HASH_FILE` and `MESHLLM_VIEWER_PASSWORD_HASH_FILE` (paths, never passwords). A password on `127.0.0.1` also turns the login on. `./start_bridge.sh` passes the same flags on.
+
+| | admin | viewer |
+|---|---|---|
+| Read the dashboard (nodes, map, messages, AI log, telemetry, ...) | yes | yes |
+| Ask the AI a question (the answer goes to the log only; the AI is still read-only and tier 0) | yes | yes |
+| Send a message, post to the channel, traceroute, change the radio, access rules, settings, model | yes | **no** |
+| Backups (download, restore), clearing and deleting data | yes | **no** |
+| CSV exports, reports, diagnostics, logs (they hold message text) | yes | only with `--viewer-exports` |
+
+The viewer's page still shows the buttons it cannot use; they answer with an error. Pressing Sign out ends the session on the server too.
+
+**3. Encrypt it.** Without HTTPS the password and everything on the dashboard cross your network in clear text; on a network you do not trust that is not acceptable, on a
+home network it is a risk you may decide to accept. The login page shows a warning to anyone who is not on the bridge's own computer and not using HTTPS. Two ways:
+
+- *Directly:* `--tls-cert cert.pem --tls-key key.pem`. For a certificate only you trust, for example (a made-up name; change it):
+  `openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem -days 365 -subj "/CN=radio.test" -addext "subjectAltName=DNS:radio.test,IP:192.0.2.10"`
+  (your browser will ask you to trust it once). The session cookie then gets the `Secure` flag.
+- *Behind a reverse proxy* that does HTTPS (Caddy, nginx, Traefik) on the same computer, which then talks to the bridge on loopback. Caddy needs one line,
+  `radio.test { reverse_proxy 127.0.0.1:8080 }`; with nginx use `proxy_pass http://127.0.0.1:8080;` and pass `Host`, `X-Forwarded-For` and `X-Forwarded-Proto`
+  (`proxy_set_header Host $host; proxy_set_header X-Forwarded-For $remote_addr; proxy_set_header X-Forwarded-Proto $scheme;`). Start the bridge with
+  `--web-host 127.0.0.1 --allowed-host radio.test --trusted-proxy 127.0.0.1 --password-hash-file ...`. **Only name a proxy you control in `--trusted-proxy`:** its headers are believed.
+  Without `--trusted-proxy` every visitor looks like the proxy to the login throttle and the bridge thinks the connection is plain HTTP.
+
+**What it does.** Passwords are hashed with scrypt (n = 2^15, r = 8, p = 1, random salt) and compared in constant time. A session is 256 random bits in an `HttpOnly`, `SameSite=Strict`
+cookie; the server keeps only its hash, issues a new one at every login, and ends it after 2 hours idle or 12 hours in total (`--session-idle-minutes`, `--session-hours`), at Sign out,
+when that account's password changes, and when the bridge restarts. Failed logins back off exponentially per source address (and, more gently, across all sources); it never locks the
+owner out, the wait just ends, and while it lasts even the right password is not tried. Every change from the browser needs the right `Origin` and a per-session token. Each route is tagged
+public, viewer or admin in `meshllm/webroutes.py`, and an untagged one is admin-only.
+
+**What it does not do.** There are only two shared accounts (no per-person logins, no two-factor, no password change from the browser; use `--set-password`). Someone on your network can still slow
+your sign-in down for up to a minute by guessing (never lock it), and can see that the bridge exists. Without HTTPS they can read and replay everything. A viewer sees message text. Non-browser
+clients (curl) must send an `Origin` header and, after signing in, the `X-CSRF-Token` from `GET /api/session`. See [SECURITY.md](../SECURITY.md).
+
 ## Start at login (optional)
 
     python setup_env.py --autostart       # start the bridge every time you log in (asks first; --yes skips the question)
@@ -154,9 +213,10 @@ It was built and tried on Linux with Docker 29.8.2 and Compose 5.5.1, running th
 Docker Desktop on Windows or macOS, a real radio from inside a container (USB or Wi-Fi), and the Ollama container (the model server was
 not started in testing).
 
-> **The dashboard has no login.** It shows message text and has a box that sends on your radio. The compose file therefore publishes
+> **The container's dashboard has no login.** The app now has an optional login (see [the LAN login section](#use-the-dashboard-from-a-phone-or-another-computer-lan-login)),
+> but Compose does not pass it a password yet (TODO.md item 4), so the image runs the way it always did: it shows message text and has a box that sends on your radio. The compose file therefore publishes
 > it on **this computer's loopback only** (`127.0.0.1:8080`) and does not publish Ollama's port at all. **Do not change that address to
-> `0.0.0.0` or to a LAN or public IP** until the login work (TODO.md item 3) is done. Docker adds its own firewall rules, so a port published on all
+> `0.0.0.0` or to a LAN or public IP.** Docker adds its own firewall rules, so a port published on all
 > interfaces is reachable from the network even when a host firewall such as `ufw` says it is blocked. To use the dashboard from another
 > computer, forward the port over SSH (`ssh -L 8080:127.0.0.1:8080 host`) rather than publishing it. If you run the image without Compose, publish with `-p 127.0.0.1:8080:8080`, never `-p 8080:8080` (that would expose a login-less dashboard on your network).
 >

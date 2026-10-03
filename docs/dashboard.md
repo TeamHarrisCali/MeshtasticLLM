@@ -1,6 +1,6 @@
 # The dashboard, page by page
 
-Open <http://127.0.0.1:8080/>. The sidebar groups the pages; every page has its own address (`#/nodes/!1a2b3c4d`), so refresh, back and
+Open <http://127.0.0.1:8080/> (with a password configured you sign in first; a `viewer` account can look and ask the AI but not send or change anything, see [setup.md](setup.md#use-the-dashboard-from-a-phone-or-another-computer-lan-login)). The sidebar groups the pages; every page has its own address (`#/nodes/!1a2b3c4d`), so refresh, back and
 links work. Press `/` or Ctrl+K to search everything. Only a few things on these pages can make the radio transmit, and each one is
 something you press yourself: sending a direct message, posting on the public channel, a traceroute, setting the radio's position or
 clock, and pushing radio settings. Nothing else transmits, and the AI can never do any of them.

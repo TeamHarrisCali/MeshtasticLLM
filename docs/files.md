@@ -25,7 +25,9 @@
 │   ├── evals.py              reads the saved evaluation results and the docs for the Evaluation page
 │   ├── webui.py              the dashboard's web server: security checks, static files, JSON replies
 │   ├── webroutes.py          the dashboard's JSON API as a table of small functions (one per route)
-│   ├── static/               the dashboard: index.html, style.css, and js/*.js (one file per page, joined in js/order.txt)
+│   ├── websecurity.py        who may talk to the dashboard: Host/Origin/CSRF checks, login, sessions, throttling, roles, TLS
+│   ├── passwords.py          scrypt password hashes, the hash file and `--set-password`
+│   ├── static/               the dashboard: index.html, login.html + login.js (the sign-in page), style.css, and js/*.js (one file per page, joined in js/order.txt)
 │   └── tools/                developer tools, run with `python -m`
 │       ├── eval_tools.py         measures a model's tool-choice accuracy (dev and held-out question sets)
 │       └── usefulness_audit.py   asks the running bridge a fixed set of questions and saves the answers

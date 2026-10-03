@@ -122,8 +122,9 @@ expect a short gap when switching to or from USB. The radio's identity is compar
 string), Diagnostics has a line listing the chain and each entry's state, and the log names the connection in use.
 
 *Limits.* Bluetooth entries work on the host only, so they make no sense in a container (the Docker setting `MESHLLM_FALLBACK` takes a comma-separated list,
-for example `usb:/dev/ttyUSB1,tcp:192.168.1.50`; see [Run with Docker](#run-with-docker)). Wi-Fi has not been tested on real hardware, and **failover
-as a whole has not been tested on real hardware yet** (USB unplug and replug with a Bluetooth fallback is the first check to run). `--demo` ignores `--fallback`.
+for example `usb:/dev/ttyUSB1,tcp:192.168.1.50`; see [Run with Docker](#run-with-docker)). Wi-Fi has not been tested on real hardware. USB with a Bluetooth fallback **has** been: on one
+Heltec V3, unplugging USB switched to Bluetooth and replugging switched back to USB after the 10 s window, and the bridge recognised the same radio each
+time. Wi-Fi as a fallback, and failover with several radios, are untested. `--demo` ignores `--fallback`.
 
 ## Start at login (optional)
 

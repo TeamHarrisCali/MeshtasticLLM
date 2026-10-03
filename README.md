@@ -144,8 +144,8 @@ priority order is the primary connection, then the fallbacks as you wrote them. 
 
 When the radio is unplugged the bridge opens the next connection; when USB shows a radio again and stays there for 10 seconds, it closes the
 Bluetooth link and switches back. Only one connection to the radio is held at a time, and the radio reboots when USB is opened or closed, so expect a
-short gap at each switch. The dashboard shows `via Bluetooth (USB not connected)` while a fallback is in use. Failover is **not yet tested on real
-hardware**. How it works and its limits: [docs/setup.md](docs/setup.md#failover-between-connections).
+short gap at each switch. The dashboard shows `via Bluetooth (USB not connected)` while a fallback is in use. Failover (USB with a Bluetooth fallback) has been tried
+on one real radio, a Heltec V3: unplugging and replugging USB switched to Bluetooth and back; Wi-Fi as a fallback is untested. How it works and its limits: [docs/setup.md](docs/setup.md#failover-between-connections).
 
 ### Try it without hardware
 

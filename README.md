@@ -108,7 +108,7 @@ docker compose -f docker-compose.yml -f docker-compose.usb.yml up -d
 # or a Wi-Fi radio on any computer: put MESHLLM_TCP=<its address> in a .env file (copy .env.example), then docker compose up -d
 ```
 
-> **The dashboard has no login yet**, so the compose file publishes it on this computer only (`127.0.0.1:8080`) and Ollama's port is not
+> **The container's dashboard has no login** (the app has an optional one, but Compose does not wire it yet), so the compose file publishes it on this computer only (`127.0.0.1:8080`) and Ollama's port is not
 > published at all. Do not change the address to `0.0.0.0` or a LAN address. If you run the image without Compose, publish with `-p 127.0.0.1:8080:8080`, never `-p 8080:8080` (that would expose a login-less dashboard on your network). **Bluetooth does not work inside a container** (it needs the
 > host's Bluetooth service): run the bridge on the host for that. **Wi-Fi/TCP has not been tested on real hardware yet.** Full steps, backups,
 > updating and stopping are in [docs/setup.md](docs/setup.md#run-with-docker).
@@ -179,7 +179,7 @@ A radio mesh is an open channel and any text on it can be hostile, so the AI is 
 | **Read-only** | Every tool reads the bridge's own database. None transmits, and none touches the computer. |
 | **Confirmation codes** | Anything that would change something needs a one-time code confirmed over the radio. (Only a demo uses this today.) |
 | **Untrusted names** | Node names are chosen by strangers, so they are stripped of control characters and never fed back to the model. |
-| **Local dashboard** | The web UI binds to `127.0.0.1` by default. It has no login, so do not expose it to a network you do not trust. |
+| **Local dashboard** | The web UI binds to `127.0.0.1` by default, with no login. On any other address it refuses to start without a password (scrypt hash in a file only you can read) and a host allow-list; sessions, throttled logins, CSRF checks, an `admin`/`viewer` split on every route and optional HTTPS are described in [docs/setup.md](docs/setup.md#use-the-dashboard-from-a-phone-or-another-computer-lan-login). Without HTTPS the password crosses your network in clear text. |
 
 Details, and what this does *not* protect against (a stolen radio carries a valid key), are in
 [docs/ai_tools.md](docs/ai_tools.md). To report a vulnerability, see [SECURITY.md](SECURITY.md).

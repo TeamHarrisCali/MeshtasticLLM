@@ -3,10 +3,10 @@
 #   Try it with no radio and no Ollama:  docker compose --profile demo up demo     then open http://127.0.0.1:8080/
 #   The real thing:                      docker compose up -d                      (needs a radio: see below)
 #
-# The dashboard has NO LOGIN yet and shows message text and lets whoever opens it send on your radio. So it is published on this
+# The dashboard has NO LOGIN here (the app has an optional one, but this file does not pass it a password yet: TODO.md item 4) and shows message text and lets whoever opens it send on your radio. So it is published on this
 # computer's loopback only ("127.0.0.1:...").
 # WARNING: do NOT change that address to 0.0.0.0, to a LAN or public IP, or drop it so Docker publishes on every interface, until a
-# login exists (TODO.md item 3). Anyone who can reach the port would control your radio and read your messages. Docker also edits the
+# login is wired through this file (TODO.md item 4). Anyone who can reach the port would control your radio and read your messages. Docker also edits the
 # firewall itself, so a published port on 0.0.0.0 is reachable from the network even if a host firewall such as ufw says otherwise.
 #
 # Radio: pick ONE way.

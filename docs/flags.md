@@ -10,8 +10,20 @@
 `--model NAME` (optional; overrides and saves the model chosen in the UI), `--no-telemetry`,
 `--telemetry-retention-days 30`, `--telemetry-passive-gap 60`, `--no-mesh-stats`, `--mesh-sample-interval 300`,
 `--traceroute-timeout 60`, `--traceroute-cooldown 30`.
-`--web-host 0.0.0.0` exposes the dashboard - including the send box - to your LAN. There is no login,
-so only do that on a network you trust. (The Docker image does exactly this inside the container, with `--web-host 0.0.0.0`, and the compose file publishes the port on the host's `127.0.0.1` only; see [setup.md](setup.md#run-with-docker).)
+**The dashboard's address and login** (full walkthrough in [setup.md](setup.md#use-the-dashboard-from-a-phone-or-another-computer-lan-login)):
+`--web-host ADDR` (default `127.0.0.1`: this computer only, no login, exactly as before). Any other address (`0.0.0.0`, `::`, a LAN address or a name) reaches
+other computers, so the bridge **refuses to start** unless it has a login (`--password-hash-file`) and at least one `--allowed-host`. Both messages say what to do.
+`--set-password` asks for the password at a terminal (no echo, twice, at least 12 characters), stores **only its scrypt hash** in a file only you can read
+(by default `~/.config/meshllm/admin.hash`, or the file named by `--password-hash-file`) and exits; with `--role viewer` it sets the second, read-only account
+(default file `viewer.hash`, or `--viewer-password-hash-file`). A password is never read from the command line or an environment variable.
+`--password-hash-file PATH` (or the environment variable `MESHLLM_PASSWORD_HASH_FILE`, which holds a path, not a password) turns the login on, even on a loopback bind.
+`--viewer-password-hash-file PATH` (`MESHLLM_VIEWER_PASSWORD_HASH_FILE`) adds the viewer account: it can look at everything except what holds message text in bulk, and ask the AI
+(log only), but never transmit, change a setting or touch backups. `--viewer-exports` also lets the viewer use CSV exports, reports, diagnostics and logs.
+`--allowed-host NAME` (repeatable) is a host name or address the dashboard may be reached by (the Host header must match one; `localhost`, `127.0.0.1` and `::1` are always
+accepted); IPv6 is written with or without brackets. `--trusted-proxy ADDR_OR_CIDR` (repeatable) names a reverse proxy whose `X-Forwarded-For` and `X-Forwarded-Proto` headers are
+believed; without it they are ignored. `--tls-cert PEM --tls-key PEM` serve HTTPS directly (TLS 1.2 and up). `--session-idle-minutes 120` and `--session-hours 12` are the idle and
+absolute session limits. Without TLS (or a proxy that does it) the password travels in clear text on your network; the login page says so to anyone who is not on the bridge's own
+computer. (The Docker image still listens on `0.0.0.0` inside the container with no login, and the compose file publishes the port on the host's `127.0.0.1` only; see [setup.md](setup.md#run-with-docker). Wiring the login through Compose is not done yet.)
 **How the radio is reached** (pick one; the default is USB serial with auto-detect):
 `--port auto|COMx|/dev/ttyUSB0` (USB serial; `auto` finds the radio by its chip and follows it if the port number changes),
 `--tcp HOST[:PORT]` (Wi-Fi: a radio on your network, by IP address or host name; the port is 4403 unless you give one; IPv6 as `[addr]:port`; **not yet tested on real hardware**),

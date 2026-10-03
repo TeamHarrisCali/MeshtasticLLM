@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Mesh LLM: sign in</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body class="loginpage">
+<main class="loginbox">
+  <h1>Mesh LLM</h1>
+  <p class="hint">Sign in to the dashboard.</p>
+  <p class="banner warn" id="insecure" role="alert" hidden>This connection is not encrypted (no HTTPS) and you are not on the computer running the bridge:
+    anyone on the network could read the password as you type it. Only continue on a network you trust.</p>
+  <form id="loginForm" autocomplete="on">
+    <label for="account">Account</label>
+    <select id="account" name="account"><option value="admin">Admin (everything)</option><option value="viewer">Viewer (read-only)</option></select>
+    <label for="pw">Password</label>
+    <input id="pw" name="password" type="password" autocomplete="current-password" required maxlength="256">
+    <button class="primary" id="loginBtn" type="submit">Sign in</button>
+    <p class="sendnote err" id="loginNote" role="status"></p>
+  </form>
+</main>
+<script src="/login.js"></script>
+</body>
+</html>

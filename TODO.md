@@ -40,48 +40,49 @@ radios, no crew groups, no job calculators. The AI stays read-only on a fixed to
     `docs/setup.md` (Failover). Done in `FailoverChain` (`meshllm/connection.py`), tests in `tests/test_failover.py`.
   - [x] Real-hardware check, failover (USB with a Bluetooth fallback, Heltec V3): unplugging USB switched to Bluetooth, replugging switched back after the
     10 s window, and the same radio was not reported as a different one. Wi-Fi as a fallback is still untested.
-- [ ] **3. Headless / LAN mode with a login** (so a phone or another PC can use the dashboard). **Needs an independent security review before merge.**
-  - **Behaviour today to preserve:** on a loopback bind with no password configured, nothing changes (no login). A password becomes mandatory
-    on any non-loopback bind (`0.0.0.0`, `::`, or any address outside `127.0.0.0/8` and `::1`); the bridge refuses to start without one.
-  - **Host and Origin:** today `_host_ok` in `meshllm/webui.py` accepts only loopback names or a Host equal to `--web-host`, so binding to
-    `0.0.0.0` and browsing by LAN IP gets a 403. Replace it with an explicit allowlist (`--allowed-host NAME`, repeatable; required, with a
-    clear error, on a non-loopback bind). Compare the full Origin (scheme, host and port) with the request's own. Parse bracketed IPv6 hosts correctly.
-  - **Passwords:** `hashlib.scrypt` with n >= 2**15, r = 8, p = 1, a 16-byte random salt, a 32-byte key and `maxmem` raised enough to allow it
-    (the default limit rejects those parameters); store the parameters with the hash so they can be raised later; compare the derived key with
-    `hmac.compare_digest`. Never read a password from the command line or an environment variable. `python -m meshllm --set-password`
-    prompts without echo and writes the hash to a mode-600 file (or the settings database); non-interactive setups pass a hash through
-    `--password-hash-file PATH` (or `MESHLLM_PASSWORD_HASH_FILE` pointing at a file).
-  - **Sessions:** a random 256-bit token from `secrets`; keep only a hash of it server side (in memory is fine: a restart logs everyone out); idle
-    and absolute expiry; new token on login (no fixation); invalidate on logout and on every password change. The cookie is `HttpOnly`,
-    `SameSite=Strict`, `Path=/`, no `Domain`, and `Secure` when TLS is on.
-  - **Throttling:** per-source and global exponential backoff on failed logins, never a hard lockout a stranger could use against the owner,
-    no difference in responses that reveals anything. Behind a reverse proxy every client shares the proxy's address: do not trust
-    `X-Forwarded-For` unless a `--trusted-proxy` is configured.
-  - **CSRF:** once a cookie session exists, a POST needs a matching Origin (an absent Origin is refused) **and** a CSRF header or token;
-    parse `Content-Type` properly (the media type must be `application/json`, not a substring match). The login POST passes the same Host,
-    Origin and JSON checks.
-  - **Roles, default-deny:** every route is tagged `public`, `viewer` or `admin` in `meshllm/webroutes.py` (the decorator takes the role; the
-    default is `admin`). A test enumerates `GET`, `POST`, `GET_RE` and `POST_RAW` and fails on any untagged route. A viewer gets 403 on every
-    `admin` route. Admin-only: everything that transmits (`/api/send`, `/api/channel/post`, `/api/traceroute/request`, telemetry requests),
-    everything that writes to the radio (position, time, settings), access rules, backups (including the raw restore upload), clears and
-    prunes, and model pull or switch. Viewers do not get backup downloads, CSV exports, logs, diagnostics or reports (they hold message text)
-    unless the owner opts in; test each. Note `/tiles/...` makes the bridge fetch from an outside tile server and fill a size-capped cache.
-  - **The AI:** a viewer may use `/api/ai/ask` only while it stays log-only (tier 0, no tool that transmits). Add a test that a viewer
-    session cannot cause any `sendText` or `sendData` on the radio, directly or through the AI, including with mesh text that contains
-    instructions. Keep the Content-Security-Policy and add `frame-ancestors` and a `Referrer-Policy`.
-  - **TLS:** optional `--tls-cert` and `--tls-key`, plus a documented reverse-proxy setup. Without TLS a LAN login sends the password in
-    clear and the `Secure` flag cannot be used: document it as an owner-accepted risk and show a warning on the login page whenever the
-    connection is not TLS and the peer is not loopback.
-  - **Docs that become false and must change in the same PR:** the "no login" lines in `README.md`, `docs/flags.md` (the `--web-host 0.0.0.0`
-    paragraph) and `SECURITY.md`, and the "web panel password" idea in `docs/roadmap.md`.
+- [x] **3. Headless / LAN mode with a login** (so a phone or another PC can use the dashboard). **Needs an independent security review before merge.** Built on
+  branch `feat/lan-login`; every box below is ticked only where the code and a test exist. Code: `meshllm/websecurity.py`, `meshllm/passwords.py`, `meshllm/webui.py`,
+  `meshllm/webroutes.py`; tests: `tests/test_websecurity.py`. The box for the review itself stays open until a reviewer has signed it off.
+  - [x] **Behaviour today preserved:** a loopback bind with no password configured has no login and behaves as before (the existing tests pass unchanged apart from the Host-name
+    rule below). A password is mandatory on any non-loopback bind (`0.0.0.0`, `::`, any address outside `127.0.0.0/8` and `::1`, or a host name other than `localhost`); the bridge refuses to start without one.
+    The one exception is the Docker image (`MESHLLM_CONTAINER=1`, `0.0.0.0`, no password configured), which keeps its loopback-published, no-login behaviour. Demo mode ignores passwords.
+  - [x] **Host and Origin:** `_host_ok` is replaced by an allowlist (`--allowed-host NAME`, repeatable, required with a clear error on a non-loopback bind; `localhost`, `127.0.0.1`, `::1`
+    always accepted); bracketed IPv6 is parsed and normalised. The Origin must be exactly this page's scheme, host and port (an absent Origin is refused once a login exists; `Sec-Fetch-Site`
+    other than same-origin is refused when sent). *Behaviour change:* a named `--web-host` is no longer accepted as a Host by itself; it has to be in `--allowed-host`.
+  - [x] **Passwords:** `hashlib.scrypt` n = 2**15, r = 8, p = 1, 16-byte salt, 32-byte key, `maxmem` raised, parameters stored in the hash line, `hmac.compare_digest`. `python -m meshllm --set-password [--role viewer]`
+    prompts with `getpass` (twice, no echo, at least 12 characters, a terminal is required) and writes a mode-600 file atomically; `--password-hash-file` / `MESHLLM_PASSWORD_HASH_FILE` (a path) points at it.
+    Not done: the "or the settings database" alternative (a file only), and automatic re-hashing at login when the defaults are raised (old hashes verify; `--set-password` again upgrades).
+  - [x] **Sessions:** 256-bit `secrets` token, only its SHA-256 kept in memory, 2 h idle and 12 h absolute expiry (flags), a new token at every login (an old cookie presented at login is destroyed), invalidated at logout and
+    whenever the hash file changes (a running bridge re-reads it), at most 64 live per account (a viewer cannot sign the admin out). Cookie `HttpOnly`, `SameSite=Strict`, `Path=/`, no `Domain`, `Secure` (and the `__Host-` name) over TLS or behind a trusted proxy that says https.
+  - [x] **Throttling:** per-source (IPv4 address or IPv6 /64) exponential backoff (1, 2, 4 ... capped at 300 s) plus a gentler global one (10 free failures, then up to 60 s) that a browser holding the admin's 30-day device cookie skips (the per-source wait always applies); no permanent lockout; while throttled the password is not even tried;
+    wrong password, unknown account and an unconfigured viewer give an identical 401 (a password hash is computed in every case); at most two hashes in flight. `X-Forwarded-For` / `-Proto` are believed only from a `--trusted-proxy`.
+  - [x] **CSRF:** with a login, every POST needs a matching Origin **and** the session's `X-CSRF-Token` (an HMAC of the session id, read from `GET /api/session`); `Content-Type` is parsed as a media type
+    (`application/json`; the raw upload needs `application/octet-stream`); the login POST passes the same Host, Origin and JSON checks; the body is read only after all of that.
+  - [x] **Roles, default-deny:** every route carries `PUBLIC`, `VIEWER` or `ADMIN` (decorator argument, default `ADMIN`); an untagged function put straight into a table is still treated as admin at run time. `tests/test_websecurity.py`
+    enumerates `GET`, `POST`, `GET_RE` and `POST_RAW` against a reviewed table (an untagged, mistagged or new route fails it) and checks every route as anonymous, viewer and admin. Admin-only: everything that transmits, writes to the
+    radio, access rules, backups (including the raw restore upload), clears, prunes, notes, snippets, units, model pull or switch, pause. Viewer-readable but closed unless `--viewer-exports`: CSV exports, logs, diagnostics, reports.
+    Backup downloads are admin-only even with `--viewer-exports`. `/tiles/...` is a viewer route (a size-capped cache; the owner can say otherwise by changing one tag).
+    Not done: the viewer's page still shows admin buttons (they answer with an error); only the pause button is disabled.
+  - [x] **The AI:** a viewer may use `/api/ai/ask`; it is queued at tier 0 as before. Tests: no tier-0 tool handler mentions anything that transmits; a jailbroken fake model that asks for `sendText`, a made-up send tool and the confirmed tool,
+    with orders planted in a node name and a stored message, gets "denied" and nothing reaches the radio or the outbox; the admin's send box in the same harness does transmit (so the test can see a transmission). The Content-Security-Policy
+    is kept with `frame-ancestors 'none'`, `base-uri`, `form-action`, plus `Referrer-Policy: no-referrer`, `X-Frame-Options`, and cross-origin opener/resource policies.
+  - [x] **TLS:** optional `--tls-cert` / `--tls-key` (TLS 1.2+, the handshake runs in the connection's own thread under a time limit), a documented reverse-proxy setup (`docs/setup.md`), and a warning on the login page whenever the
+    connection is not TLS and the peer is not loopback. No HSTS is sent (a self-signed certificate plus HSTS would lock a browser out). Without TLS the clear-text password is documented as an owner-accepted risk.
+  - [x] **Docs:** README, `docs/flags.md`, `SECURITY.md`, `docs/roadmap.md`, `docs/setup.md`, `docs/dashboard.md`, `docs/files.md` updated.
   - Done when: every rule above has a test, an independent security review is clean, and the docs match.
+  - [x] **Independent security review** done (REQUEST CHANGES; every finding was then fixed and covered by tests and mutation checks by the builder's side, but the fixes were not re-reviewed by the reviewer: a viewer could evict the admin's session; a stranger could hold the global wait on the owner; plus a loopback Host edge case, viewer status redaction, a 64-connection cap, `__Host-` cookies and test gaps). Left as follow-ups: the tile cache's per-tile lock table grows without bound and a viewer can make the owner's address fetch many tiles (`meshllm/tiles.py`; needs a per-session fetch budget); a slow client can still hold one of the 64 connections for a long time; a viewer shares the admin's web-console AI conversation.
+  - Things the builder could not check: a real browser through a real reverse proxy; real hardware; long-run memory use of the in-memory tables; Python 3.9 on this machine (CI runs it).
+  - Known gaps, honestly: two shared accounts only (no per-person logins, no 2FA, no browser password change); a stranger with several addresses can keep NEW browsers at the global wait (the owner's usual browser is exempt); sessions are in memory (a restart signs everyone out);
+    the login page only shows the clear-text warning, it does not refuse; `Secure` cookies and the Origin scheme behind a proxy rely on `X-Forwarded-Proto` from a `--trusted-proxy`.
 - [ ] **4. Docker and Docker Compose.** Depends on items 2 and 3. The parts that do not need the login are done; the LAN parts wait for item 3.
   - [x] An image for the bridge (`Dockerfile`), plus a Compose file with an Ollama service and a volume for the database. Runs as a numeric non-root
     user (10001) and the `/data` volume is writable by it. The base image is pinned by tag **and digest**, and Dependabot's Docker ecosystem keeps it current.
     There is also a `demo` profile (`docker compose --profile demo up demo`) that needs no radio and no Ollama.
-  - [ ] The password hash comes from a Compose `secrets:` file (item 3), not from an environment variable (those show up in `docker inspect`).
+  - [ ] The password hash comes from a Compose `secrets:` file (item 3), not from an environment variable (those show up in `docker inspect`). **Not done in the item 3 PR on purpose:**
+    the app already reads `MESHLLM_PASSWORD_HASH_FILE`, but a Compose file secret is a bind mount that keeps the host file's owner and mode, so a `600` file made by `--set-password` is unreadable by the container's uid 10001 and a
+    `644` one makes the app warn; the fix (and how to test it with a real `docker compose up`) needs its own change. The image's healthcheck hits `/api/status`, which a login would answer 401: it needs a public `/api/health` route first.
   - [x] Dashboard port published on the host loopback only (`127.0.0.1:8080`) and Ollama's port not published, with a warning in the compose file and the docs.
-  - [ ] The LAN as an explicit opt-in for the published address: only together with item 3's login.
+  - [ ] The LAN as an explicit opt-in for the published address: only together with item 3's login (the login now exists; this waits for the secret and healthcheck work above). The default publish stays `127.0.0.1` only.
   - [x] USB serial passthrough (`docker-compose.usb.yml`, Linux hosts only); on Windows and macOS use the Wi-Fi/TCP radio path (item 2); Bluetooth does not work in a container. Documented in `docs/setup.md`.
     The container, the image and the demo were tried on Linux; USB and Wi-Fi from inside a container have **not** been tried with a real radio, and Docker Desktop not at all.
   - [x] CI builds the image and smoke-tests the demo container (build only; nothing is pushed to a registry until the owner decides).

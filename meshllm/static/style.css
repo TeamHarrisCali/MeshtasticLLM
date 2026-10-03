@@ -426,3 +426,12 @@ label.setrow { cursor: pointer; } label.setrow input { width: 18px; height: 18px
   body { background: #fff; color: #000; } .md { max-width: none; }
 }
 #covSectors .hbar b { white-space: nowrap; min-width: 64px; text-align: right; }
+/* the login page (login.html) */
+.loginpage { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+.loginbox { width: min(92vw, 380px); background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 24px; }
+.loginbox h1 { margin: 0 0 4px; font-size: 22px; }
+.loginbox label { display: block; margin: 14px 0 4px; font-size: 13px; color: var(--muted); }
+.loginbox select, .loginbox input { width: 100%; box-sizing: border-box; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+.loginbox button { width: 100%; margin-top: 16px; padding: 10px; }
+.loginbox .sendnote { padding: 8px 0 0; }
+.loginbox .banner { margin: 12px 0 0; font-size: 13px; }

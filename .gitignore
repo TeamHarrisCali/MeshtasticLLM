@@ -32,3 +32,6 @@ Thumbs.db
 # (Shared project files such as .claude/settings.json, skills and commands stay trackable.)
 .claude/worktrees/
 .claude/settings.local.json
+
+# Dashboard password hashes (made by --set-password; never commit)
+*.hash

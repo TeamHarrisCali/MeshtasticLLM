@@ -35,7 +35,7 @@ function initSettings() {
     const f = e.target.files[0]; e.target.value = ""; if (!f) return;
     if (!confirm(`Restore everything from "${f.name}"?\n\nNothing changes now. The file is checked and set aside, and it replaces the current data the next time the bridge starts. The current data is kept as a backup first.`)) return;
     $("bkNote").textContent = "Checking the file…";
-    let r, data = {}; try { r = await fetch("/api/backups/restore", { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: f }); data = await r.json(); } catch { r = { ok: false }; }
+    let r, data = {}; try { r = await authFetch("/api/backups/restore", { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: f }); data = await r.json(); } catch { r = { ok: false }; }
     $("bkNote").textContent = r.ok ? "The file looks good and is waiting for the next start." : (data.error || "That file could not be used."); refreshBackups(true);
   });
   $("stTilesClear").addEventListener("click", async () => {

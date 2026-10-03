@@ -898,10 +898,12 @@ def launch(args, bridge_class, parser):
         print(f"Demo mode only listens on this computer (127.0.0.1); --web-host {args.web_host} is not allowed with --demo.", flush=True)
         return 2
     ignored = [flag for flag, given in (("--port", args.port != parser.get_default("port")), ("--tcp", args.tcp is not None), ("--ble", args.ble is not None), ("--fallback", bool(args.fallback)), ("--db", args.db != parser.get_default("db")),
-                                        ("--model", args.model is not None)) if given]
+                                        ("--model", args.model is not None),
+                                        ("--password-hash-file", bool(getattr(args, "password_hash_file", None))),
+                                        ("--viewer-password-hash-file", bool(getattr(args, "viewer_password_hash_file", None)))) if given]
     if ignored:
         print(f"Note: {', '.join(ignored)} {'is' if len(ignored) == 1 else 'are'} ignored in demo mode "
-              "(a simulated radio, a temporary database and the demo model are used).", flush=True)
+              "(a simulated radio, a temporary database and the demo model are used, and the demo never has a login).", flush=True)
     stopping = []
 
     def on_signal(signum, frame):

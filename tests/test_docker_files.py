@@ -88,7 +88,7 @@ check(".env is git-ignored, .env.example is not", re.search(r"^\.env$", read(".g
 # ---- entrypoint -------------------------------------------------------------------------------------------------------------------
 check("the entrypoint ends with `exec python -m meshllm` so signals reach Python", re.search(r"^exec python -m meshllm\b", entry, re.M) is not None)
 check("the entrypoint never runs eval or `sh -c` on the environment", not re.search(r"\beval\b|\bsh -c\b|\bbash -c\b", "\n".join(code_lines(entry))))
-for var in ("MESHLLM_TCP", "MESHLLM_PORT", "MESHLLM_OLLAMA_URL", "MESHLLM_MODEL", "MESHLLM_EXTRA_ARGS"):
+for var in ("MESHLLM_TCP", "MESHLLM_PORT", "MESHLLM_FALLBACK", "MESHLLM_OLLAMA_URL", "MESHLLM_MODEL", "MESHLLM_EXTRA_ARGS"):
     check(f"the entrypoint reads {var}", var in entry)
 check("the entrypoint binds the container's own 0.0.0.0 and puts the database in /data", "--web-host 0.0.0.0" in entry and '"${MESHLLM_DATA_DIR:-/data}"' in entry and "audit.db" in entry)
 
@@ -115,6 +115,11 @@ if bash and os.name == "posix":
     check("entrypoint, nothing set: the defaults only", rc == 0 and out == "[-m][meshllm][--web-host][0.0.0.0][--ollama-url][http://ollama:11434][--db][" + datadir + "/audit.db]", (rc, out))
     rc, out = run_entry({"MESHLLM_TCP": "192.0.2.7:4403", "MESHLLM_PORT": "/dev/ttyUSB0", "MESHLLM_MODEL": "llama3.2:3b", "MESHLLM_OLLAMA_URL": "http://other:1"})
     check("entrypoint maps each variable to its flag", rc == 0 and out.endswith("[--tcp][192.0.2.7:4403][--port][/dev/ttyUSB0][--model][llama3.2:3b]") and "[--ollama-url][http://other:1]" in out, (rc, out))
+    rc, out = run_entry({"MESHLLM_TCP": "192.0.2.7", "MESHLLM_FALLBACK": "usb:/dev/ttyUSB1,,tcp:[fe80::1]:4403,"})
+    check("MESHLLM_FALLBACK becomes one --fallback per comma-separated entry, in order, empty entries skipped",
+          rc == 0 and out.endswith("[--tcp][192.0.2.7][--fallback][usb:/dev/ttyUSB1][--fallback][tcp:[fe80::1]:4403]"), (rc, out))
+    rc, out = run_entry({"MESHLLM_FALLBACK": "usb:/dev/ttyUSB1"}, ["--demo"])
+    check("MESHLLM_FALLBACK is left out in --demo, like the other connection variables", rc == 0 and "--fallback" not in out, (rc, out))
     rc, out = run_entry({"MESHLLM_EXTRA_ARGS": "--daily-cap 20 --command '/a b' \"--x=$(echo hi)\""})
     check("MESHLLM_EXTRA_ARGS is split like a shell would, and nothing in it is executed", rc == 0 and out.endswith("[--daily-cap][20][--command][/a b][--x=$(echo hi)]"), (rc, out))
     rc, out = run_entry({"MESHLLM_EXTRA_ARGS": "--oops 'unterminated"})

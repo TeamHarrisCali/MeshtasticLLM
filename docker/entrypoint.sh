@@ -3,6 +3,7 @@
 #
 #   MESHLLM_TCP         Wi-Fi radio, HOST or HOST:PORT        -> --tcp
 #   MESHLLM_PORT        serial port, e.g. /dev/ttyUSB0        -> --port
+#   MESHLLM_FALLBACK    failover list, comma-separated      -> one --fallback each, e.g. usb:/dev/ttyUSB1,tcp:192.168.1.50
 #   MESHLLM_OLLAMA_URL  where Ollama is (default http://ollama:11434)
 #   MESHLLM_MODEL       model name (optional)                 -> --model
 #   MESHLLM_EXTRA_ARGS  anything else, split the way a shell would (quotes work, nothing is executed)
@@ -29,6 +30,13 @@ if [ "$demo" = 0 ]; then
     args+=(--db "$data/audit.db")
     if [ -n "${MESHLLM_TCP:-}" ];   then args+=(--tcp "$MESHLLM_TCP"); fi
     if [ -n "${MESHLLM_PORT:-}" ];  then args+=(--port "$MESHLLM_PORT"); fi
+    if [ -n "${MESHLLM_FALLBACK:-}" ]; then
+        # comma-separated KIND:VALUE entries in priority order; one --fallback each (the bridge validates them and says what is wrong)
+        IFS=',' read -r -a fallbacks <<< "$MESHLLM_FALLBACK"
+        for f in "${fallbacks[@]}"; do
+            if [ -n "$f" ]; then args+=(--fallback "$f"); fi
+        done
+    fi
     if [ -n "${MESHLLM_MODEL:-}" ]; then args+=(--model "$MESHLLM_MODEL"); fi
 fi
 

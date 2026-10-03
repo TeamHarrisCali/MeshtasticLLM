@@ -141,7 +141,7 @@ async function refreshTop() {
     const [s, st] = await Promise.all([api("/api/status"), api("/api/stats")]);
     $("radioDot").className = "dot " + (s.connected ? "ok" : (s.searching ? "warn" : "bad"));
     $("radioTxt").textContent = s.connected
-      ? `${s.node.long_name || "Node"} · ${s.port} · up ${fmtUp(s.uptime_s)}${lastHeard(s)}`
+      ? `${s.node.long_name || "Node"} · ${(s.connection && s.connection.text) || s.port} · up ${fmtUp(s.uptime_s)}${lastHeard(s)}`
       : (s.searching ? "Looking for a radio…" + (s.node.long_name ? ` (last: ${s.node.long_name})` : "") : "Radio disconnected");
     // Units are stored on the server: adopt a change made in another browser and redraw the current page in the new unit.
     if (s.dist_unit && s.dist_unit !== distUnit) { setDistUnit(s.dist_unit); if (view) route(); }

@@ -261,6 +261,7 @@ class Bridge:
     sender thread and the services the web UI uses. Threads involved: the meshtastic receive callback
     (on_receive), worker(), sender_loop(), connect_loop() (main thread), plus web UI request threads
     and short-lived timer/action threads."""
+    SWITCH_CLOSE_WAIT = 10      # seconds to wait for the old link to close before opening a preferred one (a failover switch)
 
     def __init__(self, args):
         """`args` is the parsed command line from main(); the audit database is opened here but nothing
@@ -826,6 +827,8 @@ class Bridge:
             "searching": iface is None,
             # a plain string naming the connection: /dev/ttyUSB0, tcp://host:4403 or ble:ADDRESS ("auto" before a USB radio is found)
             "port": self.port or self.endpoint.initial_label(), "node": node, "model": self.model,
+            # the failover chain (--fallback) as plain data: {"failover", "entries": [{kind, label, state}], "text": "via Bluetooth (USB not connected)"}
+            "connection": self.endpoint.connection_info(iface is not None),
             "command": self.args.command, "ollama_ok": self.ollama_ok(),
             "paused": self.paused, "uptime_s": int(time.time() - self.started),
             "cooldown_s": self.args.cooldown, "max_chunks": self.args.max_chunks,
@@ -1265,8 +1268,10 @@ class Bridge:
         self.iface = None
         self.down_since = time.time()
         # release the handle (a serial port, socket or Bluetooth link) so it can be reopened; closing a dead link can hang,
-        # so do it on a throwaway thread rather than stall the reconnect loop
-        threading.Thread(target=lambda: self._quiet_close(iface), daemon=True).start()
+        # so do it on a throwaway thread rather than stall the reconnect loop. Returns that thread so a deliberate switch can wait for it.
+        closer = threading.Thread(target=lambda: self._quiet_close(iface), daemon=True)
+        closer.start()
+        return closer
 
     @staticmethod
     def _quiet_close(iface):
@@ -1321,8 +1326,13 @@ class Bridge:
                 continue
             self.attach(iface, label)
             reason = self.wait_for_loss(iface, label)
-            print(f"[radio] lost {label}: {reason}. Searching again...")
-            self.detach(iface)
+            switching = self.endpoint.switching     # a failover chain ending a working link on purpose, to go back to a preferred one
+            if switching:
+                print(f"[radio] {reason}")
+            else:
+                print(f"[radio] lost {label}: {reason}. Searching again...")
+            closer = self.detach(iface)
+            closer.join(self.SWITCH_CLOSE_WAIT)     # one transport at a time: let the old link finish closing before opening the next
             wait = self.endpoint.loss_backoff(label)    # normally 0; positive after repeated silence losses that brought no data
             if wait:
                 self.bad_until[label] = time.time() + wait
@@ -1386,6 +1396,11 @@ def build_parser():
     p.add_argument("--ble", default=None, metavar="ADDRESS_OR_NAME",
                    help="reach the radio over Bluetooth instead of USB: its address or name as --ble-scan prints it "
                         "(needs Bluetooth on this computer, not inside a container)")
+    p.add_argument("--fallback", action="append", type=connection.fallback_type, default=None, metavar="KIND:VALUE",
+                   help="a connection to carry on over when the one before it is not available, repeatable and in priority order after the "
+                        "primary (--port/--tcp/--ble or USB auto-detect). KIND is usb, tcp or ble: ble:AA:BB:CC:DD:EE:FF, "
+                        "tcp:192.168.1.50:4403, usb:/dev/ttyUSB1 or usb:auto. A USB entry above the live one is switched back to "
+                        "when it returns (docs/setup.md, Failover)")
     p.add_argument("--link-silence", type=float, default=None, metavar="SECONDS", help=argparse.SUPPRESS)   # advanced: see connection.py
     p.add_argument("--ble-scan", action="store_true",
                    help="list nearby Meshtastic Bluetooth radios (name and address), then exit without starting the bridge")

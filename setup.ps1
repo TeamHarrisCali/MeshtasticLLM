@@ -2,6 +2,7 @@
 # installs the dependencies and checks Ollama and the radio. Safe to run again any time.
 #   powershell -NoProfile -ExecutionPolicy Bypass -File .\setup.ps1 [options]     (or just double-click setup.bat)
 #   options are passed on:  --check   --recreate   --pull-model   --install-ollama   --start   --yes
+#   Docker instead of a Python environment:  --docker  (add --tcp RADIO_ADDRESS: Docker Desktop cannot pass USB through)   --docker-stop
 # If no suitable Python is installed it offers to install one with winget.
 param([Parameter(ValueFromRemainingArguments = $true)][string[]]$SetupArgs)
 $dir = $PSScriptRoot

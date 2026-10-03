@@ -4,17 +4,19 @@
 #   docker compose -f docker-compose.yml -f docker-compose.usb.yml up -d
 #
 # Before you start:
-#   1. Find the device:        ls -l /dev/ttyUSB* /dev/ttyACM*       (change the two lines marked "device" below if it is not ttyUSB0)
+#   (python setup_env.py --docker does steps 1 and 2 for you and writes them to .env.)
+#   1. Find the device:        ls -l /dev/ttyUSB* /dev/ttyACM*       and put it in .env as MESHLLM_SERIAL_DEVICE=/dev/ttyACM0 if it is not ttyUSB0
 #   2. Find the group that owns it (the number, not the name; it differs between distributions):
 #                              stat -c %g /dev/ttyUSB0
 #      and put it in .env as MESHLLM_SERIAL_GID=<number>  (the Debian/Ubuntu default "dialout" is 20; Arch's "uucp" is different).
+# The device is handed over when the container is created: after unplugging and replugging the radio, run  docker compose up -d  again.
 #   3. Close anything else that holds the radio's serial port (a second bridge, a serial monitor): only one program can.
 # The container stays unprivileged: it gets that one device and that one group, nothing else.
 services:
   bridge:
     devices:
-      - "/dev/ttyUSB0:/dev/ttyUSB0"                   # device
+      - "${MESHLLM_SERIAL_DEVICE:-/dev/ttyUSB0}:${MESHLLM_SERIAL_DEVICE:-/dev/ttyUSB0}"
     group_add:
       - "${MESHLLM_SERIAL_GID:-20}"
     environment:
-      MESHLLM_PORT: "/dev/ttyUSB0"                    # device
+      MESHLLM_PORT: "${MESHLLM_SERIAL_DEVICE:-/dev/ttyUSB0}"

@@ -359,7 +359,18 @@ def validate(name, args, max_tier):
             continue
         match = next((c for c in _choices(spec) if str(c).lower() == value.lower()), None)
         if match is None:
-            raise ActionError(f"'{value}' isn't a valid {pname}")
+            # small models sometimes put a value in the wrong slot ("role": "nearest" when they meant "sort"). If it is a valid value of
+            # ANOTHER choice parameter that the model left empty, use it there; it is still one of the allowed values, so nothing new is let in.
+            for other, ospec in action.params.items():
+                if other == pname or ospec.get("free") or args.get(other) not in (None, "") or other in clean:
+                    continue
+                match2 = next((c for c in _choices(ospec) if str(c).lower() == value.lower()), None)
+                if match2 is not None:
+                    clean[other] = match2
+                    break
+            else:
+                raise ActionError(f"'{value}' isn't a valid {pname}")
+            continue
         clean[pname] = match
     return action, clean
 

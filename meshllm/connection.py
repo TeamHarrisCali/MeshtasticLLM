@@ -14,7 +14,12 @@ supplies the parts that differ:
 A target's *label* is a plain string used everywhere the bridge names its connection: `/dev/ttyUSB0`, `tcp://host:4403`, `ble:ADDRESS`. It
 is also the key of the retry back-off table (`Bridge.bad_until`), so a failing endpoint is tried once per back-off period, not in a loop.
 
+* `FailoverChain`: an ordered list of the above (`--fallback`). It behaves as ONE endpoint to the bridge: it offers the highest-priority
+  entry that has something to try, hands link checks to whichever entry is live, parks entries that fail, and while a lower entry is live it
+  watches for a higher one coming back (see its docstring). Only one transport to the radio is ever open at a time.
+
 Nothing here transmits anything; it only opens and watches the link."""
+import argparse
 import socket
 import logging
 import os
@@ -35,6 +40,8 @@ TCP_SILENCE_LIMIT = 1800    # the same for Wi-Fi
 SILENCE_BACKOFF = 60        # seconds to wait before reopening after repeated silence reconnects that brought no data
 MAX_LIMIT_MULTIPLE = 4      # the silence limit may grow to this many times its base value while reconnects keep bringing no data
 REQUIRED_LIBRARY = "meshtastic>=2.7.11,<2.8"
+FAILBACK_STABLE = 10        # seconds a preferred (higher-priority) USB radio must stay listed before the chain switches back to it
+PARK_CAP = 300              # seconds: the longest a failing, non-last entry of a failover chain is left alone
 clock = time.monotonic      # tests replace this with a fake clock
 BLUETOOTH_SYSFS = "/sys/class/bluetooth"    # Linux lists the Bluetooth adapters (hci0, ...) here; tests point it elsewhere
 MAC_RE = re.compile(r"[0-9A-Fa-f]{2}([:-][0-9A-Fa-f]{2}){5}")     # used with fullmatch
@@ -451,8 +458,54 @@ def scan_ble():
     return sorted(((getattr(d, "name", None) or "(no name)", d.address) for d in found), key=lambda t: (t[0].lower(), t[1]))
 
 
+FALLBACK_KINDS = ("usb", "tcp", "ble")
+KIND_NAMES = {"usb": "USB", "tcp": "Wi-Fi", "ble": "Bluetooth"}     # what the dashboard calls each kind
+
+
+def parse_fallback(text):
+    """Split one `--fallback KIND:VALUE` into (kind, value). Only the FIRST colon separates them, because the value may contain colons
+    (a Bluetooth address, a bracketed IPv6 address, host:port). Raises ValueError with a readable message when it is not usable."""
+    kind, sep, value = (text or "").strip().partition(":")
+    kind, value = kind.strip().lower(), value.strip()
+    if not sep or kind not in FALLBACK_KINDS:
+        raise ValueError(f"{text!r} is not KIND:VALUE with KIND one of {', '.join(FALLBACK_KINDS)} "
+                         "(for example ble:AA:BB:CC:DD:EE:FF, tcp:192.168.1.50:4403 or usb:/dev/ttyUSB1)")
+    if not value:
+        raise ValueError(f"{kind}: needs a value (usb:auto or usb:PORT, tcp:HOST[:PORT], ble:ADDRESS_OR_NAME)")
+    if kind == "tcp":
+        parse_tcp(value)        # same checks as --tcp; its ValueError passes through
+    return kind, value
+
+
+def fallback_type(text):
+    """argparse `type=` for --fallback: turns a bad value into argparse's own 'argument --fallback: ...' error."""
+    try:
+        return parse_fallback(text)
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(str(e)) from None
+
+
+def endpoint_key(endpoint):
+    """What makes two endpoints the same way of reaching a radio, for refusing duplicates: kind plus a normalised target."""
+    if isinstance(endpoint, TcpEndpoint):
+        return ("tcp", endpoint.host.lower(), endpoint.port)
+    if isinstance(endpoint, BleEndpoint):
+        return ("ble", endpoint.target.strip().lower())
+    return ("usb", "auto" if endpoint.auto else endpoint.port)
+
+
+def _fallback_endpoint(kind, value, silence=None):
+    """The Endpoint for one parsed --fallback entry (`silence` as in make_endpoint)."""
+    if kind == "tcp":
+        return TcpEndpoint(*parse_tcp(value), silence_limit=TCP_SILENCE_LIMIT if silence is None else silence)
+    if kind == "ble":
+        return BleEndpoint(value, silence_limit=BLE_SILENCE_LIMIT if silence is None else silence)
+    return SerialEndpoint(value)
+
+
 def check_args(parser, args):
-    """Reject impossible connection flags with a clear argparse error: --tcp, --ble and a pinned --port are alternatives."""
+    """Reject impossible connection flags with a clear argparse error: --tcp, --ble and a pinned --port are alternatives,
+    and a --fallback may not repeat another entry of the chain."""
     chosen = [flag for flag, given in (("--port", args.port.lower() != "auto"), ("--tcp", args.tcp is not None), ("--ble", args.ble is not None)) if given]
     if len(chosen) > 1:
         parser.error(f"{' and '.join(chosen)} cannot be used together: pick one way to reach the radio "
@@ -466,18 +519,31 @@ def check_args(parser, args):
         parser.error("--link-silence: seconds must be 0 (off) or more")
     if args.ble is not None and not args.ble.strip():
         parser.error("--ble: an address or device name is needed (--ble-scan lists them)")
+    if getattr(args, "fallback", None):
+        seen = {endpoint_key(make_endpoint(args, with_fallbacks=False))}
+        for kind, value in args.fallback:
+            key = endpoint_key(_fallback_endpoint(kind, value))
+            if key in seen:
+                parser.error(f"--fallback {kind}:{value} repeats a connection that is already in the list (the primary or an earlier --fallback)")
+            seen.add(key)
 
 
-def make_endpoint(args):
-    """The Endpoint the command-line flags ask for. Tolerates an `args` without the newer flags (older tests and callers)."""
-    if getattr(args, "demo", False):     # the simulated radio has no socket or Bluetooth client: --tcp/--ble are ignored there
+def make_endpoint(args, with_fallbacks=True):
+    """The Endpoint the command-line flags ask for: the primary one, wrapped in a FailoverChain when --fallback entries were given.
+    Tolerates an `args` without the newer flags (older tests and callers)."""
+    if getattr(args, "demo", False):     # the simulated radio has no socket or Bluetooth client: --tcp/--ble/--fallback are ignored there
         return SerialEndpoint()
     silence = getattr(args, "link_silence", None)     # hidden --link-silence SECONDS: overrides the per-mode limit, 0 = off
     if getattr(args, "tcp", None) is not None:
-        return TcpEndpoint(*parse_tcp(args.tcp), silence_limit=TCP_SILENCE_LIMIT if silence is None else silence)
-    if getattr(args, "ble", None) is not None:
-        return BleEndpoint(args.ble.strip(), silence_limit=BLE_SILENCE_LIMIT if silence is None else silence)
-    return SerialEndpoint(getattr(args, "port", "auto"), bool(getattr(args, "probe_unknown", False)))
+        primary = TcpEndpoint(*parse_tcp(args.tcp), silence_limit=TCP_SILENCE_LIMIT if silence is None else silence)
+    elif getattr(args, "ble", None) is not None:
+        primary = BleEndpoint(args.ble.strip(), silence_limit=BLE_SILENCE_LIMIT if silence is None else silence)
+    else:
+        primary = SerialEndpoint(getattr(args, "port", "auto"), bool(getattr(args, "probe_unknown", False)))
+    fallbacks = getattr(args, "fallback", None) or []
+    if not (with_fallbacks and fallbacks):
+        return primary
+    return FailoverChain([primary] + [_fallback_endpoint(k, v, silence) for k, v in fallbacks])
 
 
 class Endpoint:
@@ -487,6 +553,16 @@ class Endpoint:
     _streak = 0             # silence reconnects in a row that brought no data
     _multiple = 1           # how many times silence_limit is currently allowed (grows while reconnects keep bringing no data)
     _backoff = 0            # seconds the bridge should wait before reopening after the last loss (see loss_backoff)
+    probeable = False       # True when "is it there again?" can be answered without opening it (USB: the port list); used for failback
+    switching = False       # True while the link is being ended on purpose to move to a preferred connection (FailoverChain only)
+
+    def display(self):
+        """A name for this endpoint in the connection chain on the dashboard."""
+        return str(self.initial_label())
+
+    def connection_info(self, connected):
+        """Plain data about the configured connections for /api/status: {"failover", "entries", "text"}. A single endpoint has no chain."""
+        return {"failover": False, "entries": [], "text": ""}
 
     def initial_label(self):
         """What to show as the connection before anything has connected."""
@@ -562,6 +638,7 @@ class Endpoint:
 class SerialEndpoint(Endpoint):
     """USB serial. With port 'auto' it finds radios by USB vendor and follows them across port renumbering; otherwise only that port."""
     kind = "usb"
+    probeable = True        # the OS port list shows whether a radio is there, with no need to open anything
 
     def __init__(self, port="auto", probe_unknown=False):
         self.port = port
@@ -574,6 +651,9 @@ class SerialEndpoint(Endpoint):
 
     def initial_label(self):
         return self.port
+
+    def display(self):
+        return "USB (auto-detect)" if self.auto else self.port
 
     def describe(self):
         return "auto-detecting the radio" if self.auto else f"using {self.port}"
@@ -807,3 +887,142 @@ class BleEndpoint(Endpoint):
             return 30, ("that address is not paired or not known to Bluetooth yet; pair the radio once in the system Bluetooth settings, "
                         "or run --ble-scan to find it")
         return 60, f"could not connect over Bluetooth ({str(error)[:90]})"
+
+
+class FailoverChain(Endpoint):
+    """An ordered list of endpoints that the bridge treats as one (`--fallback`; the primary first, then each fallback in the order given).
+
+    * Choosing: `candidates()` returns what the highest-priority entry that has something to try offers. USB offers its radio ports; Wi-Fi and
+      Bluetooth always offer their one label. An entry that failed to open (or whose link was lost with a back-off) is *parked* for a while, so
+      the chain moves on to the next entry instead of retrying a dead one. Park times are on this chain's own clock (`now`), not the bridge's.
+    * Watching: link checks go to the entry that is live. When it reports a loss, the next connect attempt starts again from the top.
+    * Failback: while a lower entry is live, a higher entry that can be checked without opening it (`probeable`: in practice USB, whose port
+      list shows the radio again) must stay available for `stable_for` seconds. Then the live link is ended cleanly (`link_problem` says why)
+      and the normal connect path opens the higher entry. Wi-Fi and Bluetooth entries are never probed, so they are only tried when the
+      entries above them are unavailable, never switched *back* to while a lower entry works.
+    * One transport at a time: the old link is closed before the new one is opened (the bridge waits for the close when `switching`), because
+      what the firmware does with USB and Bluetooth open together is not known."""
+    kind = "failover"
+
+    def __init__(self, endpoints, stable_for=FAILBACK_STABLE, now=None):
+        self.endpoints = list(endpoints)
+        self.stable_for = stable_for
+        self._now = now or (lambda: clock())    # looked up at call time so tests can replace `clock`
+        self.active = None          # the endpoint whose link is open, else None
+        self.active_label = None
+        self._owner = {}            # label -> endpoint that offered it (open and failure_reason need to find it again)
+        self._parked = {}           # label -> chain-clock time before which it is left alone
+        self._fails = {}            # label -> failed opens in a row (grows the park time of non-last entries)
+        self._since = {}            # index of a preferred entry -> chain-clock time it was first seen available
+        self.switching = False
+
+    # ---- what the bridge asks of an endpoint ----------------------------------------------------------
+    @property
+    def silence_limit(self):
+        """The live entry's silence limit (0 when nothing is open)."""
+        return self.active.silence_limit if self.active else 0
+
+    def initial_label(self):
+        return self.endpoints[0].initial_label()
+
+    def describe(self):
+        rest = ", ".join(ep.display() for ep in self.endpoints[1:])
+        return f"{self.endpoints[0].describe()}; if that is not available it falls back, in this order, to {rest}"
+
+    def waiting_text(self):
+        return " or ".join(ep.waiting_text() for ep in self.endpoints)
+
+    def search_hint(self):
+        return " ".join(dict.fromkeys(ep.search_hint() for ep in self.endpoints))
+
+    def candidates(self, preferred):
+        for ep in self.endpoints:
+            labels = [t for t in ep.candidates(preferred) if not self._is_parked(t)]
+            if labels:
+                for t in labels:
+                    self._owner[t] = ep
+                return labels
+        return []
+
+    def open(self, label):
+        ep = self._owner.get(label, self.endpoints[0])
+        iface = ep.open(label)      # a failure propagates; the bridge then asks failure_reason, which parks the label
+        self.active, self.active_label, self.switching = ep, label, False
+        self._fails.pop(label, None)
+        self._since.clear()
+        return iface
+
+    def alive(self, iface):
+        ep = self.active
+        return bool(ep and ep.alive(iface))
+
+    def link_problem(self, iface, label):
+        ep = self.active or self._owner.get(label, self.endpoints[0])
+        return ep.link_problem(iface, label) or self._better_available(ep, label)
+
+    def loss_backoff(self, label):
+        ep = self._owner.get(label, self.active or self.endpoints[0])
+        wait = ep.loss_backoff(label)
+        if wait:
+            self._park(label, wait)
+        self.active = self.active_label = None
+        self._since.clear()
+        return wait
+
+    def failure_reason(self, label, error):
+        ep = self._owner.get(label, self.endpoints[0])
+        wait, why = ep.failure_reason(label, error)
+        n = self._fails[label] = self._fails.get(label, 0) + 1
+        if ep is not self.endpoints[-1]:        # a failing preferred entry backs off further each time, so it cannot keep dragging a
+            wait = min(wait * 2 ** (n - 1), max(wait, PARK_CAP))    # working lower link down with failed switch attempts
+        self._park(label, wait)
+        return wait, why
+
+    # ---- parking and failback -------------------------------------------------------------------------
+    def _park(self, label, seconds):
+        """Leave `label` alone for `seconds` of the chain's clock."""
+        self._parked[label] = self._now() + seconds
+
+    def _is_parked(self, label):
+        """True while `label` is still in its back-off."""
+        return self._parked.get(label, 0) > self._now()
+
+    def _better_available(self, active, label):
+        """A reason to end the live link when a higher-priority entry has stayed available long enough, else None."""
+        now = self._now()
+        for i, ep in enumerate(self.endpoints):
+            if ep is active:
+                break
+            offer = [t for t in ep.candidates(self.active_label) if not self._is_parked(t)] if ep.probeable else []
+            if not offer:
+                self._since.pop(i, None)        # it went away again: a flapping port starts its window over
+            elif now - self._since.setdefault(i, now) >= self.stable_for:
+                self.switching = True
+                return f"a preferred connection is available again: switching from {label} to {offer[0]}"
+        return None
+
+    # ---- dashboard ------------------------------------------------------------------------------------
+    def connection_info(self, connected):
+        """The chain as plain data: one entry per endpoint with its kind, label and state (active, available, parked, unavailable or
+        standby), plus a short text such as 'via Bluetooth (USB not connected)' when a lower entry is live."""
+        entries, active_index = [], None
+        for i, ep in enumerate(list(self.endpoints)):
+            entry = {"kind": ep.kind, "label": ep.display()}
+            if connected and ep is self.active:
+                active_index = i
+                entry.update(label=self.active_label or ep.display(), state="active")
+            else:
+                labels = ep.candidates(self.active_label) if ep.probeable else [ep.initial_label()]
+                wait = max([self._parked.get(t, 0) - self._now() for t in labels] or [0])
+                if not labels:
+                    entry["state"] = "unavailable"
+                elif wait > 0 and all(self._is_parked(t) for t in labels):
+                    entry.update(state="parked", retry_in_s=int(wait) + 1)
+                else:
+                    entry["state"] = "available" if ep.probeable else "standby"
+            entries.append(entry)
+        text = ""
+        if active_index:
+            lower = list(dict.fromkeys(KIND_NAMES[e["kind"]] for e in entries[:active_index]))
+            text = f"via {KIND_NAMES[entries[active_index]['kind']]} ({' and '.join(lower)} not connected)"
+        return {"failover": True, "entries": entries, "text": text}

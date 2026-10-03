@@ -107,6 +107,12 @@ class Diagnostics:
                 b.endpoint.search_hint())
         else:
             add("radio", "Radio", "warn", "The radio connection looks stalled.", "Power-cycle or reconnect the radio; the bridge reconnects by itself.")
+        chain = st.get("connection") or {}
+        if chain.get("failover"):        # --fallback: say which connections are configured and what state each is in
+            states = ", ".join(f"{e['label']} ({e['state'].replace('standby', 'not checked until needed')})" for e in chain["entries"])
+            add("failover", "Connection failover", "info",
+                f"In priority order: {states}." + (f" Running {chain['text']}." if chain.get("text") else ""),
+                "A higher USB entry is switched back to after it has been listed for a short while; Wi-Fi and Bluetooth entries are not probed.")
         age, limit = st.get("last_rx_age_s"), st.get("silence_limit_s")
         if st["connected"] and age is not None and limit and age > limit:
             add("radio_data", "Radio data", "warn", f"Nothing has arrived from the radio for {age} s although it looks connected.",

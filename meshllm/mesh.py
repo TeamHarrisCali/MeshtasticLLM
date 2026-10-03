@@ -960,7 +960,7 @@ class MeshService:
         with self.audit.lock:
             tel_today = self.audit.db.execute("SELECT COUNT(*) FROM telemetry WHERE ts >= ? AND status='ok'", (day_ago,)).fetchone()[0]
             trace_count = self.audit.db.execute("SELECT COUNT(*) FROM traceroutes").fetchone()[0]
-        return {"radio": {"connected": st["connected"], "searching": st["searching"], "port": st["port"], "node": st["node"],
+        return {"radio": {"connected": st["connected"], "searching": st["searching"], "port": st["port"], "connection": st["connection"], "node": st["node"],
                           "uptime_s": st["uptime_s"], "model": st["model"], "ollama_ok": st["ollama_ok"], "paused": st["paused"],
                           "queue_depth": st["queue_depth"]},
                 "us": us, "summary": summarize(rows), "alerts": self.alerts(rows), "feed": self.feed(limit=6),

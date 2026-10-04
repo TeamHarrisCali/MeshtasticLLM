@@ -7,6 +7,7 @@
 Exit code 0 means the check passed; a problem is printed to stderr and the exit code is 1. See docs/releasing.md.
 """
 import os
+import posixpath
 import re
 import sys
 
@@ -50,6 +51,28 @@ def changelog_section(text, version):
     return body or None
 
 
+REPO = "TeamHarrisCali/MeshtasticLLM"
+
+
+def absolute_links(body, version, repo=REPO):
+    """The notes with every relative Markdown link made absolute and pinned to the release's tag. CHANGELOG.md links to its neighbours
+    (`setup.md`, `../README.md#x`, `#section`), which work in the repository but would be dead on a GitHub Release page. A bare `#anchor`
+    points into the changelog itself. Absolute URLs and `mailto:` links are left alone."""
+    base = f"https://github.com/{repo}/blob/{tag_for(version)}/"
+
+    def fix(m):
+        target = m.group(2)
+        if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*:", target) or target.startswith("//"):
+            return m.group(0)
+        path, sep, frag = target.partition("#")
+        full = posixpath.normpath(posixpath.join("docs", path)) if path else "docs/CHANGELOG.md"
+        if full.startswith(".."):
+            return m.group(0)
+        return f"{m.group(1)}({base}{full}{sep}{frag})"
+
+    return re.sub(r"(\[[^\]\n]*\])\(([^)\s]+)\)", fix, body)
+
+
 def read_changelog(root=ROOT):
     with open(os.path.join(root, "docs", "CHANGELOG.md"), encoding="utf-8") as f:
         return f.read()
@@ -84,7 +107,7 @@ def main(argv=None):
         if body is None:
             print(f"error: docs/CHANGELOG.md has no non-empty '## [{argv[1]}]' section", file=sys.stderr)
             return 1
-        print(body)
+        print(absolute_links(body, argv[1]))
         return 0
     if argv == ["version"]:
         print(read_version())

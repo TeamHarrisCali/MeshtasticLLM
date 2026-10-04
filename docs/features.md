@@ -1,5 +1,25 @@
 # What the bridge does
 
+At a glance:
+
+- **Answers questions over the radio.** DM a node with `/ai <question>`. Replies are split into balanced, numbered parts that fit a LoRa packet,
+  sent with acknowledgements, and re-sent if the radio gives up on one.
+- **Knows about your mesh.** The AI can look things up in the data your radio has heard: how many nodes are around, who is nearest, low batteries,
+  the temperature outside from sensor nodes, signal quality, nodes gone quiet, the busiest times, one node's battery history. It answers from real
+  numbers and says "I can't tell" instead of inventing them.
+- **Is safe by construction.** The AI picks from a fixed menu of read-only lookups. It has no shell, cannot touch your files, and cannot transmit on
+  its own ([ai_tools.md](ai_tools.md#the-safety-layers-at-a-glance)).
+- **Finds the radio by itself.** Plug it in before or after starting; unplug it, swap it, move it to another USB port, and the bridge notices and reconnects.
+- **Comes with a full dashboard.** Map, node list with your own labels and notes, coverage and walk test, traceroute, telemetry, trends, a daily
+  report, radio settings backup and restore, diagnostics, and an AI log of every question and answer ([dashboard.md](dashboard.md)).
+- **Runs unattended.** Background start and stop scripts, start at login, daily backups, logs ([setup.md](setup.md)).
+- **Is measured.** An evaluation harness scores how reliably a model picks the right tool, with separate development and held-out question sets
+  ([evaluation.md](evaluation.md)).
+- **Stays on your computer.** Once set up, the only outbound connections are ones you ask for: model downloads through Ollama, and the optional map
+  background, whose OpenStreetMap tiles are fetched only for the area you are looking at.
+
+In detail:
+
 - **Per-user memory.** The model is given each node's own recent `/ai` conversation, looked up by
   node ID, so users never see each other's history. Defaults: last 6 exchanges, 3000 characters,
   forgotten after 24 h idle. A user can send `/ai reset` to wipe it; you can clear it per node in

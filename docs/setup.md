@@ -25,12 +25,54 @@ with `scripts/start_bridge.ps1` (Windows) or `./scripts/start_bridge.sh` (Linux 
 If `./setup.sh` says `bad interpreter` or similar, the file picked up Windows line endings on the way over; run
 `python3 scripts/setup_env.py` instead - it repairs the `.sh` files itself.
 
+**Linux and the serial port.** Your user needs permission to open the radio's serial port. Setup checks this and tells you which group to
+join (`dialout` on Debian and Ubuntu, `uucp` on Arch). Close any other program that uses the radio's serial port first; only one program can hold it.
+
+## Starting and stopping the bridge
+
+The bridge runs in the background with no window. It finds the radio by itself, and no flags are needed: the model and every setting you change
+in the dashboard are remembered in the database, and the command-line flags in [flags.md](flags.md) are optional overrides. Logs are overwritten on
+each start and go to `logs/bridge.log` and `logs/bridge.err.log`.
+
+    ./scripts/start_bridge.sh           # Linux / macOS: start (or restart) the bridge in the background
+    ./scripts/stop_bridge.sh            # stop it
+    powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start_bridge.ps1     # Windows (scripts\stop_bridge.ps1 stops it)
+    .venv/bin/python -m meshllm         # or run it in the foreground (Windows: .venv\Scripts\python.exe -m meshllm)
+
+The scripts find the project folder (the parent of `scripts/`) themselves, so they work from any folder, and they pass flags on to the bridge:
+`./scripts/start_bridge.sh --model qwen2.5:7b`. Then open <http://127.0.0.1:8080/> and, from another node, send your radio a direct message
+such as `/ai help`, `/ai how's the mesh doing?`, `/ai what's the temperature outside?` or `/ai where is the nearest router?`.
+
+## Try it without hardware (demo mode)
+
+No radio and no Ollama? Run the whole bridge and dashboard against a simulated mesh:
+
+    .venv/bin/python -m meshllm --demo          # then open http://127.0.0.1:8080/
+
+(In Docker the same thing is `./setup.sh --docker --demo`, see [Run with Docker](#run-with-docker).) You get about three dozen obviously fake nodes
+(`Demo Ridge Repeater`, `Demo Trail Tracker 3`, ...) scattered around a public park, with batteries, sensors, trails, a day of history and live
+traffic, and once a minute or so a fake node DMs the bridge an `/ai` question that goes through the real queue, tools and an acked reply. Without
+Ollama a small scripted model (shown as `demo-scripted`) answers; if Ollama is running with a tool-capable model, that model is used instead. A
+"Demo mode" badge shows in the dashboard header. Nothing is transmitted, nothing connects to a serial port, and everything is kept in a temporary
+folder that is deleted when you stop it (Ctrl+C, `kill`, or closing the terminal): your real `audit.db` is never opened. Demo mode listens on this
+computer only (`--web-host` must stay `127.0.0.1`), and if port 8080 is taken, for example by your real bridge, use `--web-port 8081`. (The optional
+map background still downloads OpenStreetMap tiles if you look at the Map page.) The flags are in [flags.md](flags.md); the screenshots in the README
+were taken in demo mode.
+
 ## Connecting over Wi-Fi or Bluetooth
 
 USB serial is the default and needs nothing. The bridge can also reach a radio without a cable. Choose one way; they cannot be combined.
 All three keep the same behaviour: a lost link is noticed, the bridge keeps running (the dashboard says it is searching), messages
 queued for the radio wait up to `--reconnect-hold` seconds, and it reconnects by itself when the radio is back, including after a power
-cycle. If a different radio answers at the same address the "different radio" banner appears, as for USB.
+cycle. If a different radio answers at the same address the "different radio" banner appears, as for USB. The dashboard shows the connection as
+`tcp://host:4403` or `ble:ADDRESS`.
+
+    python -m meshllm --tcp 192.168.1.50                  # Wi-Fi: the radio's address or host name (port 4403 unless you add :PORT)
+    python -m meshllm --ble-scan                          # Bluetooth: list nearby radios (name and address), then exit
+    python -m meshllm --ble AA:BB:CC:DD:EE:FF             # Bluetooth: connect to one of them (address or name, as the scan printed it)
+
+Wi-Fi needs the radio's Wi-Fi switched on and joined to your network; Bluetooth needs a Bluetooth adapter on the computer running the bridge, so it works
+on the host only and not inside a container. Both are covered in detail below.
 
 **Wi-Fi (TCP).** On the radio, switch Wi-Fi on and give it your network's name and password (Meshtastic app or web client, Network
 settings). The radio's API then listens on port 4403. Find its address on your router, then:

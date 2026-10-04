@@ -12,6 +12,24 @@ everyone until you enable it in the Access tab, and it takes **all** of these at
 4. The key the radio holds for the node still equals the pinned one. If it changes you get a red
    "KEY CHANGED" badge and the tools stay off until you review and re-pin.
 
+## The safety layers at a glance
+
+A radio mesh is an open channel and any text on it can be hostile, so the AI is deliberately boxed in.
+
+| Layer | What it does |
+|---|---|
+| **DM only** | The AI answers direct messages that start with `/ai`. It ignores the public channel and never reads it. |
+| **Access control** | Open or allow-list mode, a daily cap per node, block list. Blocked nodes get no reply at all. |
+| **Tools are opt-in** | A node gets lookups only if you enable it, **pin its public key**, and it messages over a **PKI-encrypted DM** whose key still matches (the four conditions above). |
+| **Fixed menu** | The model can only *ask* for a tool by name. The code validates the name, the node's level and every parameter, then runs a hand-written handler. Nothing the model says can create a capability. |
+| **Read-only** | Every tool reads the bridge's own database. None transmits, and none touches the computer. |
+| **Confirmation codes** | Anything that would change something needs a one-time code confirmed over the radio. (Only a demo uses this today.) |
+| **Untrusted names** | Node names are chosen by strangers, so they are stripped of control characters and never fed back to the model. |
+| **Local dashboard** | The web UI binds to `127.0.0.1` by default, with no login. On any other address it refuses to start without a password (scrypt hash in a file only you can read) and a host allow-list; sessions, throttled logins, CSRF checks, an `admin`/`viewer` split on every route and optional HTTPS are described in [setup.md](setup.md#use-the-dashboard-from-a-phone-or-another-computer-lan-login). Without HTTPS the password crosses your network in clear text. |
+
+The sections below give the details, and what this does *not* protect against (a stolen radio carries a valid key). To report a vulnerability,
+see [SECURITY.md](../.github/SECURITY.md).
+
 ## What the AI can look up
 
 `actions.py` holds a fixed menu. Every entry reads the bridge's own database; none of them transmits, and none touches

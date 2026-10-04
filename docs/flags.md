@@ -47,4 +47,4 @@ Nothing else is allowed, and outside the image the variable is not set.) The ban
 says where the temporary folder is. It implies `--no-warm-up`, uses the scripted `demo-scripted` model unless a real Ollama with a
 tool-capable model is reachable at `--ollama-url`, and the web UI stays on `--web-port`. With it, `--demo-speed 5` makes the simulated
 traffic and the fake nodes' `/ai` questions run five times as fast (useful for trying things out), and `--demo-scripted` always uses the
-built-in scripted model even if Ollama is running. See [the README](../README.md#try-it-without-hardware).
+built-in scripted model even if Ollama is running. See [setup.md](setup.md#try-it-without-hardware-demo-mode).

@@ -102,7 +102,7 @@ radios, no crew groups, no job calculators. The AI stays read-only on a fixed to
   - [x] `--data-dir` / `MESHLLM_DATA_DIR` and `meshllm/paths.py`: a packaged program keeps `audit.db`, backups, tile cache and logs in a per-user folder, never inside its own folder.
   - [x] A PyInstaller one-folder build (`scripts/build_binary.py`, `scripts/meshllm.spec`) with a smoke test (`scripts/smoke_binary.py`), built and smoke-tested on Linux, Windows and macOS in CI (`package.yml`).
   - [x] `release.yml`: a pushed `v*.*.*` tag is verified against the version and `main`, tested, built, checksummed, attested and published with the changelog notes.
-  - [ ] The owner publishes the first release (tag `v0.1.0`) and checks the Release page and `gh attestation verify` on a real download; the workflow has not run on a tag yet.
+  - [ ] First release `v0.1.0` tagged by the owner's instruction on 2026-10-04: check the Release page and `gh attestation verify` on a real download (the workflow had not run on a tag before), then tick this. Still to do: the `v*` tag ruleset (releasing.md, step 3).
   - [ ] A packaged program on a real radio (USB and Bluetooth) on Windows and macOS; so far only the smoke test runs them. Code signing and notarisation are not done (SmartScreen and Gatekeeper warn).
 
 ## Not planned

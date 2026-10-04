@@ -2,7 +2,7 @@
 
 A release is a git tag such as `v0.1.0`. Pushing it makes GitHub Actions test the code, build a downloadable program for Linux, Windows and macOS, and
 publish a GitHub Release with those archives, a `SHA256SUMS` file and the notes from [CHANGELOG.md](CHANGELOG.md). **Nothing is published until a tag is pushed**, and
-only the maintainer should push one. As of this page no release exists yet.
+only the maintainer should push one. The first release is `v0.1.0`.
 
 ## What the downloads are, and are not
 

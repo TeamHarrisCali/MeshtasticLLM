@@ -4,7 +4,7 @@
 No network and no real GitHub: the API address is a module constant that is pointed at a fake server on 127.0.0.1, every name lookup for another host
 raises, every command that would run in the real project folder raises, and nothing is really restarted (execv, the shutdown and the restart plan are faked).
 Fake data only: no real addresses, hosts or ids."""
-import ast, contextlib, io, json, os, shutil, socket, sqlite3, subprocess, sys, tempfile, threading, time
+import ast, re, contextlib, io, json, os, shutil, socket, sqlite3, subprocess, sys, tempfile, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -19,7 +19,7 @@ HERE = tempfile.mkdtemp(prefix="meshupd_")
 AT = chr(64)                      # spelled out so this file holds no e-mail-looking text
 DEFAULT_API = U.API_BASE
 os.environ["NO_PROXY"] = "127.0.0.1,localhost"
-REAL = {"plan": U.restart_plan, "run": U._run, "http": U._http_get, "pip": U._pip_install, "origin_allowed": U.Updater.__dict__["origin_allowed"], "version": U.__version__}
+REAL = {"venv": U.in_virtualenv, "plan": U.restart_plan, "run": U._run, "http": U._http_get, "pip": U._pip_install, "origin_allowed": U.Updater.__dict__["origin_allowed"], "version": U.__version__}
 
 
 def raises(fn, exc=UpdateError):
@@ -49,6 +49,7 @@ with open(cfg, "w") as f:
 os.environ.update(GIT_CONFIG_GLOBAL=cfg, GIT_CONFIG_NOSYSTEM="1", GIT_TERMINAL_PROMPT="0")
 U.__version__ = "0.1.0"           # the program under test is "0.1.0", whatever the real number is now
 U.RESTART_GRACE_S = 0
+U.in_virtualenv = lambda: True    # CI runs without a virtual environment; the cases about that rule switch it off themselves
 
 
 # ======================================================================================================================
@@ -89,6 +90,13 @@ check("drafts and pre-releases are ignored, and so is a document that does not s
 check("a tag that is not v<major>.<minor>.<patch> makes the document unusable", all(C(json.loads(release(tag=t))) is None for t in ("v1.2.3; rm -rf /", "1.2.3", "v1.2", "v1.2.3-rc.1", "latest", "")) and C(json.loads(release(tag=5))) is None and C([1]) is None and C("x") is None and C(None) is None)
 check("a link that points anywhere but this repository's releases is replaced by the standard one",
       all(C(json.loads(release(html_url=u)))["url"] == U.RELEASE_URL_PREFIX + "tag/v0.2.0" for u in ("https://evil.test/x", "http://github.com/" + U.REPO + "/releases/x", "javascript:alert(1)", "https://github.com/other/repo/releases/tag/v0.2.0", U.RELEASE_URL_PREFIX + "x y", None, 5, U.RELEASE_URL_PREFIX + "x" * 400)))
+std = U.RELEASE_URL_PREFIX + "tag/v0.2.0"
+sneaky = [U.RELEASE_URL_PREFIX + "tag/../../../evil", U.RELEASE_URL_PREFIX + "tag/%2e%2e/%2e%2e/x", U.RELEASE_URL_PREFIX + "tag/v0.2.0/../../x", U.RELEASE_URL_PREFIX + "tag/v9.9.9",
+          U.RELEASE_URL_PREFIX + "tag/v0.2.0?next=https://evil.test", U.RELEASE_URL_PREFIX + "tag/v0.2.0#x", U.RELEASE_URL_PREFIX + "download/x.exe", "https://github.com/" + U.REPO + "/../other/repo/releases/tag/v0.2.0",
+          "https://github.com/" + U.REPO + "/releases/tag/v0.2.0\n", "https://github.com@evil.test/" + U.REPO + "/releases/tag/v0.2.0", "https://github.com:444/" + U.REPO + "/releases/tag/v0.2.0"]
+check("the release document's own link is ignored altogether: dot segments, percent-encoding, another tag, a query, userinfo all give the page built from the validated tag", all(C(json.loads(release(html_url=u)))["url"] == std for u in sneaky) and C(json.loads(release(html_url=std)))["url"] == std)
+jsrx = re.search(r"const UPD_LINK = /\^(.*)\$/;", open(os.path.join(ROOT, "meshllm", "static", "js", "updates.js"), encoding="utf-8").read()).group(1).replace("\\/", "/")
+check("the page's link pattern accepts exactly that shape (this project's release page for a plain vX.Y.Z tag) and nothing else", re.fullmatch(jsrx, std) and re.fullmatch(jsrx, U.release_url("v10.20.30")) and not any(re.fullmatch(jsrx, u) for u in sneaky[:3] + sneaky[4:-2] + ["https://github.com/" + U.REPO + "/releases/tag/v01.2.3", "http://github.com/" + U.REPO + "/releases/tag/v0.2.0", "javascript:alert(1)", "https://github.com/" + U.REPO + "/releases/tag/v0.2.0/"]), jsrx)
 notes = C(json.loads(release(body="<script>alert(1)</script> <img src=x onerror=alert(2)>\r\nline 2\x00\x1b[31m red ‮ gnp.exe​")))["notes"]
 check("notes stay plain text: HTML is kept as harmless characters (the page uses textContent), control and bidirectional characters are removed", "<script>alert(1)</script>" in notes and "\x00" not in notes and "\x1b" not in notes and "‮" not in notes and "​" not in notes and "\r" not in notes and "line 2" in notes, repr(notes))
 long_notes = C(json.loads(release(body="x" * 10000)))["notes"]
@@ -113,6 +121,13 @@ class GH(BaseHTTPRequestHandler):
         if not p.get("no_length"):
             self.send_header("Content-Length", str(p.get("claim_length", len(body))))
         self.end_headers()
+        if p.get("drip"):                      # one byte every half second, for as long as the client listens
+            try:
+                for _ in range(40):
+                    self.wfile.write(b"x"); self.wfile.flush(); time.sleep(0.5)
+            except OSError:
+                pass
+            return
         try:
             self.wfile.write(body)
         except OSError:
@@ -176,6 +191,29 @@ serve_reply(status=200, body=release(), delay=1.5)
 t0 = time.time(); r = U.fetch_latest(); took = time.time() - t0
 U.READ_TIMEOUT = old_read
 check("fetch: a server that is too slow times out quickly and is treated as offline", r["outcome"] == "offline" and took < 1.4, (r, took))
+old_deadline = U.TOTAL_DEADLINE; U.TOTAL_DEADLINE = 1.0
+serve_reply(status=200, body=b"", claim_length=100000, drip=True)
+t0 = time.time(); r = U.fetch_latest(); took = time.time() - t0
+U.TOTAL_DEADLINE = old_deadline
+check("fetch: a server that drips one byte every half second (a long Content-Length, each read in time) cannot hold the check past the total deadline", r["outcome"] == "offline" and "Timeout" in r["message"] and took < 2.5, (r, took, "deadline", U.TOTAL_DEADLINE))
+dup = new_dummy = None
+home = os.path.join(HERE, "home"); os.makedirs(home)
+with open(os.path.join(home, ".netrc"), "w") as f:
+    f.write("machine 127.0.0.1 login tester password hunter2\n")
+os.chmod(os.path.join(home, ".netrc"), 0o600)
+old_home = os.environ.get("HOME")
+os.environ["HOME"] = home; os.environ["USERPROFILE"] = home
+try:
+    serve_reply(status=200, body=release())
+    rq.get(GOOD_BASE + "/control", timeout=5)
+    control = GH.seen[-1][1]
+    U.fetch_latest()
+    sent = GH.seen[-1][1]
+finally:
+    os.environ["HOME"] = old_home if old_home is not None else ""
+    if old_home is None: os.environ.pop("HOME")
+    os.environ.pop("USERPROFILE", None)
+check("a ~/.netrc entry for the host really does make plain requests add an Authorization header (the control), but the update check sends none", "authorization" in control and "authorization" not in sent, (control, sent))
 U._http_get = lambda *a, **k: (_ for _ in ()).throw(ValueError("bad header"))
 check("fetch: any other surprise is caught too (the check can never take the bridge down)", U.fetch_latest()["outcome"] == "error")
 U._http_get = REAL["http"]
@@ -297,9 +335,10 @@ def call_name(call):
 
 calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call)]
 sub_calls = [c for c in calls if call_name(c).startswith("subprocess.") and call_name(c) != "subprocess.TimeoutExpired"]
-check("the only place a program is started is `_run`, through subprocess.run", len(sub_calls) == 1 and call_name(sub_calls[0]) == "subprocess.run" and enclosing(sub_calls[0]) == "_run", [(call_name(c), enclosing(c)) for c in sub_calls])
+check("the only place a program is started is `_run` (one subprocess.Popen, plus the CompletedProcess it returns)", sorted(call_name(c) for c in sub_calls) == ["subprocess.CompletedProcess", "subprocess.Popen"] and all(enclosing(c) == "_run" for c in sub_calls), [(call_name(c), enclosing(c)) for c in sub_calls])
 check("no call in the module passes shell= at all (shell=True cannot appear)", not any(k.arg == "shell" for c in calls for k in c.keywords) and "shell=True" not in src.replace("shell=True cannot", ""))
-check("no os.system, os.popen, eval, exec, pickle, shell-style string commands or Popen", not any(call_name(c) in ("os.system", "os.popen", "eval", "exec", "os.spawnl", "os.spawnv", "subprocess.Popen", "subprocess.getoutput", "pickle.loads") for c in calls))
+check("no os.system, os.popen, eval, exec, pickle, shell-style string commands or Popen", not any(call_name(c) in ("os.system", "os.popen", "eval", "exec", "os.spawnl", "os.spawnv", "subprocess.run", "subprocess.call", "subprocess.check_output", "subprocess.getoutput", "pickle.loads") for c in calls))
+check("the request passes a no-op `auth` (so ~/.netrc is never read) and every wait is bounded: the GET runs on a helper thread that is joined with the total deadline", any(k.arg == "auth" for c in calls for k in c.keywords) and "worker.join(deadline)" in src and "def _no_auth" in src)
 check("certificate verification is never turned off (no verify= anywhere), and redirects are not followed", not any(k.arg == "verify" for c in calls for k in c.keywords) and any(k.arg == "allow_redirects" and getattr(k.value, "value", None) is False for c in calls for k in c.keywords))
 run_fn = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "_run")
 check("_run refuses anything that is not a list of strings (a command line string would need a shell)", "isinstance(argv, list)" in ast.get_source_segment(src, run_fn) and "raise TypeError" in ast.get_source_segment(src, run_fn))
@@ -321,7 +360,7 @@ check("the tag pattern is anchored with \\A and \\Z over ASCII digits (not ^, $ 
 check("the API address is a module constant that the request and the environment cannot change (no os.environ / argv read in the module)", "os.environ[" not in src and "environ.get(\"MESHLLM_API" not in src and "sys.argv[1" not in src.replace("sys.argv[1:]", ""))
 js = open(os.path.join(ROOT, "meshllm", "static", "js", "updates.js"), encoding="utf-8").read()
 check("the page code uses textContent only: no innerHTML, insertAdjacentHTML, document.write, eval, outerHTML or inline handlers", not any(w in js for w in ("innerHTML", "insertAdjacentHTML", "document.write", "eval(", "outerHTML", "onclick=", "new Function")))
-check("the page code only follows a release link that points into this project's releases", "startsWith(UPD_RELEASES)" in js and "https://github.com/TeamHarrisCali/MeshtasticLLM/releases/" in js and 'rel = "noopener noreferrer"' in js)
+check("the page code only follows a release link that points into this project's releases", "UPD_LINK.test(" in js and "startsWith" not in js and 'rel = "noopener noreferrer"' in js)
 html = open(os.path.join(ROOT, "meshllm", "static", "index.html"), encoding="utf-8").read()
 check("the Updates card and the header pill start hidden, and the page has no inline script", 'id="updCard" hidden' in html and 'id="updPill" type="button" hidden' in html and "<script>" not in html and "api.github.com" in html and "IP address" in html)
 
@@ -459,7 +498,8 @@ def write_release(folder, version, req="requests\n", main="ok", extra=None):
     open(os.path.join(folder, "meshllm", "__init__.py"), "w").write(f'"""fake."""\n__version__ = "{version}"\n')
     body = {"ok": 'import sys\nfrom meshllm import __version__\nif "--version" in sys.argv:\n    print("meshllm " + __version__)\n',
             "crash": 'raise SystemExit("boom: this release does not start")\n',
-            "wrong": 'print("meshllm 9.9.9")\n'}[main]
+            "wrong": 'print("meshllm 9.9.9")\n',
+            "dirty_crash": 'open("README.md", "a").write("a local change made while starting\\n")\nraise SystemExit("boom: this release modifies a tracked file and then crashes")\n'}[main]
     open(os.path.join(folder, "meshllm", "__main__.py"), "w").write(body)
     open(os.path.join(folder, "requirements.txt"), "w").write(req)
     open(os.path.join(folder, "README.md"), "w").write("readme\n")
@@ -479,17 +519,20 @@ class Scn:
     pass
 
 
-def scenario(name, v2_version="0.2.0", **v2):
+def scenario(name, v2_version="0.2.0", base_extra=None, shallow=False, **v2):
     s = Scn()
     base = os.path.join(HERE, name); os.makedirs(base)
     s.origin, s.dev, s.inst = (os.path.join(base, x) for x in ("origin.git", "dev", "inst"))
     git(base, "init", "-q", "--bare", "-b", "main", s.origin)
     git(base, "clone", "-q", s.origin, s.dev)
     git(s.dev, "checkout", "-q", "-B", "main")
-    write_release(s.dev, "0.1.0")
+    write_release(s.dev, "0.1.0", extra=base_extra)
     git(s.dev, "add", "-A"); git(s.dev, "commit", "-q", "-m", "release 0.1.0"); git(s.dev, "tag", "-a", "v0.1.0", "-m", "v0.1.0")
     git(s.dev, "push", "-q", "-u", "origin", "main", "v0.1.0")
-    git(base, "clone", "-q", s.origin, s.inst)
+    if shallow:
+        git(base, "clone", "-q", "--depth", "1", "file://" + s.origin, s.inst)
+    else:
+        git(base, "clone", "-q", s.origin, s.inst)
     s.v1 = git(s.inst, "rev-parse", "HEAD")
     if v2 is not None:
         publish(s.dev, v2_version, **v2)
@@ -507,7 +550,7 @@ def prepared(s, tag="v0.2.0", plan=REAL_PLAN_OK, origin_ok=True):
     br = new_bridge()
     up = br.updater = U.Updater(br, root=s.inst)
     br.request_restart = lambda command: RESTARTS.append(list(command))
-    U.Updater.origin_allowed = staticmethod(lambda url, o=s.origin: url.strip() == o) if origin_ok else REAL["origin_allowed"]
+    U.Updater.origin_allowed = staticmethod(lambda url, o=s.origin: url.strip() in (o, "file://" + o)) if origin_ok else REAL["origin_allowed"]
     U.restart_plan = plan
     PIP.clear(); RESTARTS.clear(); PIPRES[0] = (True, ""); CALLS.clear()
     if tag:
@@ -542,12 +585,12 @@ check("clean update: requirements.txt did not change, so pip was not run", PIP =
 check("clean update: it then asks for a restart with the same command line, and the page is told it is restarting", RESTARTS == [["/fake/python", "-u", "-m", "meshllm"]] and up.progress["phase"] == "restarting" and up.progress["restart"] == "auto")
 check("clean update: the log line names the way back", f"git checkout {s.v1}" in out.getvalue() and "[update] updated 0.1.0 -> 0.2.0" in out.getvalue(), out.getvalue())
 check("clean update: nothing was left half-done (clean tree, on the same branch)", git(s.inst, "status", "--porcelain", "--untracked-files=no") == "" and git(s.inst, "symbolic-ref", "--short", "HEAD") == "main")
-subs = [a[1] for a, _ in CALLS if os.path.basename(a[0]).startswith("git")]
+subs = [(a[3] if a[1] == "-c" else a[1]) for a, _ in CALLS if os.path.basename(a[0]).startswith("git")]
 allowed = {"rev-parse", "remote", "status", "symbolic-ref", "fetch", "merge-base", "merge", "show", "diff", "reset"}
-fetches = [a for a, _ in CALLS if len(a) > 1 and a[1] == "fetch"]
+fetches = [a for a, _ in CALLS if len(a) > 3 and a[3] == "fetch"]
 check("every command was an argument list: git subcommands are only from the expected set, and nothing else but the Python smoke check ran", set(subs) <= allowed and all(isinstance(a, list) and all(isinstance(x, str) for x in a) for a, _ in CALLS)
       and all(os.path.basename(a[0]).startswith("git") or a[0] == sys.executable for a, _ in CALLS) and [a for a, _ in CALLS if a[0] == sys.executable] == [[sys.executable, "-m", "meshllm", "--version"]], [a for a, _ in CALLS][:20])
-check("it fetched exactly the one tag and origin's main, with --no-tags and explicit refspecs (never all tags, never another ref)", [f[-1] for f in fetches] == ["refs/tags/v0.2.0:refs/tags/v0.2.0", "refs/heads/main:refs/remotes/origin/main"] and all(f[2:5] == ["--no-tags", "--no-recurse-submodules", "origin"] for f in fetches), fetches)
+check("it fetched exactly the one tag and origin's main, with --no-tags and explicit refspecs (never all tags, never another ref)", [f[-1] for f in fetches] == ["refs/tags/v0.2.0:refs/tags/v0.2.0", "refs/heads/main:refs/remotes/origin/main"] and all(f[1:5] == ["-c", "transfer.fsckObjects=true", "fetch", "--no-tags"] and f[5:7] == ["--no-recurse-submodules", "origin"] for f in fetches), fetches)
 check("the only history-changing command was `merge --ff-only <full commit id>`, never a reset, force or checkout", [a for a, _ in CALLS if len(a) > 1 and a[1] in ("merge", "reset", "checkout", "pull", "rebase", "clean", "stash")] and all(a[1:4] == ["merge", "--ff-only", "--quiet"] and U.SHA_RE.match(a[4]) for a, _ in CALLS if len(a) > 1 and a[1] in ("merge", "reset", "checkout", "pull", "rebase", "clean", "stash")))
 check("git runs with no stdin question possible: GIT_TERMINAL_PROMPT=0 and variables that redirect git (GIT_DIR...) are dropped", U._git_env()["GIT_TERMINAL_PROMPT"] == "0" and not [k for k in (os.environ.update(GIT_DIR="/x", GIT_WORK_TREE="/y", GIT_INDEX_FILE="/z"), U._git_env())[1] if k in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE")])
 for k in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"): os.environ.pop(k, None)
@@ -617,7 +660,7 @@ s = scenario("collide", extra={"added_in_release.txt": "from the release\n"})
 br, up = prepared(s)
 open(os.path.join(s.inst, "added_in_release.txt"), "w").write("my own untracked file\n")
 with contextlib.redirect_stdout(io.StringIO()): msg = update_msg(up)
-check("an untracked file that the release also adds: git refuses, the file is untouched, the record says failed", msg is not None and "Applying the update failed" in msg and git(s.inst, "rev-parse", "HEAD") == s.v1 and open(os.path.join(s.inst, "added_in_release.txt")).read() == "my own untracked file\n" and up._load(U.SETTING_APPLIED)["result"] == "failed", msg)
+check("an untracked file that the release also adds: refused before anything is changed or backed up, naming the file, which is untouched", msg is not None and "added_in_release.txt" in msg and "nothing was touched" in msg and git(s.inst, "rev-parse", "HEAD") == s.v1 and open(os.path.join(s.inst, "added_in_release.txt")).read() == "my own untracked file\n" and backups_of(br) == [], msg)
 
 s = scenario("diverged")
 br, up = prepared(s)
@@ -651,7 +694,7 @@ check("a checkout that already has the release's code (pulled by hand, bridge no
 s = scenario("noorigin")
 br, up = prepared(s, origin_ok=False)
 msg = update_msg(up)
-check("an origin that is not this project's GitHub repository (a fork, a local folder) is refused before anything is fetched", msg is not None and "not this project's GitHub repository" in msg and git(s.inst, "tag", "-l", "v0.2.0") == "" and backups_of(br) == [] and not any(a[1] == "fetch" for a, _ in CALLS if len(a) > 1), msg)
+check("an origin that is not this project's GitHub repository (a fork, a local folder) is refused before anything is fetched", msg is not None and "not this project's GitHub repository" in msg and git(s.inst, "tag", "-l", "v0.2.0") == "" and backups_of(br) == [] and not any("fetch" in a[:4] for a, _ in CALLS), msg)
 OA = REAL["origin_allowed"].__func__          # a staticmethod object is only callable itself from Python 3.10 on
 repo = U.REPO
 yes = [f"https://github.com/{repo}", f"https://github.com/{repo}.git", f"git@github.com:{repo}.git", f"ssh://git@github.com/{repo}", f"https://github.com/{repo.lower()}.git", " " + f"https://github.com/{repo}.git\n"]
@@ -669,6 +712,90 @@ br, up = prepared(s)
 br.backups.verify = lambda name: (_ for _ in ()).throw(backupmod.BackupError("damaged"))
 msg = update_msg(up)
 check("if the backup does not check out (integrity) it is treated the same", msg is not None and "did not check out" in msg and git(s.inst, "rev-parse", "HEAD") == s.v1, msg)
+
+# -- N3: an IGNORED file of the owner's that the release adds (git itself would overwrite it silently) ------------------------------------------------------
+s = scenario("ignored", extra={"local.cfg": "from the release\n"})
+br, up = prepared(s)
+open(os.path.join(s.inst, ".git", "info", "exclude"), "a").write("local.cfg\n")        # ignored on this machine only
+open(os.path.join(s.inst, "local.cfg"), "w").write("my private settings\n")
+check("the owner's ignored file is really invisible to git (the situation the check exists for)", git(s.inst, "status", "--porcelain") == "")
+msg = update_msg(up)
+check("a release that would add a file over an IGNORED file of the owner's is refused before anything is changed, and the file is intact", msg is not None and "local.cfg" in msg and "nothing was touched" in msg and git(s.inst, "rev-parse", "HEAD") == s.v1 and open(os.path.join(s.inst, "local.cfg")).read() == "my private settings\n" and backups_of(br) == [] and RESTARTS == [], msg)
+os.rename(os.path.join(s.inst, "local.cfg"), os.path.join(s.inst, "local.cfg.moved"))
+with contextlib.redirect_stdout(io.StringIO()): msg = update_msg(up)
+check("...and once the file is moved away the update goes through", msg is None and git(s.inst, "rev-parse", "HEAD") == s.v2 and open(os.path.join(s.inst, "local.cfg.moved")).read() == "my private settings\n")
+
+# -- S3: no pip outside a virtual environment ----------------------------------------------------------------------------------------------------
+real_prefix = sys.prefix
+sys.prefix = sys.base_prefix; outside = REAL["venv"]()
+sys.prefix = sys.base_prefix + "-venv"; inside = REAL["venv"]()
+sys.prefix = real_prefix
+check("in_virtualenv: false when sys.prefix is sys.base_prefix, true when they differ", outside is False and inside is True)
+s = scenario("novenv", req="requests\nsomething-new>=1\n")
+br, up = prepared(s)
+U.in_virtualenv = lambda: False
+st = up.status()
+msg = update_msg(up)
+check("requirements changed and this Python is not a virtual environment: the update stops BEFORE the backup and the merge, with the plain message, and nothing ran", msg is not None and msg.startswith(U.NO_VENV_MESSAGE) and "pip install -r requirements.txt" in msg and "./setup.sh" in msg
+      and git(s.inst, "rev-parse", "HEAD") == s.v1 and backups_of(br) == [] and PIP == [] and RESTARTS == [] and not [a for a, _ in CALLS if "merge" in a[:2]], msg)
+check("...and the status tells the page (for the confirmation dialog)", st["virtualenv"] is False and U.NO_VENV_MESSAGE.startswith("This Python is not a virtual environment, so the update will not install packages for you"))
+s = scenario("novenv_ok")
+br, up = prepared(s)
+with contextlib.redirect_stdout(io.StringIO()): msg = update_msg(up)
+check("outside a virtual environment an update that needs no new packages still works", msg is None and git(s.inst, "rev-parse", "HEAD") == s.v2 and PIP == [])
+U.in_virtualenv = lambda: True
+
+# -- N2: a failure that cannot be rolled back --------------------------------------------------------------------------------------------------
+s = scenario("stuck", main="dirty_crash", extra={"README.md": "readme, second edition\n"})
+br, up = prepared(s)
+with contextlib.redirect_stdout(io.StringIO()): msg = update_msg(up)
+st = up.status()
+check("a new release that modifies a tracked file and then crashes cannot be rolled back (reset --keep refuses): the message says why and what to do", msg is not None and "Rolling back also failed" in msg and "README.md" in msg and f"git reset --keep {s.v1}" in msg and "stash or discard the changes to README.md" in msg, msg)
+check("...nothing restarts, HEAD is left on the new commit and the owner's change is untouched", RESTARTS == [] and git(s.inst, "rev-parse", "HEAD") == s.v2 and "a local change made while starting" in open(os.path.join(s.inst, "README.md")).read())
+check("...and the status says the code on disk is not the running code: no Update now, no restart, with the hint", st["stuck"] is not None and st["can_apply"] is False and st["can_update"] is False and st["restart_possible"] is False and "not the code that is running" in st["reason"] and f"git reset --keep {s.v1}" in st["reason"] and "README.md" in st["restart_note"], st)
+check("...another update is refused until that is fixed, and the marker is per process (a restart starts clean)", raises(lambda: up.start_apply("v0.2.0")) and U.Updater(br, root=s.inst).stuck is None)
+
+# -- N6: a restore set aside while the update runs must not be applied by its restart -----------------------------------------------------------------
+s = scenario("stagedrestart")
+br, up = prepared(s)
+br.backups.stage_file(br.backups.path_of(br.backups.create("manual")))
+with contextlib.redirect_stdout(io.StringIO()): msg = update_msg(up)
+check("a database restore waiting at the moment of the restart: the code is updated but the restart is refused (it would apply the restore), and the page says so", msg is None and git(s.inst, "rev-parse", "HEAD") == s.v2 and RESTARTS == [] and up.progress["phase"] == "done" and up.progress["restart"] == "manual" and "restore" in up.progress["message"], up.progress)
+br.backups.cancel_staged()
+
+# -- shallow clones --------------------------------------------------------------------------------------------------------------------------------
+s = scenario("shallow", shallow=True)
+br, up = prepared(s)
+check("(setup) the checkout under test really is a shallow clone", git(s.inst, "rev-parse", "--is-shallow-repository") == "true")
+with contextlib.redirect_stdout(io.StringIO()): msg = update_msg(up)
+check("a shallow clone (--depth 1) updates normally: tag and main fetched, ancestry checks pass, fast-forward, restart requested", msg is None and git(s.inst, "rev-parse", "HEAD") == s.v2 and RESTARTS and git(s.inst, "rev-parse", "--is-shallow-repository") == "true", msg)
+
+# -- N5: a timeout kills the child's whole process group -----------------------------------------------------------------------------------------------
+if os.name == "posix":
+    child = os.path.join(HERE, "slow_child.py"); pidfile = os.path.join(HERE, "grandchild.pid")
+    open(child, "w").write("import os, subprocess, sys, time\n"
+                           "g = subprocess.Popen([sys.executable, '-c', 'import os, sys, time; open(sys.argv[1], \"w\").write(str(os.getpid())); time.sleep(300)', sys.argv[1]])\n"
+                           "while not os.path.exists(sys.argv[1]): time.sleep(0.05)\n"
+                           "time.sleep(300)\n")
+    def alive(pid):
+        try:
+            with open(f"/proc/{pid}/stat") as f:
+                return f.read().rsplit(")", 1)[1].split()[0] != "Z"
+        except OSError:
+            return False
+    t0 = time.time()
+    try:
+        REAL["run"]([sys.executable, child, pidfile], HERE, 3); expired = False
+    except subprocess.TimeoutExpired:
+        expired = True
+    grand = int(open(pidfile).read())
+    for _ in range(40):
+        if not alive(grand): break
+        time.sleep(0.1)
+    check("a command that runs past its time limit is stopped together with the helper it started (the whole process group), and the wait returns promptly", expired and not alive(grand) and time.time() - t0 < 20, (expired, grand, alive(grand)))
+    if alive(grand): os.kill(grand, 9)
+else:
+    print("SKIP process-group kill (not POSIX)")
 
 # -- injection attempts and the entry point -------------------------------------------------------------------------------------------------------
 s = scenario("inject")

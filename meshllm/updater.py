@@ -10,8 +10,8 @@ READ THIS FIRST, it is the whole security story of this file:
 * Only a plain git checkout can update itself. A packaged program, a Docker container and anything else are only TOLD that a release exists
   (and how to update by hand): the packaged program cannot overwrite itself and a container would need the Docker socket.
 * The git update is a fast-forward to a tag that is on `main` of this repository's own GitHub `origin`: every git call is an argument list (never
-  a shell), every tag and commit id is checked against a strict pattern before it reaches one, a dirty tree is refused (nothing is ever reset or
-  forced over the owner's changes), a database backup is made first, and a failed requirements install or a new version that does not even start
+  a shell), every tag and commit id is checked against a strict pattern before it reaches one, uncommitted changes to tracked files are refused, and so is a release
+  that would add a file over an untracked or ignored one (nothing is ever reset or forced over the owner's work), a database backup is made first, and a failed requirements install or a new version that does not even start
   is rolled back with `git reset --keep` (which refuses to touch uncommitted work).
 * `pip install -r requirements.txt` from the pulled release runs code from that release: the trust is the same as installing it by hand.
 
@@ -22,6 +22,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import threading
@@ -136,18 +137,20 @@ def plain_text(value, limit=NOTES_MAX):
     return text if len(text) <= limit else text[:limit].rstrip() + "…"
 
 
+def release_url(tag):
+    """This repository's release page for a (validated) tag: the only link the page is ever given."""
+    return RELEASE_URL_PREFIX + "tag/" + require_tag(tag)
+
+
 def clean_release(data):
-    """{tag, url, notes} from a GitHub release document, or None if it is not a published, stable release with a valid tag. The link
-    is only kept if it points into this repository's releases (otherwise the standard releases page is used)."""
+    """{tag, url, notes} from a GitHub release document, or None if it is not a published, stable release with a valid tag. The document's own
+    `html_url` is ignored: the link is always built from the validated tag, so it can only ever be this repository's page for that tag."""
     if not isinstance(data, dict) or data.get("draft") is not False or data.get("prerelease") is not False:
         return None
     tag = data.get("tag_name")
     if not valid_tag(tag):
         return None
-    url = data.get("html_url")
-    if not (isinstance(url, str) and url.startswith(RELEASE_URL_PREFIX) and len(url) < 300 and re.fullmatch(r"[A-Za-z0-9._~:/?#@!$&'()*+,;=%-]+", url)):
-        url = RELEASE_URL_PREFIX + "tag/" + tag
-    return {"tag": tag, "url": url, "notes": plain_text(data.get("body"))}
+    return {"tag": tag, "url": release_url(tag), "notes": plain_text(data.get("body"))}
 
 
 # ---- the one network call ------------------------------------------------------------------------------------------------------------------
@@ -155,24 +158,58 @@ class _TooLarge(Exception):
     pass
 
 
-def _http_get(url, headers, deadline=TOTAL_DEADLINE):
-    """GET `url` and return (status, headers, body bytes). HTTPS certificates are verified (requests' default: never switched off here), redirects are not
-    followed, the whole exchange has a deadline and the body a size cap. Raises requests.RequestException or _TooLarge. Tests replace this function."""
+def _no_auth(request):
+    """A do-nothing `auth` for requests. Giving one stops requests from reading ~/.netrc and attaching credentials of its own to the request, so nothing is sent but the GET itself
+    (the proxy settings in the environment are still used)."""
+    return request
+
+
+def _fetch_body(url, headers, abandon, box, deadline):
+    """The worker of _http_get: the GET itself, read in small pieces so that `abandon` and the deadline are noticed."""
     started = time.monotonic()
-    r = requests.get(url, headers=headers, timeout=(CONNECT_TIMEOUT, READ_TIMEOUT), allow_redirects=False, stream=True)
+    r = requests.get(url, headers=headers, timeout=(CONNECT_TIMEOUT, READ_TIMEOUT), allow_redirects=False, stream=True, auth=_no_auth)
+    box["response"] = r
     try:
         if int(r.headers.get("Content-Length") or 0) > MAX_RESPONSE_BYTES:
             raise _TooLarge()
         body = b""
-        for chunk in r.iter_content(8192):
+        for chunk in r.iter_content(64):
+            if abandon.is_set() or time.monotonic() - started > deadline:
+                raise requests.Timeout("the answer took too long")
             body += chunk
             if len(body) > MAX_RESPONSE_BYTES:
                 raise _TooLarge()
-            if time.monotonic() - started > deadline:
-                raise requests.Timeout("the answer took too long")
         return r.status_code, r.headers, body
     finally:
         r.close()
+
+
+def _http_get(url, headers, deadline=None):
+    """GET `url` and return (status, headers, body bytes). HTTPS certificates are verified (requests' default: never switched off here), redirects are not followed,
+    no credentials of the user's are added (no ~/.netrc), the body has a size cap, and the WHOLE exchange (name lookup, connecting, headers, body) has a deadline
+    that is enforced from outside: the request runs on a helper thread and the caller stops waiting for it when the time is up, however slowly the server drips
+    its answer. Raises requests.RequestException or _TooLarge. Tests replace this function."""
+    deadline = TOTAL_DEADLINE if deadline is None else deadline
+    box, abandon = {}, threading.Event()
+
+    def work():
+        try:
+            box["result"] = _fetch_body(url, headers, abandon, box, deadline)
+        except BaseException as e:             # handed to the caller below
+            box["error"] = e
+
+    worker = threading.Thread(target=work, daemon=True, name="update-http")
+    worker.start()
+    worker.join(deadline)
+    if worker.is_alive():
+        abandon.set()
+        resp = box.get("response")
+        if resp is not None:        # closing can wait for the blocked read, so never from this thread; the worker also stops by itself at its next piece
+            threading.Thread(target=lambda: resp.close(), daemon=True, name="update-http-close").start()
+        raise requests.Timeout("the answer took too long")
+    if "error" in box:
+        raise box["error"]
+    return box["result"]
 
 
 def fetch_latest(etag=None, now=None):
@@ -325,13 +362,37 @@ def _scrub(text):
     return text[-400:] if len(text) > 400 else text
 
 
+def _kill_group(proc):
+    """Stop a child and everything it started: on POSIX the child leads its own session (see _run), so its whole process group is killed; elsewhere only the child can be."""
+    if os.name == "posix":
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            pass
+    try:
+        proc.kill()
+    except OSError:
+        pass
+    try:
+        proc.communicate(timeout=10)            # reap it and close its pipes
+    except Exception:
+        pass
+
+
 def _run(argv, cwd, timeout, env=None):
     """The only place a program is started. `argv` is a list of strings (never a shell command line); output is captured, there is no stdin, a time limit applies,
-    and on POSIX the child has no controlling terminal, so nothing can prompt for a password."""
+    and on POSIX the child has no controlling terminal (so nothing can prompt for a password) and leads its own process group, which is killed as a whole if the
+    time runs out or the wait is interrupted (a pip or git that started helpers leaves none behind)."""
     if not isinstance(argv, list) or not argv or not all(isinstance(a, str) for a in argv):
         raise TypeError("argv must be a non-empty list of strings")
     kw = {"start_new_session": True} if os.name == "posix" else {}
-    return subprocess.run(argv, cwd=str(cwd), env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True, errors="replace", timeout=timeout, **kw)
+    proc = subprocess.Popen(argv, cwd=str(cwd), env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, errors="replace", **kw)
+    try:
+        out, err = proc.communicate(timeout=timeout)
+    except BaseException:                       # a timeout, Ctrl+C, anything
+        _kill_group(proc)
+        raise
+    return subprocess.CompletedProcess(argv, proc.returncode, out, err)
 
 
 def _git_env():
@@ -390,11 +451,11 @@ class Git:
     def fetch_tag(self, tag):
         """Fetch exactly one tag from origin (never another ref, never all tags). Git refuses to overwrite a local tag of the same name that points elsewhere."""
         require_tag(tag)
-        self.ok("fetch", "--no-tags", "--no-recurse-submodules", "origin", f"refs/tags/{tag}:refs/tags/{tag}", what=f"Fetching {tag} from GitHub")
+        self.ok("-c", "transfer.fsckObjects=true", "fetch", "--no-tags", "--no-recurse-submodules", "origin", f"refs/tags/{tag}:refs/tags/{tag}", what=f"Fetching {tag} from GitHub")
 
     def fetch_main(self):
         """Fetch origin's main branch into origin/main (the tag must be on it). Not forced: a rewritten main is refused."""
-        self.ok("fetch", "--no-tags", "--no-recurse-submodules", "origin", f"refs/heads/main:{MAIN_REF}", what="Fetching main from GitHub")
+        self.ok("-c", "transfer.fsckObjects=true", "fetch", "--no-tags", "--no-recurse-submodules", "origin", f"refs/heads/main:{MAIN_REF}", what="Fetching main from GitHub")
 
     def tag_commit(self, tag):
         """The commit id a tag points at (an annotated tag is followed to its commit)."""
@@ -423,6 +484,20 @@ class Git:
         require_sha(old), require_sha(new)
         return bool(self.ok("diff", "--name-only", old, new, "--", path, what="Comparing the two versions"))
 
+    def would_overwrite(self, old, new, root):
+        """Paths (at most 5) that the release adds and that already exist in the working tree. They cannot be tracked files (those are the clean-tree check's job), so they are
+        untracked or ignored files of the owner's, and a fast-forward would silently replace the ignored ones."""
+        require_sha(old), require_sha(new)
+        out = self.ok("diff", "--name-only", "-z", "--diff-filter=A", old, new, what="Comparing the two versions")
+        clash = []
+        for name in [n for n in out.split("\0") if n]:
+            parts = name.replace("\\", "/").split("/")
+            if name.startswith("/") or ".." in parts or os.path.isabs(name):
+                raise UpdateError("The release contains a path that is not inside the project folder, so it is refused.")
+            if os.path.lexists(os.path.join(str(root), *parts)):
+                clash.append(name)
+        return clash[:5]
+
     def fast_forward(self, sha):
         """Move the checked-out branch forward to `sha`, only if that is a fast-forward and no local change is in the way."""
         require_sha(sha)
@@ -432,6 +507,15 @@ class Git:
         """Put the branch back on `previous` with `reset --keep`, which refuses rather than overwrite anything with local changes."""
         require_sha(previous)
         self.ok("reset", "--keep", previous, what="Rolling back")
+
+
+NO_VENV_MESSAGE = ("This Python is not a virtual environment, so the update will not install packages for you: update the packages yourself with "
+                   "pip install -r requirements.txt after pulling, or use the installer (./setup.sh).")
+
+
+def in_virtualenv():
+    """True if this Python runs inside a virtual environment (the installer's .venv is one). The updater only runs pip there: it will not change a system-wide Python."""
+    return sys.prefix != getattr(sys, "base_prefix", sys.prefix) or hasattr(sys, "real_prefix")
 
 
 def _pip_install(root):
@@ -475,6 +559,7 @@ class Updater:
         self._stop = threading.Event()
         self._thread = None
         self.progress = {"phase": "idle", "step": "", "message": "", "ok": None, "restart": None, "tag": None}
+        self.stuck = None            # set (in memory only) when an update failed and could not be rolled back: the code on disk is then not the code that is running
 
     # ---- small things ---------------------------------------------------------------------------------------------------------------------
     @property
@@ -520,10 +605,7 @@ class Updater:
         tag = data.get("tag")
         if not valid_tag(tag):
             return None
-        url = data.get("url")
-        if not (isinstance(url, str) and url.startswith(RELEASE_URL_PREFIX)):
-            url = RELEASE_URL_PREFIX + "tag/" + tag
-        return {"tag": tag, "url": url, "notes": plain_text(data.get("notes"))}
+        return {"tag": tag, "url": release_url(tag), "notes": plain_text(data.get("notes"))}
 
     def restart_pending(self):
         """True after a successful update whose new code is on disk but not yet running (a restart that was not possible or not done): another update is pointless until the bridge restarts."""
@@ -624,11 +706,17 @@ class Updater:
         latest, available = self.latest(), self.available()
         can_apply, why = install["can_update"] and not self.demo, install["reason"]
         pending = self.restart_pending()
+        with self._lock:
+            stuck = dict(self.stuck) if self.stuck else None
         if self.demo:
             can_apply, why = False, "Demo mode does not update."
+        elif stuck:
+            can_apply, why = False, "The code on disk is not the code that is running: an update failed and could not be rolled back. " + stuck["hint"] + "."
         elif pending:
             can_apply, why = False, "Already updated: restart the bridge to run the new version."
         plan, plan_why = restart_plan()
+        if stuck:
+            plan, plan_why = None, "The code on disk is not the running code; fix that first. " + stuck["hint"] + "."
         applied = self._load(SETTING_APPLIED)
         with self._lock:
             progress = dict(self.progress)
@@ -638,7 +726,7 @@ class Updater:
             "can_apply": bool(can_apply and available), "can_update": bool(can_apply), "reason": why,
             "checked": state.get("checked") if isinstance(state.get("checked"), (int, float)) else None,
             "last_error": plain_text(state.get("error"), 300) or None,
-            "latest": latest, "update_available": bool(available), "restart_pending": pending,
+            "latest": latest, "update_available": bool(available), "restart_pending": pending, "stuck": stuck, "virtualenv": in_virtualenv(),
             "restart_possible": plan is not None, "restart_note": plan_why,
             "progress": progress, "applied": self._clean_applied(applied),
         }
@@ -675,6 +763,8 @@ class Updater:
         available = self.available()
         if available is None:
             raise UpdateError("No newer release is known. Use Check now first.")
+        if self.stuck:
+            raise UpdateError("An earlier update failed and could not be rolled back. " + self.stuck["hint"] + ".")
         if self.restart_pending():
             raise UpdateError("The code was already updated; restart the bridge to run it.")
         if tag != available["tag"]:
@@ -737,6 +827,11 @@ class Updater:
         if not git.is_ancestor(previous, target):
             raise UpdateError(f"This checkout has its own commits that {tag} does not contain, so it cannot be fast-forwarded. Update by hand (git pull, or merge {tag}).")
         wants_pip = git.changed(previous, target, "requirements.txt")
+        if wants_pip and not in_virtualenv():
+            raise UpdateError(NO_VENV_MESSAGE + " Nothing was changed.")
+        clash = git.would_overwrite(previous, target, self.root)
+        if clash:
+            raise UpdateError(f"{tag} adds files that already exist here as untracked or ignored files of yours ({', '.join(clash)}), and updating would replace them, so nothing was touched. Move them away, or update by hand.")
 
         self._set(step="Backing up the database")
         try:
@@ -772,8 +867,15 @@ class Updater:
                 if git.head() != previous:
                     raise UpdateError("the commit did not change")
             except UpdateError as e:
+                try:
+                    files = [plain_text(f, 120) for f in git.dirty_files()]
+                except UpdateError:
+                    files = []
+                hint = f"stash or discard the changes to {', '.join(files) if files else 'the changed files'}, then run git reset --keep {previous}"
+                with self._lock:
+                    self.stuck = {"previous": previous, "files": files, "hint": hint}
                 self._record(result="failed")
-                raise UpdateError(f"{problem} Rolling back also failed ({e}); to go back by hand: git reset --keep {previous}")
+                raise UpdateError(f"{problem} Rolling back also failed ({e}). The code on disk is now the new version but the bridge is still running the old one, so it will not be restarted. To fix it: {hint}.")
             self._record(result="rolled_back")
             extra = " Packages may already have been upgraded; run `pip install -r requirements.txt` from the old version if something misbehaves." if wants_pip else ""
             raise UpdateError(f"{problem} The code was rolled back to {__version__}; the bridge keeps running the old version.{extra}")
@@ -786,6 +888,9 @@ class Updater:
             return
         self._set(phase="restarting", ok=True, restart="auto", step="Restarting", message=f"Updated to {version}. The bridge is restarting.")
         time.sleep(RESTART_GRACE_S)                 # let the page read that before the process is replaced
+        if self.bridge.backups.staged():            # asked again just before: a restore set aside meanwhile would be applied by this restart
+            self._set(phase="done", ok=True, restart="manual", step="Done", message=f"Updated to {version}. A database restore was set aside while this ran and a restart would apply it, so the bridge was not restarted. Restart it yourself when you want that.")
+            return
         self.bridge.request_restart(command)
 
     @staticmethod

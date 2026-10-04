@@ -3,7 +3,8 @@
 // Release notes and every other word that came from GitHub are shown with textContent only; the release link is used only if it points into this project's releases.
 let updReady = false, updTimer = null, updNoticeTimer = null, updData = null;
 const UPD_KINDS = { git: "a git checkout", docker: "Docker", packaged: "the downloadable program", other: "a copy of the files" };
-const UPD_RELEASES = "https://github.com/TeamHarrisCali/MeshtasticLLM/releases/";
+// The one link shape the page follows: this project's release page for a plain vX.Y.Z tag (the server builds it from the validated tag; anything else is ignored).
+const UPD_LINK = /^https:\/\/github\.com\/TeamHarrisCali\/MeshtasticLLM\/releases\/tag\/v(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})$/;
 
 // One-time wiring of the Updates card.
 function initUpdates() {
@@ -23,8 +24,9 @@ function initUpdates() {
   $("updApply").addEventListener("click", async () => {
     const d = updData; if (!d || !d.latest) return;
     const tag = d.latest.tag;
+    const venv = d.virtualenv ? "" : "\nThis Python is not a virtual environment: if the new version needs new packages, the update stops before changing anything and tells you to install them yourself.\n";
     const restart = d.restart_possible ? "4. Restart the bridge by itself (it is unavailable for a few seconds; an answer being written at that moment is lost)." : "4. NOT restart the bridge: you restart it yourself afterwards.";
-    if (!confirm(`Update from ${d.version} to ${tag.slice(1)}?\n\nThis will:\n1. Make a backup of the database.\n2. Pull ${tag} from GitHub (fast-forward only; it stops if you have uncommitted changes).\n3. Install any new packages it needs, and check the new version starts.\n${restart}\n\nIf step 3 fails the code is put back as it was.`)) return;
+    if (!confirm(`Update from ${d.version} to ${tag.slice(1)}?\n\nThis will:\n1. Make a backup of the database.\n2. Pull ${tag} from GitHub (fast-forward only; it stops if you have uncommitted changes).\n3. Install any new packages it needs, and check the new version starts.\n${restart}\n\nIf step 3 fails the code is put back as it was.${venv}`)) return;
     $("updApply").disabled = true; $("updNote").textContent = "";
     const { ok, data } = await post("/api/update/apply", { tag });
     if (!ok) { $("updNote").textContent = data.error || "The update could not start."; refreshUpdates(true); return; }
@@ -66,14 +68,14 @@ function drawUpdates(d) {
   if (d.latest) {
     latest.append(el("b", null, d.latest.tag), el("span", null, d.update_available ? " is newer than this version." : " is the newest release; this version is up to date."));
     if (d.checked) latest.append(el("small", null, ` Checked ${fmtTime(d.checked)}.`));
-    if (typeof d.latest.url === "string" && d.latest.url.startsWith(UPD_RELEASES)) {
+    if (typeof d.latest.url === "string" && UPD_LINK.test(d.latest.url)) {
       const a = el("a", "updlink", " Release page"); a.href = d.latest.url; a.target = "_blank"; a.rel = "noopener noreferrer"; latest.append(a);
     }
   } else latest.append(el("span", "hint", d.checked ? "GitHub has no release to offer." : "Not checked yet."));
   $("updNotes").hidden = !(d.latest && d.latest.notes && d.update_available); $("updNotes").textContent = d.latest && d.update_available ? d.latest.notes : "";
   $("updErr").hidden = !d.last_error; $("updErr").textContent = d.last_error || "";
   const how = $("updHow"); how.replaceChildren();
-  if (d.update_available && !d.can_update) {
+  if ((d.update_available || d.stuck) && !d.can_update) {
     how.append(el("p", null, d.reason || "This installation cannot update itself."));
     if (d.install.steps.length) how.append(el("pre", null, d.install.steps.join("\n")));
   } else if (d.restart_pending && !(d.progress && d.progress.phase === "restarting")) how.append(el("p", null, "Already updated: restart the bridge to run the new version."));

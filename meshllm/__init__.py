@@ -5,4 +5,4 @@ that importing the package never needs the radio, Ollama or any third-party libr
 here: it is the single source of truth (`python -m meshllm --version`, the dashboard, the release workflow and docs/CHANGELOG.md all
 read it, and tests/test_release.py checks they agree), and setup scripts and CI can read it without installing anything.
 """
-__version__ = "0.1.0"
+__version__ = "0.2.0"

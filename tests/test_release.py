@@ -80,7 +80,15 @@ for argv, want in ((["check", "v" + VERSION], 0), (["check", "v9.9.9"], 1), (["n
     p = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "release_check.py")] + argv, capture_output=True, text=True, timeout=60)
     check(f"release_check.py {' '.join(argv) or '(nothing)'} exits {want}", p.returncode == want, (p.returncode, p.stdout[:100], p.stderr[:200]))
 p = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "release_check.py"), "notes", VERSION], capture_output=True, text=True, timeout=60)
-check("`notes` prints exactly the section the library finds", p.stdout.strip() == notes, p.stdout[:100])
+check("`notes` prints the section the library finds, with its relative links made absolute", p.stdout.strip() == RC.absolute_links(notes, VERSION), p.stdout[:100])
+L = lambda t: RC.absolute_links(t, "1.2.3")
+B = "https://github.com/TeamHarrisCali/MeshtasticLLM/blob/v1.2.3/"
+check("a link to a neighbouring doc becomes a link pinned to the tag", L("see [setup](setup.md#lan)") == f"see [setup]({B}docs/setup.md#lan)")
+check("a link up to the repository root is resolved", L("[readme](../README.md#how)") == f"[readme]({B}README.md#how)")
+check("a bare #anchor points into the changelog itself", L("[below](#not-tried)") == f"[below]({B}docs/CHANGELOG.md#not-tried)")
+check("absolute and mailto links are left alone", L("[a](https://example.invalid/x) [b](mailto:a@example.invalid)") == "[a](https://example.invalid/x) [b](mailto:a@example.invalid)")
+check("a link that climbs out of the repository is left alone", L("[x](../../../etc/passwd)") == "[x](../../../etc/passwd)")
+check("the real notes contain no relative link any more", not re.search(r"\]\((?!https?:|mailto:)", RC.absolute_links(notes, VERSION)), re.findall(r"\]\((?!https?:|mailto:)[^)]*\)", RC.absolute_links(notes, VERSION))[:3])
 
 # ---- where the data lives (meshllm/paths.py)
 class A:       # a stand-in for the parsed command line

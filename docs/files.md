@@ -22,6 +22,7 @@
 │   ├── userdata.py           your node labels, notes and stars, and saved snippets
 │   ├── inbox.py              what is new since you last looked (sidebar badges, alerts) and search
 │   ├── backup.py             backups, the daily copy, and restoring at the next start
+│   ├── updater.py            the opt-in check for a newer GitHub release and the in-app update of a git checkout (backup, fast-forward to a release tag, rollback, restart)
 │   ├── diagnostics.py        the health check and the log viewer
 │   ├── report.py             the written report (counts only, never message text)
 │   ├── evals.py              reads the saved evaluation results and the docs for the Evaluation page

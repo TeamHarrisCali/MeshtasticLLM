@@ -49,6 +49,7 @@
     <button id="distBtn" title="Show distances in kilometres or miles" aria-label="Distance unit">km</button>
     <button id="unitBtn" title="Show temperatures in Celsius or Fahrenheit" aria-label="Temperature unit">°C</button>
     <button id="pauseBtn">…</button>
+    <button class="pill upd" id="updPill" type="button" hidden>Update available</button>
     <span class="pill" id="roleBadge" hidden></span>
     <button id="logoutBtn" hidden>Sign out</button>
   </header>
@@ -561,6 +562,20 @@
       <div id="bkStaged" class="warnbox" hidden></div>
       <div id="bkList"></div>
       <p class="hint" id="bkNote"></p>
+    </div>
+    <div class="card" id="updCard" hidden>
+      <h3>Updates</h3>
+      <p id="updInstalled" class="hint" style="margin-top:0"></p>
+      <label class="setrow"><span>Look for a new release by itself, about once a day</span><input type="checkbox" id="updAuto"></label>
+      <p class="hint">Off by default. When it is on, the bridge asks api.github.com for this project's newest release; GitHub sees this computer's IP address and the program's name and version (meshllm/&lt;version&gt;); nothing else is sent. The Check now button below always works, even with this off, because you pressed it.</p>
+      <div class="telform" style="margin:10px 0"><button id="updCheck" type="button">Check now</button><button id="updApply" type="button" class="primary" hidden>Update now</button></div>
+      <div id="updLatest"></div>
+      <pre id="updNotes" class="updnotes" hidden aria-label="Release notes"></pre>
+      <div id="updHow" class="warnbox" hidden></div>
+      <p id="updErr" class="hint err" hidden></p>
+      <p id="updProgress" class="hint" role="status"></p>
+      <div id="updApplied"></div>
+      <p class="hint" id="updNote" role="status"></p>
     </div>
     <div class="card">
       <h3>Storage and retention</h3>

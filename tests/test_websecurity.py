@@ -9,10 +9,14 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, "tests"))
 from fixture import make, Checker
-from meshllm import actions, bridge as bridgemod, passwords, tiles as T, webroutes, websecurity as ws, webui
+from meshllm import actions, bridge as bridgemod, passwords, tiles as T, updater, webroutes, websecurity as ws, webui
 import requests as rq
 
 check = Checker()
+def _no_network(*a, **k):
+    """The route loop below calls every admin route, including /api/update/check: it must never reach the real GitHub from a test."""
+    raise rq.ConnectionError("no network in the tests")
+updater._http_get = _no_network
 AT = chr(64)        # spelled out so the test file holds no e-mail-looking text
 HERE = tempfile.mkdtemp(prefix="meshsec_")
 ADMIN_PW, VIEWER_PW, NEW_PW = "correct horse battery", "viewer staple lantern", "a brand new passphrase"
@@ -536,13 +540,14 @@ EXPECTED = {   # every route, tagged by someone reading this table: a new route 
                        "/api/traceroute/request", "/api/unread", "/api/search", "/api/snippets", "/api/coverage", "/api/coverage/walk", "/api/coverage/walk/session", "/api/evals", "/api/docs"],
                "GET_RE": [r"/tiles/(\d{1,2})/(\d{1,8})/(\d{1,8})\.png"], "POST": ["/api/logout", "/api/ai/ask"], "POST_RAW": []},
     "viewer-sensitive": {"GET": ["/api/export.csv", "/api/telemetry/export.csv", "/api/diagnostics", "/api/logs", "/api/report", "/api/report.md"], "GET_RE": [r"/api/data/export/([a-z_]{1,30})\.csv"], "POST": [], "POST_RAW": []},
-    "admin": {"GET": ["/api/access", "/api/radio/config", "/api/radio/config/backup", "/api/backups", "/api/backups/download"], "GET_RE": [],
+    "admin": {"GET": ["/api/access", "/api/radio/config", "/api/radio/config/backup", "/api/backups", "/api/backups/download", "/api/update"], "GET_RE": [],
               "POST": ["/api/pause", "/api/send", "/api/memory/clear", "/api/access/mode", "/api/access/default_cap", "/api/access/node", "/api/queue/cancel", "/api/model", "/api/models/pull",
                        "/api/models/pull/cancel", "/api/channel/post", "/api/channel/clear", "/api/telemetry/watch/add", "/api/telemetry/watch/remove", "/api/telemetry/watch/all",
                        "/api/telemetry/retention", "/api/telemetry/prune", "/api/tiles/clear", "/api/settings/dist_unit", "/api/settings/temp_unit", "/api/radio/position",
                        "/api/radio/config/pull", "/api/radio/config/save", "/api/radio/config/restore", "/api/radio/change/dismiss", "/api/radio/time", "/api/connection/ble/scan", "/api/connection/ble/save", "/api/connection/ble/clear", "/api/traceroute/request",
                        "/api/notes/set", "/api/snippets/add", "/api/snippets/delete", "/api/backups/create", "/api/backups/auto", "/api/backups/delete", "/api/backups/restore/existing",
-                       "/api/backups/restore/cancel", "/api/coverage/walk/start", "/api/coverage/walk/stop", "/api/coverage/walk/delete"], "POST_RAW": ["/api/backups/restore"]},
+                       "/api/backups/restore/cancel", "/api/coverage/walk/start", "/api/coverage/walk/stop", "/api/coverage/walk/delete",
+                       "/api/update/check", "/api/update/setting", "/api/update/apply"], "POST_RAW": ["/api/backups/restore"]},
     "public": {"GET": ["/api/session"], "GET_RE": [], "POST": ["/api/login"], "POST_RAW": []},
 }
 

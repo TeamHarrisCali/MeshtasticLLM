@@ -39,6 +39,7 @@ from meshllm.mesh import MeshService, clean as clean_text, summarize as mesh_sum
 from meshllm.radio_config import RadioConfig
 from meshllm.channel import ChannelService, CHANNEL_DEST
 from meshllm.userdata import UserData
+from meshllm.updater import Updater, finish_restart
 from meshllm.backup import Backups, apply_staged_restore
 from meshllm.diagnostics import Diagnostics
 from meshllm.reach import Coverage
@@ -310,6 +311,8 @@ class Bridge:
         self.channel = ChannelService(self)             # the default public channel: read it, post to it by hand. No AI involved.
         self.userdata = UserData(self)                  # your node labels, notes, stars and saved snippets (never sent, never shown to the AI)
         self.backups = Backups(self)
+        self.updater = Updater(self)                    # the opt-in check for a newer release and the in-app update (updater.py)
+        self.restart_command = None     # set by the updater: main() replaces this process with that command once run() has returned
         self.diagnostics = Diagnostics(self)
         self.coverage = Coverage(self)
         self.tiles = TileCache(Path(args.db).resolve().parent / "tile_cache")   # map background, fetched on demand and kept
@@ -1295,6 +1298,11 @@ class Bridge:
         """Ask connect_loop() to finish (used for shutdown and in tests)."""
         self._stopping = True
 
+    def request_restart(self, command):
+        """After an update: stop the bridge the normal way (run() returns, the radio is closed) and ask main() to start `command` in this process's place."""
+        self.restart_command = list(command)
+        self.stop()
+
     def wait_for_loss(self, iface, port):
         """Block while the radio is healthy; return why it stopped being."""
         while not self._stopping:
@@ -1368,6 +1376,7 @@ class Bridge:
         if not getattr(self.args, "no_warm_up", True):
             self.warm_up()
         self.mesh.start()   # counts/snapshots for Home, and the hourly prune of old telemetry
+        self.updater.start()    # does nothing unless the owner switched the update check on (Settings > Updates)
         demo_mode = getattr(self.args, "demo", False)
         mode = "with the simulated demo radio" if demo_mode else self.endpoint.describe()
         print(f"Bridge starting: {mode}. Ollama model '{self.model}'. Ctrl+C to stop.")
@@ -1557,7 +1566,10 @@ def main():
     except (ValueError, OSError, AttributeError):       # not the main thread, or no such signal here: Ctrl+C still works
         pass
     apply_staged_restore(args.db)           # a database restore set aside from the dashboard is swapped in before anything opens it
-    Bridge(args).run()
+    bridge = Bridge(args)
+    bridge.run()
+    if bridge.restart_command:              # an update from the dashboard asked for a restart (updater.py decides when that is safe)
+        finish_restart(bridge)
 
 
 if __name__ == "__main__":

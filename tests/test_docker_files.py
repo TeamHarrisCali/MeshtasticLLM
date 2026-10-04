@@ -339,6 +339,7 @@ saved_attrs = {n: getattr(bridge, n) for n in ("parse_cli", "apply_staged_restor
 old_handler = signal.getsignal(signal.SIGTERM)
 seen = {}
 class FakeBridge:
+    restart_command = None
     def __init__(self, args): pass
     def run(self): seen["handler"] = signal.getsignal(signal.SIGTERM)
 try:

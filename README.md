@@ -84,7 +84,7 @@ What has been tried on real hardware (the automated tests fake the radio and Oll
 - **Knows your mesh.** The AI looks things up in what your radio has heard (nodes, batteries, sensors, signal, quiet nodes, history) and says "I can't tell" instead of inventing numbers.
 - **Finds the radio by itself** and reconnects after an unplug, a swap or a reboot; USB, Bluetooth, Wi-Fi and failover between them.
 - **A full dashboard:** map, nodes with your own labels, coverage, traceroute, telemetry, radio settings backup, diagnostics and an AI log; an evaluation harness scores how reliably a model picks the right tool.
-- **Runs unattended:** background start and stop, start at login, daily backups. Everything stays on your computer; the only outbound connections are ones you ask for.
+- **Runs unattended:** background start and stop, start at login, daily backups, and an opt-in check for new releases that a git checkout can update from ([Updating](docs/setup.md#updating)). Everything stays on your computer; the only outbound connections are ones you ask for.
 
 ## Screenshots
 

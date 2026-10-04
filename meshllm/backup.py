@@ -141,6 +141,10 @@ class Backups:
             raise BackupError("That backup no longer exists.")
         return p
 
+    def verify(self, name):
+        """Check a saved backup is a healthy database of this bridge (raises BackupError if not); returns what it contains. The updater uses it on the copy it just made."""
+        return _validate(self.path_of(name))
+
     def delete(self, name):
         """Remove one backup file (name is validated by path_of)."""
         self.path_of(name).unlink()

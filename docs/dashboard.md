@@ -57,7 +57,7 @@ or show a desktop notification while the tab is in the background.
   (counts only) and things worth a look. Download it as Markdown, copy it, or print it. It never contains message text.
 - **Diagnostics.** A health check that says what is wrong and what to do (radio, Ollama, disk, database, backups, errors, start at
   login), and the bridge's own log, which follows the end as it grows.
-- **Settings.** Units, notifications, backups, storage and start at login.
+- **Settings.** Units, notifications, backups, updates (admin only), storage and start at login.
 
 ## AI
 
@@ -68,6 +68,14 @@ or show a desktop notification while the tab is in the background.
 - **AI log.** Every message to and from the AI, with status, model time, signal, hops and delivery. Search, filter, CSV export.
 - **Evaluation.** The saved results of measuring how well the model picks tools (development questions, and held-out questions that are
   never tuned to), models side by side, the usefulness audits, and the project's write-ups, including the demo script.
+
+## Updates
+
+**Settings > Updates** (admin only; a viewer never sees it, and the header's **Update available** pill is shown to the admin only). It says which version is running and how it was
+installed, has a switch for the daily check (**off** until you turn it on; it contacts api.github.com, which sees this computer's IP address and the program's name and version,
+nothing else) and a **Check now** button (always works, because you pressed it). When a newer release exists it shows the release notes as plain text and what to do for your kind of install:
+a git checkout gets **Update now** (a confirmation names the version and the steps: backup, pull, install packages, restart); Docker, the downloadable program and other installs get the exact
+commands or the release page. After an update the page says how to go back. Everything about it is in [setup.md](setup.md#updating).
 
 ## Backups
 

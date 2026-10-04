@@ -11,7 +11,9 @@ import time
 from collections import defaultdict
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent      # the project folder (this file is meshllm/evals.py)
+from meshllm import paths
+
+ROOT = paths.resource_root()      # the project folder, or the bundle in a packaged program (docs/ and docs/eval_results/ ship with it)
 RESULTS = ROOT / "docs" / "eval_results"
 DOCS = ROOT / "docs"
 MAX_FILE = 2 * 1024 * 1024

@@ -47,6 +47,16 @@ RADIO_VIDS = {0x239A, 0x303A, 0x10C4, 0x1A86, 0x0403, 0x2886, 0x1915, 0x2E8A}   
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))     # the project folder (this file is scripts/setup_env.py)
 
 
+def read_version(root):
+    """The program's version from meshllm/__init__.py, read as text (the package is not imported: no dependency exists yet); None if unreadable."""
+    try:
+        with open(os.path.join(root, "meshllm", "__init__.py"), encoding="utf-8") as f:
+            m = re.search(r'^__version__\s*=\s*"([^"]+)"', f.read(), re.M)
+        return m.group(1) if m else None
+    except OSError:
+        return None
+
+
 # ---- console output -------------------------------------------------------------------------------------------------------------------------
 class Report:
     """Prints a checklist and remembers how it went. ASCII only, so any console shows it."""
@@ -806,6 +816,7 @@ def main(argv=None, root=None, out=None, which=shutil.which, runner=run, ask=ask
     if not os.path.isfile(os.path.join(root, "meshllm", "bridge.py")):
         rep.fail("this isn't the project folder (meshllm/bridge.py is missing)", "Run this script from the project folder, or pass --dir.")
         return 1
+    rep.info("Meshtastic LLM Bridge version %s" % (read_version(root) or "unknown"))
 
     if opts.docker or opts.docker_stop:                                   # its own job: no Python environment is needed for Docker
         import setup_docker

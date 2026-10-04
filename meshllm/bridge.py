@@ -27,9 +27,9 @@ from pathlib import Path
 import requests
 from pubsub import pub
 
-from meshllm import actions
+from meshllm import __version__, actions
 from meshllm import connection
-from meshllm import passwords
+from meshllm import passwords, paths
 from meshllm import webui
 from meshllm import websecurity
 from meshllm.audit import Audit
@@ -850,6 +850,7 @@ class Bridge:
             "last_rx_age_s": None if age is None else int(age),
             "silence_limit_s": self.endpoint.silence_limit or None,
             "demo": bool(getattr(self.args, "demo", False)),   # --demo: the dashboard shows a "Demo mode" badge
+            "version": __version__,     # the program's version (meshllm/__init__.py); not sensitive
         }
 
     def known_nodes(self):
@@ -1469,7 +1470,11 @@ def build_parser():
     p.add_argument("--memory-chars", type=int, default=3000, help="cap on remembered text per request")
     p.add_argument("--no-log-inbound", action="store_true",
                    help="don't record plain (non-/ai) DMs to this node")
-    p.add_argument("--db", default=str(Path(__file__).resolve().parent.parent / "audit.db"), help="audit database file")
+    p.add_argument("--version", action="version", version=f"meshllm {__version__}")
+    p.add_argument("--db", default=paths.default_db(), help="audit database file (default: audit.db in the data folder, see --data-dir)")
+    p.add_argument("--data-dir", metavar="PATH", default=None,
+                   help="folder for audit.db, backups, the map tile cache and logs (also MESHLLM_DATA_DIR). Default: the project folder, "
+                        "or your user data folder in the packaged program")
     p.add_argument("--web-host", default="127.0.0.1",
                    help="web UI bind address (default localhost only; it shows message content). Any other address needs a login "
                         "(--password-hash-file) and --allowed-host")
@@ -1492,6 +1497,7 @@ def parse_cli(argv=None):
     args = parser.parse_args(argv)
     connection.check_args(parser, args)
     websecurity.check_args(parser, args)
+    paths.apply_cli(args, parser.get_default("db"))
     return parser, args
 
 

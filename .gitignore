@@ -19,6 +19,10 @@ tile_cache/
 # Private working copies (originals of anonymized results, personal notes, screenshots)
 private/
 
+# The packaged program: scripts/build_binary.py builds into dist/ (and PyInstaller's work folder)
+dist/
+build/
+
 # Docker Compose settings (copy .env.example to .env)
 .env
 

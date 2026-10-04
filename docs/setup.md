@@ -451,3 +451,26 @@ block under the `ollama` service in `docker-compose.yml`. It is left commented o
 
 CI builds the image on every pull request and smoke-tests the demo container (it checks the dashboard answers, the user id is not 0 and the healthcheck passes), then starts the bridge with the login override
 (a hash file made by the project's own helper): the healthcheck goes healthy, the sign-in works through the published port, the hash is not in `docker inspect`, PID 1 is uid 10001 with no capabilities, and the image refuses a LAN publish without a login. Nothing is pushed to any registry.
+
+## Where the data lives, and the downloadable program
+
+**Your data** is `audit.db` (settings, chat memory, mesh data), `backups/`, `tile_cache/` and `logs/`. Run from source (the installer's way) they sit
+in the project folder, as always. `--data-dir PATH` or the environment variable `MESHLLM_DATA_DIR` moves all four anywhere, in every mode ([flags.md](flags.md#version-and-data-folder));
+Docker keeps them in its volume at `/data`. To move an existing installation, stop the bridge and copy `audit.db` (and `backups/` if you want them) into the new folder.
+
+**The downloadable program** is the same bridge built with PyInstaller into a folder you can run with no Python installed. Releases appear on the project's GitHub
+Releases page once the first one is published (see [releasing.md](releasing.md); none exists yet). Download the archive for your system
+(`meshllm-<version>-linux-x86_64.tar.gz`, `-macos-arm64.tar.gz` or `-windows-x86_64.zip`), check it against `SHA256SUMS`, unpack it anywhere and run the `meshllm` program inside
+(`meshllm.exe` on Windows) from a terminal with the flags you would give `python -m meshllm`: `./meshllm --demo` is the quickest try, `./meshllm --version` the quickest check.
+
+- **Ollama is separate.** The program does not include it or any model; install [Ollama](https://ollama.com/download) as before.
+- **The data goes to your own folder, not next to the program** (a program folder may be read-only or replaced by the next version): `%APPDATA%\meshllm` on Windows,
+  `~/Library/Application Support/meshllm` on macOS, `$XDG_DATA_HOME/meshllm` (else `~/.local/share/meshllm`) on Linux. The bridge prints where the database is when it starts, and Diagnostics shows it.
+  Upgrading is unpacking the new folder; your data stays where it is.
+- **The dashboard's own pages and the docs are inside the program** (read-only); nothing is written into its folder.
+- **Logs.** The packaged program writes to the terminal only. The Diagnostics log viewer reads `bridge.log` and `bridge.err.log` from the data folder's `logs/`, which exist only if you
+  redirect the output there yourself; `scripts/start_bridge` is for the installer's way.
+- **No installer, no start at login.** Those belong to `setup.sh` / `setup.bat`; the program is just the bridge.
+- **USB and Bluetooth behave as with the installer**, because the program runs on your computer, not in a container: the same drivers, the same `dialout` group on Linux, the same Bluetooth pairing notes.
+- **Unsigned.** The programs are not code-signed or notarised, so Windows SmartScreen and macOS Gatekeeper will warn the first time ([releasing.md](releasing.md#what-the-downloads-are-and-are-not)).
+- **What was tried:** CI builds and starts each program and serves the demo dashboard on Linux, Windows and macOS. No packaged program has been run against a real radio.

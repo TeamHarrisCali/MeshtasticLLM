@@ -5,6 +5,7 @@
 ├── meshllm/                  the Python package: all of the bridge's code
 │   ├── bridge.py             the bridge: radio <-> Ollama, queue, access rules, acked replies, memory (entry point)
 │   ├── __main__.py           `python -m meshllm` starts the bridge
+│   ├── paths.py              where the program keeps its data (audit.db, backups, tile cache, logs: the project folder from source, a per-user folder when packaged, `--data-dir` / `MESHLLM_DATA_DIR` for both) and where its read-only files are (the bundle when packaged)
 │   ├── connection.py         how the radio is reached: USB serial, Wi-Fi (TCP) or Bluetooth (BLE) endpoints, their health checks and retry wording, `--tcp`/`--ble`/`--fallback` parsing, and the `FailoverChain` that strings them into one prioritised connection
 │   ├── demo.py               `--demo`: a simulated radio and mesh, a traffic generator and a scripted fake Ollama, so the dashboard works with no hardware
 │   ├── actions.py            the AI's fixed menu of read-only mesh lookups, with parameter validation
@@ -33,7 +34,8 @@
 │       ├── eval_tools.py         measures a model's tool-choice accuracy (dev and held-out question sets)
 │       └── usefulness_audit.py   asks the running bridge a fixed set of questions and saves the answers
 ├── tests/                    the test suite (radio and Ollama are faked); run it with `python scripts/run_tests.py`
-├── docs/                     these pages (the dashboard also shows them, on Evaluation under Write-ups), plus TODO.md (the hand-off queue, not shown there)
+├── docs/                     these pages (the dashboard also shows them, on Evaluation under Write-ups), plus TODO.md (the hand-off queue, not shown there);
+│   │                         CHANGELOG.md (what changed in each version) and releasing.md (how a release is cut and checked)
 │   ├── eval_results/         saved evaluation runs (CSV for tool choice, JSON for the usefulness audit)
 │   └── screenshots/          the pictures in the README (made in demo mode)
 ├── scripts/                  the installer and the helpers around it (they find the project folder as their parent)
@@ -42,7 +44,13 @@
 │   ├── setup.ps1             the Windows launcher for setup_env.py (setup.bat starts it)
 │   ├── start_bridge.sh, stop_bridge.sh     run the bridge in the background / stop it (Linux / macOS)
 │   ├── start_bridge.ps1, stop_bridge.ps1   the same on Windows
-│   └── run_tests.py          runs every test file and prints one line each
+│   ├── run_tests.py          runs every test file and prints one line each
+│   ├── build_binary.py       builds the downloadable program for this operating system with PyInstaller (`dist/meshllm-<version>-<os>-<arch>/` and its archive)
+│   ├── meshllm.spec          the PyInstaller recipe: what is bundled and which Bluetooth/serial parts are named
+│   ├── launcher.py           the packaged program's entry point (the bridge's `main()`, plus `--self-check`)
+│   ├── smoke_binary.py       starts a built program and checks it (version, demo mode, data folder, nothing written inside it); CI runs it on Linux, Windows and macOS
+│   ├── release_check.py      the release workflow's checks (tag = `v` + version, changelog section, release notes), also run by the tests
+│   └── requirements-build.txt  PyInstaller, pinned to a range (only needed to build)
 ├── setup.sh, setup.bat       the two "run this first" launchers (Linux / macOS, Windows): find Python, then run scripts/setup_env.py
 ├── Dockerfile                the container image: Python slim base pinned by tag and digest, numeric non-root user, healthcheck
 ├── docker-compose.yml        the bridge + Ollama + a `demo` profile; dashboard published on 127.0.0.1 unless you opt in to the LAN (which needs the login), hardened container
@@ -54,12 +62,13 @@
 ├── .dockerignore             keeps the database, backups, logs, tile cache, tests and git history out of the image
 ├── requirements.txt          the Python dependencies (meshtastic, requests)
 ├── LICENSE
-├── .github/                  CONTRIBUTING.md (contribution guide), SECURITY.md (security policy), CI workflow, issue and pull request templates
+├── .github/                  CONTRIBUTING.md (contribution guide), SECURITY.md (security policy), issue and pull request templates, and the workflows:
+│   └── workflows/            tests.yml (the required CI checks), package.yml (builds and smoke-tests the program on Linux, Windows and macOS), release.yml (a pushed `v*.*.*` tag becomes a GitHub Release)
 └── .gitignore, .gitattributes
 ```
 
 Made while running, and never committed (see `.gitignore`): `.venv/` (the private Python environment), `audit.db` (every setting, message
-and bit of mesh data), `logs/`, `backups/`, `tile_cache/`, and a `private/` folder for anything you want to keep out of version control.
+and bit of mesh data), `logs/`, `backups/`, `tile_cache/`, `dist/` (the built program), and a `private/` folder for anything you want to keep out of version control.
 
 The two launchers, `setup.sh` and `setup.bat`, stay at the top level on purpose: they are the first thing a new user types. The
 installer itself (`scripts/setup_env.py`) runs with the system Python before any dependency exists. `docker-compose.yml`, the `Dockerfile`

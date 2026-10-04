@@ -490,6 +490,48 @@ def fallback_type(text):
         raise argparse.ArgumentTypeError(str(e)) from None
 
 
+SAVED_FALLBACK_KEY = "ble_fallback"      # the settings-database key holding the Bluetooth fallback saved from the dashboard (a normalised MAC)
+BLE_NAME_PREFIX = "Meshtastic_"          # a Meshtastic radio advertises as Meshtastic_ followed by the last 4 hex digits of its node id
+
+
+def normalise_mac(text):
+    """A Bluetooth address of the form AA:BB:CC:DD:EE:FF (colons or dashes, any case) as upper-case with colons; raises ValueError for anything
+    else. Deliberately strict: this is the only thing the dashboard will save as the Bluetooth fallback."""
+    text = text.strip() if isinstance(text, str) else ""
+    if not MAC_RE.fullmatch(text) or (":" in text and "-" in text):       # six hex pairs, joined by colons or by dashes, not a mixture
+        raise ValueError("That is not a Bluetooth address (expected six hex pairs such as AA:BB:CC:DD:EE:FF).")
+    return text.replace("-", ":").upper()
+
+
+def expected_ble_name(node_id):
+    """The Bluetooth name a radio advertises, from its node id: '!00000a01' -> 'Meshtastic_0a01'. None when `node_id` is not a node id."""
+    m = re.fullmatch(r"!([0-9a-fA-F]{8})", node_id.strip()) if isinstance(node_id, str) else None
+    return BLE_NAME_PREFIX + m.group(1)[-4:].lower() if m else None
+
+
+def matching_ble_devices(devices, expected_name):
+    """Of the scan's devices, only those advertising exactly `expected_name` (case-insensitive), as [{"name", "address"}] with each address
+    kept as the scan gave it, one entry per address. Every other radio in range is dropped, so the caller never sees (or offers) a neighbour's."""
+    want, seen, out = (expected_name or "").strip().lower(), set(), []
+    for d in devices or []:
+        name, address = getattr(d, "name", None) or "", getattr(d, "address", None) or ""
+        if want and name.strip().lower() == want and address not in seen:
+            seen.add(address)
+            out.append({"name": name, "address": address})
+    return out
+
+
+def saved_fallback(args, saved):
+    """The (kind, value) the bridge should add to its chain from the fallback saved in the dashboard, or None. Command-line flags always win:
+    any of --fallback, --tcp or --ble on the command line means the saved one is ignored. A saved value that is not a valid address is ignored too."""
+    if not saved or getattr(args, "demo", False) or getattr(args, "fallback", None) or getattr(args, "tcp", None) is not None or getattr(args, "ble", None) is not None:
+        return None
+    try:
+        return "ble", normalise_mac(saved)
+    except ValueError:
+        return None
+
+
 def endpoint_key(endpoint):
     """What makes two endpoints the same way of reaching a radio, for refusing duplicates: kind plus a normalised target."""
     if isinstance(endpoint, TcpEndpoint):
@@ -535,8 +577,9 @@ def check_args(parser, args):
             seen.add(key)
 
 
-def make_endpoint(args, with_fallbacks=True):
+def make_endpoint(args, with_fallbacks=True, saved=None):
     """The Endpoint the command-line flags ask for: the primary one, wrapped in a FailoverChain when --fallback entries were given.
+    `saved` is a (kind, value) from saved_fallback(): it is the one fallback when no --fallback flag was given.
     Tolerates an `args` without the newer flags (older tests and callers)."""
     if getattr(args, "demo", False):     # the simulated radio has no socket or Bluetooth client: --tcp/--ble/--fallback are ignored there
         return SerialEndpoint()
@@ -547,7 +590,7 @@ def make_endpoint(args, with_fallbacks=True):
         primary = BleEndpoint(args.ble.strip(), silence_limit=BLE_SILENCE_LIMIT if silence is None else silence)
     else:
         primary = SerialEndpoint(getattr(args, "port", "auto"), bool(getattr(args, "probe_unknown", False)))
-    fallbacks = getattr(args, "fallback", None) or []
+    fallbacks = getattr(args, "fallback", None) or ([saved] if saved else [])
     if not (with_fallbacks and fallbacks):
         return primary
     return FailoverChain([primary] + [_fallback_endpoint(k, v, silence) for k, v in fallbacks])

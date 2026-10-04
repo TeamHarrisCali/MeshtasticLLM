@@ -234,6 +234,12 @@ class Audit:
             self.db.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, str(value)))
             self.db.commit()
 
+    def delete_setting(self, key):
+        """Remove a stored runtime setting (a later get_setting returns its default again)."""
+        with self.lock:
+            self.db.execute("DELETE FROM settings WHERE key=?", (key,))
+            self.db.commit()
+
     def get_access(self, node_id):
         """(access, daily_cap override or None) for a node."""
         with self.lock:

@@ -15,6 +15,7 @@
 │   ├── reach.py              the Coverage page: reach by direction, signal against distance, the walk test
 │   ├── channel.py            the public channel page: hearing the primary channel, posting to it (operator only)
 │   ├── radio_config.py       reading, backing up, validating and writing the radio's settings
+│   ├── btfinder.py           the Connection page: the radio's Bluetooth state, the one-at-a-time scan for its Bluetooth address, the saved Bluetooth fallback
 │   ├── ollama_models.py      listing and downloading Ollama models for the Model page
 │   ├── tiles.py              the on-disk cache behind the OpenStreetMap map background (tile_cache/)
 │   ├── userdata.py           your node labels, notes and stars, and saved snippets

@@ -46,6 +46,12 @@ or show a desktop notification while the tab is in the background.
 - **Telemetry.** Battery, voltage, channel use and sensor readings every node broadcast, recorded passively; a watch list; CSV export.
 - **Radio settings.** Pull the radio's configuration, edit it in a form, and push only what changed. Backups are taken first and can be
   restored. Keys, passwords and Wi-Fi/MQTT secrets are never shown.
+- **Connection.** How the bridge is linked to the radio (USB, Wi-Fi or Bluetooth, and the failover chain), whether the radio's Bluetooth is on
+  and its pairing mode, and, for the admin, **Find this radio's Bluetooth address**: a scan of this PC's Bluetooth that lists only the device
+  named `Meshtastic_` plus the last four hex digits of the radio's node id, and **Use as Bluetooth fallback**, which saves it so no
+  `--fallback` flag is needed (restart the bridge to apply it; command-line flags always win). The radio does not report its Bluetooth
+  address over USB, and the pairing PIN is never read or shown. The scan does not work in Docker, and a read-only viewer sees no addresses and no pairing mode. It sends no mesh traffic and changes nothing on the radio.
+  Details: [setup.md](setup.md#finding-the-radios-bluetooth-address-from-the-dashboard).
 - **Data.** Everything this bridge collects, how much, how long it is kept, and downloads.
 - **Report.** A written summary of the last day, week or month: nodes, traffic, signal and range, sensors, the AI, the public channel
   (counts only) and things worth a look. Download it as Markdown, copy it, or print it. It never contains message text.

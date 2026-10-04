@@ -168,6 +168,38 @@ for example `usb:/dev/ttyUSB1,tcp:192.168.1.50`; see [Run with Docker](#run-with
 Heltec V3, unplugging USB switched to Bluetooth and replugging switched back to USB after the 10 s window, and the bridge recognised the same radio each
 time. Wi-Fi as a fallback, and failover with several radios, are untested. `--demo` ignores `--fallback`.
 
+### Finding the radio's Bluetooth address from the dashboard
+
+If the radio is connected by USB, can this PC see its Bluetooth and use it? Partly. Over USB the radio reports its **Bluetooth settings**
+(whether Bluetooth is on, and the pairing mode: random PIN, fixed PIN or no PIN), but **not its Bluetooth address**; the firmware never sends
+it. The only hints are its name, which is `Meshtastic_` plus the last four hex digits of its node id (node id `!00000a01` advertises as
+`Meshtastic_0a01`), and what this PC's own Bluetooth hears nearby. The pairing PIN is a credential and is never read, shown or stored by
+this feature.
+
+The dashboard's **Connection** page (Tools) puts that together, for the admin account only:
+
+1. *How the bridge is connected*: the failover chain and which entry is live, as on Home and Diagnostics.
+2. *The radio's Bluetooth*: on or off and (admin only) the pairing mode, read from the settings the radio sent when the bridge connected.
+3. **Scan for it**: a scan of this PC's Bluetooth (up to 25 seconds, one at a time, in the background) that keeps only a device advertising the
+   expected name. Other radios in range are dropped, never listed. It says plainly when nothing was found (the radio is off, out of range, or
+   held by a phone or another computer, which stops it advertising) or when Bluetooth is unavailable.
+4. **Use as Bluetooth fallback**: saves that address in the bridge's settings database. **Restart the bridge to apply it** (the running chain is
+   not rebuilt). From then on, when the bridge is started with no `--fallback`, `--tcp` or `--ble` flag, it builds the chain USB first and that
+   Bluetooth address second, exactly as `--fallback ble:ADDRESS` would. Any of those flags on the command line always wins, and the page says
+   so. **Clear** removes the saved address (also applied at the next start). The address must be six hex pairs (`AA:BB:CC:DD:EE:FF`, colons or
+   dashes, any case; it is saved upper case with colons) and nothing else is accepted.
+
+*Limits.* The scan cannot run **in Docker**: a container has no Bluetooth adapter, so the page and the API say so and refuse (run the bridge
+directly on the PC, or run `python -m meshllm --ble-scan` there, to find the address). It needs `bleak` and, on Linux, BlueZ; without them
+it says so. It is refused while the bridge is itself connected over Bluetooth, because a connected radio does not advertise and a scan could
+disturb the live link. Radios whose Bluetooth name was changed may not match the expected name. macOS reports a Bluetooth device as a long
+identifier instead of an address; those can be found but not saved here (use `--fallback ble:NAME` instead). A viewer (read-only) account sees the kinds of
+connection and whether the radio's Bluetooth is on, never an address, the radio's Bluetooth name or pairing mode, the saved fallback, or the scan.
+Only one scan runs at a time, and a scan that never reports back stops blocking a new one after 60 seconds. After a failed or timed-out scan a new one
+is refused for about 30 seconds, because BlueZ can keep a discovery running for a short while after the bridge gives up on it. A scan started just
+as USB drops may overlap one Bluetooth connect attempt of the failover chain; if the link then misbehaves, wait a minute and it settles.
+Real Bluetooth scanning from the dashboard has not been tried on a real radio yet; the tests use a fake scan.
+
 ## Use the dashboard from a phone or another computer (LAN login)
 
 By default the dashboard only listens on this computer (`127.0.0.1`) and has no login. To open it from a phone or another PC it needs a **password**, a list of the
@@ -258,7 +290,7 @@ container (`model-pull`) that downloads the AI model the first time. The files a
 
 **What Docker can't do** (use the installer above if you need any of these):
 
-- **Bluetooth.** A container cannot reach the host's Bluetooth service, so a Bluetooth radio, `--ble-scan`, and the **USB-with-Bluetooth failover** (the combination tested on real hardware) work only with the installer. Inside Docker failover can only be between USB and Wi-Fi, which is untested.
+- **Bluetooth.** A container cannot reach the host's Bluetooth service, so a Bluetooth radio, `--ble-scan`, the dashboard's [Bluetooth address finder](#finding-the-radios-bluetooth-address-from-the-dashboard), and the **USB-with-Bluetooth failover** (the combination tested on real hardware) work only with the installer. Inside Docker failover can only be between USB and Wi-Fi, which is untested.
 - **USB on Windows and macOS.** Docker Desktop cannot hand a USB serial device to a container, so USB radios work in Docker on Linux only (elsewhere use a Wi-Fi radio, also untested).
 - **USB hot-plug.** The device is passed to the container when it is created: after unplugging and replugging the radio, run the setup command (or `docker compose up -d`) again. The installer's bridge reconnects by itself.
 - **Your existing data.** Docker keeps its own database and its own copy of the AI model, separate from a bridge and an Ollama you already run (restore an old database from the dashboard's Backups page).

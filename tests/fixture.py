@@ -59,6 +59,8 @@ def make(tmp=None, web_port=None, **over):
     radio = Radio()
     br.iface = radio
     br.models.thinks = lambda name: False
+    # no test may touch a real Bluetooth adapter: the dashboard's scan is faked (finds nothing), and Docker detection is switched off
+    br.btfinder.scan_fn, br.btfinder.ble_check, br.btfinder.container = (lambda: []), (lambda: None), (lambda: False)
     if web_port:
         webui.start(br)
         time.sleep(0.3)

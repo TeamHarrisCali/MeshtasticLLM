@@ -37,6 +37,7 @@ setInterval(() => {
   else if (view === "access") refreshAccess(false);
   else if (view === "coverage") refreshCoverage(false);
   else if (view === "diagnostics") refreshDiagnostics(false);
+  else if (view === "connection") refreshConnection(false);
   else if (view === "settings") refreshSettings(false);
   pollUnread();
 }, 3000);

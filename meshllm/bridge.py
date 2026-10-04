@@ -33,6 +33,7 @@ from meshllm import passwords
 from meshllm import webui
 from meshllm import websecurity
 from meshllm.audit import Audit
+from meshllm.btfinder import BluetoothFinder
 from meshllm.ollama_models import ModelManager, OllamaError, same_model
 from meshllm.mesh import MeshService, clean as clean_text, summarize as mesh_summarize
 from meshllm.radio_config import RadioConfig
@@ -284,7 +285,11 @@ class Bridge:
         self.seen_ids = set()           # ids of the last SEEN_PACKETS text packets, to answer a duplicate delivery only once
         self._seen_order = deque()      # the same ids oldest first, so the window rolls instead of being cleared in one go
         self.iface = None               # the connected radio, or None while searching
-        self.endpoint = connection.make_endpoint(args)   # how we reach the radio: USB serial, Wi-Fi (TCP) or Bluetooth (see connection.py)
+        # the Bluetooth fallback saved from the dashboard counts only when no connection flag was given (flags always win); a change needs a restart
+        self.saved_fallback = connection.saved_fallback(args, self.audit.get_setting(connection.SAVED_FALLBACK_KEY))
+        self.endpoint = connection.make_endpoint(args, saved=self.saved_fallback)   # how we reach the radio: USB serial, Wi-Fi (TCP) or Bluetooth (see connection.py)
+        if self.saved_fallback:
+            print("[connection] using the Bluetooth fallback saved in the dashboard (no --fallback, --tcp or --ble flag was given)")
         self.port = None                # its label (/dev/ttyUSB0, tcp://host:4403, ble:ADDRESS); the last one used while searching
         self.radio_info = {}            # last known details of the radio (kept while it is away)
         self.radio_id = None
@@ -309,6 +314,7 @@ class Bridge:
         self.coverage = Coverage(self)
         self.tiles = TileCache(Path(args.db).resolve().parent / "tile_cache")   # map background, fetched on demand and kept
         self.mesh = MeshService(self)
+        self.btfinder = BluetoothFinder(self)           # the Connection page: the link, the radio's Bluetooth settings, finding its address
         self.paused = False
         self.started = time.time()
         self._ollama_cache = (0.0, False)

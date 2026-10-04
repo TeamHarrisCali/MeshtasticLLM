@@ -18,7 +18,7 @@ function note(msg, isErr) { const n = $("sendNote"); n.textContent = msg || ""; 
 // ---- navigation: a sidebar of pages, each with its own address (#/nodes/!1a2b3c4d) ---------------
 // Page id -> title. Ids are the #/id addresses and the data-view values of the sidebar buttons.
 const PAGES = { home: "Home", nodes: "Nodes", map: "Map", coverage: "Coverage", channel: "Public channel", dm: "Direct messages", chat: "AI conversations", activity: "Activity",
-  telemetry: "Telemetry", traceroute: "Traceroute", radio: "Radio settings", trends: "Trends", data: "Data", report: "Report", diagnostics: "Diagnostics", settings: "Settings",
+  telemetry: "Telemetry", traceroute: "Traceroute", radio: "Radio settings", connection: "Connection", trends: "Trends", data: "Data", report: "Report", diagnostics: "Diagnostics", settings: "Settings",
   search: "Search", ai: "AI overview", model: "Model", access: "Access & actions", audit: "AI log", eval: "Evaluation" };
 const VIEW_OF = { dm: "chat" };            // pages that are drawn in another page's layout
 // The container element for a page (viewHome, viewNodes, ...).
@@ -76,6 +76,7 @@ function showView(v, arg) {
   else if (v === "data") refreshData(true);
   else if (v === "trends") { initTrends(); refreshTrends(true); }
   else if (v === "radio") { initRadio(); refreshRadio(false); }
+  else if (v === "connection") { initConnection(); refreshConnection(true); }
   else if (v === "ai") refreshAi(true);
   else { refreshRows(false); refreshQueue(); }
 }

@@ -1,7 +1,8 @@
-"""setup_env.py: OS detection, environment state, line-ending repair, the --check run."""
+"""scripts/setup_env.py: OS detection, environment state, line-ending repair, the --check run."""
 import io, os, shutil, sys, tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.join(ROOT, "scripts"))      # the installer scripts live in scripts/
 import setup_env as S
 from meshllm import actions
 
@@ -113,13 +114,16 @@ rc = S.main(["--check", "--dir", tempfile.gettempdir()], out=buf)
 check("a wrong folder is refused politely", rc == 1 and "isn't the project folder" in buf.getvalue(), buf.getvalue())
 
 # ---- the launch scripts and bootstrappers exist and have the right line endings
-for n in ("setup.sh", "start_bridge.sh", "stop_bridge.sh"):
+for n in ("setup.sh", "scripts/start_bridge.sh", "scripts/stop_bridge.sh"):
     b = open(os.path.join(root, n), "rb").read()
     check(n + " uses Unix line endings and a shebang", CR not in b and b.startswith(b"#!/usr/bin/env sh"))
 check("setup.bat uses Windows line endings", open(os.path.join(root, "setup.bat"), "rb").read().count(LF) == open(os.path.join(root, "setup.bat"), "rb").read().count(CR + LF))
 ga = open(os.path.join(root, ".gitattributes")).read()
 check(".gitattributes pins .sh to LF and .bat to CRLF", "*.sh text eol=lf" in ga and "*.bat text eol=crlf" in ga)
-check("start_bridge.ps1 prefers the project's environment", ".venv" in open(os.path.join(root, "start_bridge.ps1")).read())
+check("start_bridge.ps1 prefers the project's environment", ".venv" in open(os.path.join(root, "scripts", "start_bridge.ps1")).read())
+check("the launchers point at scripts/ (setup.sh, setup.bat, setup.ps1)", "scripts/setup_env.py" in open(os.path.join(root, "setup.sh")).read()
+      and "scripts\\setup.ps1" in open(os.path.join(root, "setup.bat")).read() and "scripts\\setup_env.py" in open(os.path.join(root, "scripts", "setup.ps1")).read())
+check("S.ROOT is the project folder (the parent of scripts/)", os.path.isfile(os.path.join(S.ROOT, "meshllm", "bridge.py")) and os.path.isfile(os.path.join(S.ROOT, "setup.sh")))
 
 print(f"\n{len(fails)} failed" if fails else "\nall passed")
 sys.exit(1 if fails else 0)

@@ -3,12 +3,12 @@
 #   Try it with no radio and no Ollama:  docker compose --profile demo up demo     then open http://127.0.0.1:8080/
 #   The real thing:                      docker compose up -d                      (needs a radio: see below; the first start also
 #                                        downloads the AI model, about 2 GB: `docker compose logs -f model-pull`)
-#   Easiest:                             python setup_env.py --docker             (checks Docker, finds your radio, offers a
+#   Easiest:                             ./setup.sh --docker                      (checks Docker, finds your radio, offers a
 #                                        dashboard password, writes .env and starts everything: docs/setup.md, "Run with Docker")
 #
 # By default the dashboard has NO LOGIN here, shows message text and lets whoever opens it send on your radio, so it is published on
 # this computer's loopback only ("127.0.0.1:...").
-#   Login (dashboard password):  add  -f docker-compose.login.yml  (the password hash is a Compose secret, never an environment variable).
+#   Login (dashboard password):  add  -f docker/docker-compose.login.yml  (the password hash is a Compose secret, never an environment variable).
 #   Another computer or a phone: needs that login AND MESHLLM_WEB_BIND + MESHLLM_ALLOWED_HOSTS in .env (see .env.example). Without the login
 #                                the container REFUSES TO START when MESHLLM_WEB_BIND is anything but 127.0.0.1 / ::1.
 # WARNING: do NOT hand-edit the "ports:" address to 0.0.0.0, to a LAN or public IP, or drop it so Docker publishes on every interface:
@@ -17,7 +17,7 @@
 # host firewall such as ufw says otherwise. Use MESHLLM_WEB_BIND, which the container checks.
 #
 # Radio: pick ONE way.
-#   USB (Linux hosts only):  docker compose -f docker-compose.yml -f docker-compose.usb.yml up -d
+#   USB (Linux hosts only):  docker compose -f docker-compose.yml -f docker/docker-compose.usb.yml up -d
 #   Wi-Fi/TCP (any host):    set MESHLLM_TCP=<radio address> in .env (see .env.example). NOT yet tested on real hardware.
 #   Bluetooth does NOT work in a container (it needs the host's BlueZ and D-Bus): run the bridge on the host for that.
 #   Failover:                set MESHLLM_FALLBACK=usb:/dev/ttyUSB1,tcp:<address> (priority order after the primary); no ble: entries here.

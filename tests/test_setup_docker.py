@@ -1,10 +1,11 @@
-"""setup_docker.py and `setup_env.py --docker`: the one-command Docker start (Docker, the radio, the password and Docker itself are all faked).
+"""scripts/setup_docker.py and `setup_env.py --docker`: the one-command Docker start (Docker, the radio, the password and Docker itself are all faked).
 
 Nothing here starts a container, opens a serial port or asks for a real password; the temporary folders hold a copy of just the files the
 script reads. The few real things are a loopback socket (the port check) and the compose files in the project (static checks)."""
 import argparse, io, os, re, shutil, socket, sys, tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.join(ROOT, "scripts"))      # the installer scripts live in scripts/
 import setup_env as S
 import setup_docker as D
 
@@ -36,8 +37,8 @@ check("a path with spaces or a $ is single-quoted and read back unchanged", D.ge
 try: D.quote_env("it's"); quote_refused = False
 except ValueError: quote_refused = True
 check("a value with a single quote is refused rather than mangled (a ValueError)", quote_refused)
-check("the compose file list follows the choices (':' on Linux, ';' on Windows)", D.compose_file_value(True, True, ":") == "docker-compose.yml:docker-compose.login.yml:docker-compose.usb.yml"
-      and D.compose_file_value(False, False, ";") == "docker-compose.yml" and D.compose_file_value(False, True, ";") == "docker-compose.yml;docker-compose.usb.yml")
+check("the compose file list follows the choices (':' on Linux, ';' on Windows)", D.compose_file_value(True, True, ":") == "docker-compose.yml:docker/docker-compose.login.yml:docker/docker-compose.usb.yml"
+      and D.compose_file_value(False, False, ";") == "docker-compose.yml" and D.compose_file_value(False, True, ";") == "docker-compose.yml;docker/docker-compose.usb.yml")
 
 # ---- USB and install hints --------------------------------------------------------------------------------------------------------
 fake_find = lambda pat: {"/dev/ttyUSB*": ["/dev/ttyUSB1", "/dev/ttyUSB0"], "/dev/ttyACM*": ["/dev/ttyACM0", "/dev/ttyUSB0"]}[pat]
@@ -154,7 +155,7 @@ try:
     check("a port that something else holds fails early and names the way out", got is None and r.fails == 1 and f"--web-port {busy + 1}" in r.buf.getvalue(), r.buf.getvalue())
     open(os.path.join(tmp, "dummy"), "w").close(); os.makedirs(os.path.join(tmp, "logs")); open(os.path.join(tmp, "logs", "bridge.pid"), "w").write("1")
     r = Rep(); D.check_port(r, runner_for(extra=lambda c: (0, "") if "ps" in c else None), tmp, [], ns(web_port=busy))
-    check("...and mentions a bridge started from this folder (it also holds the radio)", "stop_bridge" in r.buf.getvalue())
+    check("...and mentions a bridge started from this folder (it also holds the radio)", "scripts/stop_bridge" in r.buf.getvalue())
     r = Rep(); got = D.check_port(r, runner_for(extra=lambda c: (0, "abcdef123456\n") if "ps" in c else None), tmp, [], ns(web_port=busy))
     check("a busy port that is our own running bridge is fine (a re-run)", got == busy and r.fails == 0)
     listener.close()
@@ -224,7 +225,7 @@ try:
     try:
         code, out, streamed = go(["--docker", "--yes", "--no-login", "--web-port", "18123"], root)
         env = open(os.path.join(root, ".env"), encoding="utf-8").read()
-        check("--docker (no login) writes .env with the USB override and the port, and starts the containers with --build", code == 0 and "COMPOSE_FILE=docker-compose.yml" + os.pathsep + "docker-compose.usb.yml" in env
+        check("--docker (no login) writes .env with the USB override and the port, and starts the containers with --build", code == 0 and "COMPOSE_FILE=docker-compose.yml" + os.pathsep + "docker/docker-compose.usb.yml" in env
               and "MESHLLM_SERIAL_DEVICE=/dev/ttyUSB0" in env and "MESHLLM_SERIAL_GID=986" in env and "MESHLLM_WEB_PORT=18123" in env and streamed == [["docker", "compose", "up", "-d", "--build"]], (code, env[-300:], streamed, out[-300:]))
         check("it says where the dashboard is and how the model comes", "http://127.0.0.1:18123/" in out and "model-pull" in out and "sign in as admin" not in out, out[-500:])
         active = [l for l in env.splitlines() if l.strip() and not l.lstrip().startswith("#")]
@@ -246,7 +247,7 @@ try:
         code, out, streamed = go(["--docker", "--yes", "--lan", "192.0.2.10", "--allowed-host", "radio.test"], root)
         env = open(os.path.join(root, ".env"), encoding="utf-8").read()
         check("with a password file the login override is added and --lan publishes on the address with its names",
-              code == 0 and "docker-compose.login.yml" in env and "MESHLLM_ADMIN_HASH_FILE=" + hf in env and "MESHLLM_WEB_BIND=192.0.2.10" in env and "MESHLLM_ALLOWED_HOSTS=192.0.2.10,radio.test" in env
+              code == 0 and "docker/docker-compose.login.yml" in env and "MESHLLM_ADMIN_HASH_FILE=" + hf in env and "MESHLLM_WEB_BIND=192.0.2.10" in env and "MESHLLM_ALLOWED_HOSTS=192.0.2.10,radio.test" in env
               and "http://192.0.2.10:8080/" in out and "sign in as admin" in out, (code, env, out[-400:]))
         os.remove(hf)
         os.remove(os.path.join(root, ".env"))
@@ -279,13 +280,13 @@ check("--web-port is range-checked", rejected(["--docker", "--web-port", "70000"
 
 # ---- the compose files themselves ------------------------------------------------------------------------------------------------------
 compose = open(os.path.join(ROOT, "docker-compose.yml"), encoding="utf-8").read()
-usb = open(os.path.join(ROOT, "docker-compose.usb.yml"), encoding="utf-8").read()
+usb = open(os.path.join(ROOT, "docker", "docker-compose.usb.yml"), encoding="utf-8").read()
 mp = compose[compose.index("  model-pull:"):compose.index("  demo:")]
 check("model-pull: same pinned ollama image, no ports, never restarts, hardened like the others",
       re.search(r"image:\s*ollama/ollama:\d+\.\d+\.\d+\s*$", mp, re.M) and "ports:" not in mp and 'restart: "no"' in mp and "cap_drop: [ALL]" in mp and "read_only: true" in mp and "no-new-privileges:true" in mp)
 check("model-pull talks to the ollama service by name and can be turned off", "OLLAMA_HOST: \"http://ollama:11434\"" in mp and "MESHLLM_PULL_MODEL" in mp and "exit 0" in mp)
 check("the USB override takes the device from MESHLLM_SERIAL_DEVICE in both places, defaulting to ttyUSB0", usb.count("${MESHLLM_SERIAL_DEVICE:-/dev/ttyUSB0}") == 3, usb.count("${MESHLLM_SERIAL_DEVICE:-/dev/ttyUSB0}"))
-check("the setup script's files use Unix line endings where they are scripts", b"\r" not in open(os.path.join(ROOT, "setup_docker.py"), "rb").read())
+check("the setup script's files use Unix line endings where they are scripts", b"\r" not in open(os.path.join(ROOT, "scripts", "setup_docker.py"), "rb").read())
 
 print(f"\n{len(fails)} failed" if fails else "\nall passed")
 sys.exit(1 if fails else 0)

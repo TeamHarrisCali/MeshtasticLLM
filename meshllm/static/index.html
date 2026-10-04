@@ -558,7 +558,7 @@
     <div class="card">
       <h3>Start at login</h3>
       <p id="autoState" class="hint">Checking…</p>
-      <p class="hint">To have the bridge start by itself when you log in to this computer, run <code>python setup_env.py --autostart</code> in the project folder (and <code>--no-autostart</code> to undo it). It needs no administrator rights.</p>
+      <p class="hint">To have the bridge start by itself when you log in to this computer, run <code>python scripts/setup_env.py --autostart</code> in the project folder (and <code>--no-autostart</code> to undo it). It needs no administrator rights.</p>
     </div>
   </div>
 
@@ -567,7 +567,7 @@
       <h3>Models side by side</h3>
       <div id="evalCompare"></div>
       <p class="hint">Each row is the newest run for that model and prompt variant. <b>Development</b> questions are what the prompts were improved against; <b>held-out</b> questions are only ever used to measure, never tuned to, so that score is the honest one. A question counts as right when the model picked the right tool (or rightly none), or answered only from the live facts it was given.</p>
-      <p class="hint">To add a model: <code>python -m meshllm.tools.eval_tools --model llama3.2:3b --variant gated_retry --set heldout --out eval_results/my_run.csv</code> (see the README), then reload this page. It takes several minutes and uses Ollama, so it isn't started from here.</p>
+      <p class="hint">To add a model: <code>python -m meshllm.tools.eval_tools --model llama3.2:3b --variant gated_retry --set heldout --out docs/eval_results/my_run.csv</code> (see docs/evaluation.md), then reload this page. It takes several minutes and uses Ollama, so it isn't started from here.</p>
     </div>
     <div class="card"><h3>Every tool-choice run</h3><div id="evalRuns"></div></div>
     <div class="card"><h3>Usefulness audits</h3><div id="evalUse"></div></div>

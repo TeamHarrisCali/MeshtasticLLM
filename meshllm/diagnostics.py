@@ -78,8 +78,9 @@ class Diagnostics:
             return self._auto[1]
         result = None
         try:
-            if str(ROOT) not in sys.path:             # setup_env.py is the installer script in the project folder, outside the package
-                sys.path.insert(0, str(ROOT))
+            scripts = str(ROOT / "scripts")
+            if scripts not in sys.path:               # setup_env.py is the installer script in the project's scripts/ folder, outside the package
+                sys.path.insert(0, scripts)
             import setup_env as S
             plan = S.autostart_plan(S.detect_os(), str(ROOT), sys.executable, str(Path.home()), os.getuid() if hasattr(os, "getuid") else 0)
             result = S.autostart_state(plan)
@@ -196,7 +197,7 @@ class Diagnostics:
         auto = self._autostart()
         if auto:
             add("autostart", "Start at login", "ok" if auto[0] == "installed" else "info", "Installed." if auto[0] == "installed" else "Not set up: the bridge only runs when you start it.",
-                "" if auto[0] == "installed" else "Run  python setup_env.py --autostart  to start it when you log in.")
+                "" if auto[0] == "installed" else "Run  python scripts/setup_env.py --autostart  to start it when you log in.")
         add("system", "This computer", "info", f"{platform.system()} {platform.release()}, Python {platform.python_version()}, bridge up {_ago(st['uptime_s']).replace(' ago', '') if st['uptime_s'] >= 90 else 'under 2 min'}.")
         # "info" checks never affect the overall result
         worst = "bad" if any(c["status"] == "bad" for c in checks) else "warn" if any(c["status"] == "warn" for c in checks) else "ok"

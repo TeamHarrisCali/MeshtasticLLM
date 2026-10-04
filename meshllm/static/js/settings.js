@@ -68,7 +68,7 @@ async function refreshBackups(force) {
   if (d.staged) {
     st.hidden = false; st.replaceChildren();
     if (d.staged.error) st.append(el("p", null, "A restore file is waiting but can't be used: " + d.staged.error));
-    else st.append(el("p", null, `A restore is waiting: a copy holding ${d.staged.requests} AI-log entries (${fmtBytes(d.staged.size)}). It replaces the current data the next time the bridge starts, so stop it and start it again (stop_bridge, then start_bridge). The current data is kept as a backup first.`));
+    else st.append(el("p", null, `A restore is waiting: a copy holding ${d.staged.requests} AI-log entries (${fmtBytes(d.staged.size)}). It replaces the current data the next time the bridge starts, so stop it and start it again (scripts/stop_bridge, then scripts/start_bridge). The current data is kept as a backup first.`));
     const c = el("button", null, "Cancel the restore"); c.addEventListener("click", async () => { await post("/api/backups/restore/cancel", {}); refreshBackups(true); }); st.append(c);
   } else st.hidden = true;
   const sig = JSON.stringify(d.items) + JSON.stringify(!!d.staged);

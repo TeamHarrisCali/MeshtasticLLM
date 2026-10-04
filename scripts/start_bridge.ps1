@@ -1,10 +1,11 @@
 # Starts (or restarts) the bridge in the background with no window.
-#   powershell -NoProfile -ExecutionPolicy Bypass -File .\start_bridge.ps1 [bridge flags...]
+#   powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start_bridge.ps1 [bridge flags...]
 # It finds the radio by itself; pass e.g. --model qwen2.5:7b or --port COM5 to override.
 # Logs (overwritten on each start): logs\bridge.log and logs\bridge.err.log
 param([Parameter(ValueFromRemainingArguments = $true)][string[]]$BridgeArgs)
-$dir = $PSScriptRoot
-& "$dir\stop_bridge.ps1" -Quiet
+$here = $PSScriptRoot                      # the scripts folder
+$dir = Split-Path -Parent $here            # the project folder
+& "$here\stop_bridge.ps1" -Quiet
 Start-Sleep -Milliseconds 500
 New-Item -ItemType Directory -Force -Path "$dir\logs" | Out-Null
 $argList = @('-u', '-m', 'meshllm') + @($BridgeArgs | Where-Object { $_ })

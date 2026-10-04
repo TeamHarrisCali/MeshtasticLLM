@@ -5,7 +5,7 @@ Python environment (`.venv`), installs the dependencies, and checks Ollama and t
 
     setup.bat               # Windows: double-click it, or run it in a terminal
     ./setup.sh              # Linux / macOS
-    python setup_env.py     # anywhere, if the two above don't suit (needs Python 3.9 or newer)
+    python scripts/setup_env.py     # anywhere, if the two above don't suit (needs Python 3.9 or newer)
 
 What it does, in order: detects the OS (including WSL); finds a Python 3.9+ (and, if there is none, prints the exact install
 command for this computer - winget, brew, apt, dnf, pacman... - and offers to run it); creates `.venv`, **or rebuilds it if it was
@@ -20,17 +20,59 @@ bridge when ready), `--yes` (answer yes to questions), `--python PATH`, `--dir P
 
 To keep your history, copy `audit.db` with the folder (it holds the settings, chat memory and mesh data; the map cache
 `tile_cache/` is optional and just refills). Leave `.venv` behind if you like - setup rebuilds it. Start the bridge afterwards
-with `start_bridge.ps1` (Windows) or `./start_bridge.sh` (Linux / macOS); both use `.venv` automatically.
+with `scripts/start_bridge.ps1` (Windows) or `./scripts/start_bridge.sh` (Linux / macOS); both use `.venv` automatically.
 
 If `./setup.sh` says `bad interpreter` or similar, the file picked up Windows line endings on the way over; run
-`python3 setup_env.py` instead - it repairs the `.sh` files itself.
+`python3 scripts/setup_env.py` instead - it repairs the `.sh` files itself.
+
+**Linux and the serial port.** Your user needs permission to open the radio's serial port. Setup checks this and tells you which group to
+join (`dialout` on Debian and Ubuntu, `uucp` on Arch). Close any other program that uses the radio's serial port first; only one program can hold it.
+
+## Starting and stopping the bridge
+
+The bridge runs in the background with no window. It finds the radio by itself, and no flags are needed: the model and every setting you change
+in the dashboard are remembered in the database, and the command-line flags in [flags.md](flags.md) are optional overrides. Logs are overwritten on
+each start and go to `logs/bridge.log` and `logs/bridge.err.log`.
+
+    ./scripts/start_bridge.sh           # Linux / macOS: start (or restart) the bridge in the background
+    ./scripts/stop_bridge.sh            # stop it
+    powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start_bridge.ps1     # Windows (scripts\stop_bridge.ps1 stops it)
+    .venv/bin/python -m meshllm         # or run it in the foreground (Windows: .venv\Scripts\python.exe -m meshllm)
+
+The scripts find the project folder (the parent of `scripts/`) themselves, so they work from any folder, and they pass flags on to the bridge:
+`./scripts/start_bridge.sh --model qwen2.5:7b`. Then open <http://127.0.0.1:8080/> and, from another node, send your radio a direct message
+such as `/ai help`, `/ai how's the mesh doing?`, `/ai what's the temperature outside?` or `/ai where is the nearest router?`.
+
+## Try it without hardware (demo mode)
+
+No radio and no Ollama? Run the whole bridge and dashboard against a simulated mesh:
+
+    .venv/bin/python -m meshllm --demo          # then open http://127.0.0.1:8080/
+
+(In Docker the same thing is `./setup.sh --docker --demo`, see [Run with Docker](#run-with-docker).) You get about three dozen obviously fake nodes
+(`Demo Ridge Repeater`, `Demo Trail Tracker 3`, ...) scattered around a public park, with batteries, sensors, trails, a day of history and live
+traffic, and once a minute or so a fake node DMs the bridge an `/ai` question that goes through the real queue, tools and an acked reply. Without
+Ollama a small scripted model (shown as `demo-scripted`) answers; if Ollama is running with a tool-capable model, that model is used instead. A
+"Demo mode" badge shows in the dashboard header. Nothing is transmitted, nothing connects to a serial port, and everything is kept in a temporary
+folder that is deleted when you stop it (Ctrl+C, `kill`, or closing the terminal): your real `audit.db` is never opened. Demo mode listens on this
+computer only (`--web-host` must stay `127.0.0.1`), and if port 8080 is taken, for example by your real bridge, use `--web-port 8081`. (The optional
+map background still downloads OpenStreetMap tiles if you look at the Map page.) The flags are in [flags.md](flags.md); the screenshots in the README
+were taken in demo mode.
 
 ## Connecting over Wi-Fi or Bluetooth
 
 USB serial is the default and needs nothing. The bridge can also reach a radio without a cable. Choose one way; they cannot be combined.
 All three keep the same behaviour: a lost link is noticed, the bridge keeps running (the dashboard says it is searching), messages
 queued for the radio wait up to `--reconnect-hold` seconds, and it reconnects by itself when the radio is back, including after a power
-cycle. If a different radio answers at the same address the "different radio" banner appears, as for USB.
+cycle. If a different radio answers at the same address the "different radio" banner appears, as for USB. The dashboard shows the connection as
+`tcp://host:4403` or `ble:ADDRESS`.
+
+    python -m meshllm --tcp 192.168.1.50                  # Wi-Fi: the radio's address or host name (port 4403 unless you add :PORT)
+    python -m meshllm --ble-scan                          # Bluetooth: list nearby radios (name and address), then exit
+    python -m meshllm --ble AA:BB:CC:DD:EE:FF             # Bluetooth: connect to one of them (address or name, as the scan printed it)
+
+Wi-Fi needs the radio's Wi-Fi switched on and joined to your network; Bluetooth needs a Bluetooth adapter on the computer running the bridge, so it works
+on the host only and not inside a container. Both are covered in detail below.
 
 **Wi-Fi (TCP).** On the radio, switch Wi-Fi on and give it your network's name and password (Meshtastic app or web client, Network
 settings). The radio's API then listens on port 4403. Find its address on your router, then:
@@ -151,7 +193,7 @@ python -m meshllm --web-host 0.0.0.0 --allowed-host 192.0.2.10 --allowed-host ra
 
 `--allowed-host` is every host name or address you will type in the browser (192.0.2.10 and radio.test are made-up examples); a request that names anything else is refused, which
 is what stops another web page from borrowing your browser to reach the bridge (DNS rebinding). Then browse to `http://192.0.2.10:8080/` and sign in. The same flags can be set
-as `MESHLLM_PASSWORD_HASH_FILE` and `MESHLLM_VIEWER_PASSWORD_HASH_FILE` (paths, never passwords). A password on `127.0.0.1` also turns the login on. `./start_bridge.sh` passes the same flags on.
+as `MESHLLM_PASSWORD_HASH_FILE` and `MESHLLM_VIEWER_PASSWORD_HASH_FILE` (paths, never passwords). A password on `127.0.0.1` also turns the login on. `./scripts/start_bridge.sh` passes the same flags on.
 
 | | admin | viewer |
 |---|---|---|
@@ -183,22 +225,22 @@ public, viewer or admin in `meshllm/webroutes.py`, and an untagged one is admin-
 
 **What it does not do.** There are only two shared accounts (no per-person logins, no two-factor, no password change from the browser; use `--set-password`). Someone on your network can still slow
 your sign-in down by guessing: a new browser can be made to wait up to a minute (from another address) or up to five minutes (if they share yours, for example everyone behind a proxy you did not list in `--trusted-proxy`), and a determined guesser can renew that for as long as they keep guessing. A browser you have signed in to as admin before (it holds a 30-day device cookie) skips the one-minute wait and only ever waits for its own failures, so you can still get in. Existing sessions are never affected. They can see that the bridge exists. Without HTTPS they can read and replay everything. A viewer sees message text. Non-browser
-clients (curl) must send an `Origin` header and, after signing in, the `X-CSRF-Token` from `GET /api/session`. See [SECURITY.md](../SECURITY.md).
+clients (curl) must send an `Origin` header and, after signing in, the `X-CSRF-Token` from `GET /api/session`. See [.github/SECURITY.md](../.github/SECURITY.md).
 
 ## Start at login (optional)
 
-    python setup_env.py --autostart       # start the bridge every time you log in (asks first; --yes skips the question)
-    python setup_env.py --no-autostart    # take it out again
-    python setup_env.py --check           # includes a "Start at login" line: installed / not installed
+    python scripts/setup_env.py --autostart       # start the bridge every time you log in (asks first; --yes skips the question)
+    python scripts/setup_env.py --no-autostart    # take it out again
+    python scripts/setup_env.py --check           # includes a "Start at login" line: installed / not installed
 
 It is per user: no administrator or sudo, and nothing outside your own account is changed. It uses the `.venv` when there is one
-(run plain `python setup_env.py` first on a new computer). What it creates: on **Windows** a Task Scheduler task named
-`MeshLLMBridge` (runs `start_bridge.ps1` hidden at logon; if Windows says access is denied, run it from an administrator terminal
-or put a shortcut to `start_bridge.ps1` in `shell:startup`); on **Linux** a systemd user service
+(run plain `python scripts/setup_env.py` first on a new computer). What it creates: on **Windows** a Task Scheduler task named
+`MeshLLMBridge` (runs `scripts/start_bridge.ps1` hidden at logon; if Windows says access is denied, run it from an administrator terminal
+or put a shortcut to `scripts/start_bridge.ps1` in `shell:startup`); on **Linux** a systemd user service
 `~/.config/systemd/user/mesh-llm-bridge.service` (restarts on failure; `loginctl enable-linger $USER` makes it start at boot instead
-of at login; without systemd, e.g. plain WSL or a container, add `./start_bridge.sh` to the desktop's startup applications); on
+of at login; without systemd, e.g. plain WSL or a container, add `./scripts/start_bridge.sh` to the desktop's startup applications); on
 **macOS** a launchd agent `~/Library/LaunchAgents/com.meshllm.bridge.plist` (logs in `logs/`). `--no-autostart` removes exactly
-what `--autostart` made. A plain `python setup_env.py` never turns this on. Not yet run on a real Linux or Mac: the unit and plist
+what `--autostart` made. A plain `python scripts/setup_env.py` never turns this on. Not yet run on a real Linux or Mac: the unit and plist
 text and the commands are unit-tested only.
 
 Tested: Windows 11 natively, and Linux (Ubuntu 24.04) under WSL (fresh build, a stale `.venv`, repairing line endings,
@@ -209,8 +251,8 @@ The radio is not visible inside WSL; run the bridge on the Windows side, or atta
 
 The project can run as containers instead of through `setup.sh`. **This is the second option**: the installer above supports everything, Docker only needs Docker but cannot do some things (the list is
 just below). The containers are: one for the bridge and dashboard, one for Ollama (the AI model server), and a small one-off
-container (`model-pull`) that downloads the AI model the first time. The files are `Dockerfile`, `docker-compose.yml`, `docker-compose.usb.yml`,
-`docker-compose.login.yml`, `.env.example`, `docker/entrypoint.sh` and the helper `setup_docker.py`.
+container (`model-pull`) that downloads the AI model the first time. The files are `Dockerfile`, `docker-compose.yml`, `docker/docker-compose.usb.yml`,
+`docker/docker-compose.login.yml`, `.env.example`, `docker/entrypoint.sh` and the helper `scripts/setup_docker.py`.
 
 ### What Docker can't do
 
@@ -229,7 +271,7 @@ With Docker running, from the project folder:
 
     ./setup.sh --docker                          # Linux / macOS            (Windows: setup.bat --docker)
 
-(The same thing as `python setup_env.py --docker`; the script only needs Python itself, not the project's packages.) It does, in order, and tells you at each step what it found:
+(The same thing as `python scripts/setup_env.py --docker`; the script only needs Python itself, not the project's packages.) It does, in order, and tells you at each step what it found:
 
 1. **Checks Docker**: the program, Compose version 2, and that the engine is running and you may use it. If not, it prints the exact install or start command for your system.
 2. **Finds the radio.** On Linux it uses the USB serial device it sees (`/dev/ttyUSB*` or `/dev/ttyACM*`) and the group that owns it. Docker Desktop on Windows and macOS cannot pass USB through,
@@ -243,7 +285,7 @@ With Docker running, from the project folder:
 Afterwards the plain Docker commands do the same thing because `.env` carries the choices: `docker compose up -d`, `docker compose logs -f bridge`, `docker compose down`. Re-running the script is safe (it changes `.env` only when
 something changed). Other options: `--demo` (a simulated mesh, no radio, no Ollama, no password), `--lan ADDRESS [--allowed-host NAME]` (the dashboard on your network; needs the password, see
 [below](#reaching-it-from-another-computer-opt-in)), `--no-start` (write `.env` only), `--check` (look and report, change nothing) and `--docker-stop` (stop everything; the database stays).
-Stop the bridge you run outside Docker first (`./stop_bridge.sh`): it holds the same port and the same radio. The model downloaded here lives in Docker's volume and is separate from any Ollama you run on the host.
+Stop the bridge you run outside Docker first (`./scripts/stop_bridge.sh`): it holds the same port and the same radio. The model downloaded here lives in Docker's volume and is separate from any Ollama you run on the host.
 It was built and tried on Linux with Docker 29.8.2 and Compose 5.5.1, running the demo and the bridge without a radio. **Not yet tried:**
 Docker Desktop on Windows or macOS, a real radio from inside a container (USB or Wi-Fi), and the Ollama container (the model server was
 not started in testing).
@@ -283,7 +325,7 @@ To use another model, choose it on the dashboard's Model page (remembered in the
   that owns the device with `stat -c %g /dev/ttyUSB0`, put that number in `.env` as `MESHLLM_SERIAL_GID=<number>` (it is 20 on Debian and Ubuntu, but
   other distributions differ) and, if the radio is not `/dev/ttyUSB0` (for instance `/dev/ttyACM0`), the device as `MESHLLM_SERIAL_DEVICE=/dev/ttyACM0`. Then start with the override file, which gives the container that one device and that one group and nothing else:
 
-      docker compose -f docker-compose.yml -f docker-compose.usb.yml up -d
+      docker compose -f docker-compose.yml -f docker/docker-compose.usb.yml up -d
 
   The device is handed to the container when it is created, so after unplugging and replugging the radio run `docker compose up -d` again (or `./setup.sh --docker`). Only one program can hold
   the serial port, so stop any bridge running outside Docker first. This path has not been tried with a real radio yet.
@@ -323,8 +365,8 @@ ends the bridge in about a second with exit code 0 (the bridge turns SIGTERM int
 1. On the host, make the password hash (once; it asks twice and shows nothing you type): `python -m meshllm --set-password`. It writes a mode-600 file, by default `~/.config/meshllm/admin.hash`, that holds
    only a scrypt hash. Treat it as a secret anyway: keep it out of git (`*.hash` is ignored) and out of backups you share.
 2. Put the file's **absolute** path in `.env` (Compose does not expand `~`): `MESHLLM_ADMIN_HASH_FILE=/absolute/path/to/admin.hash`.
-3. Start with the override file added: `docker compose -f docker-compose.yml -f docker-compose.login.yml up -d` (add `-f docker-compose.usb.yml` for a USB radio). To avoid typing it, put
-   `COMPOSE_FILE=docker-compose.yml:docker-compose.login.yml` in `.env`. The dashboard (still on `127.0.0.1:8080`) now shows the sign-in page; see [the LAN login section](#use-the-dashboard-from-a-phone-or-another-computer-lan-login)
+3. Start with the override file added: `docker compose -f docker-compose.yml -f docker/docker-compose.login.yml up -d` (add `-f docker/docker-compose.usb.yml` for a USB radio). To avoid typing it, put
+   `COMPOSE_FILE=docker-compose.yml:docker/docker-compose.login.yml` in `.env`. The dashboard (still on `127.0.0.1:8080`) now shows the sign-in page; see [the LAN login section](#use-the-dashboard-from-a-phone-or-another-computer-lan-login)
    for the accounts, throttling and what the login does not do. Only the admin account is wired in Docker, not the optional read-only viewer.
 4. After running `--set-password` again, run `docker compose restart bridge`: the container reads the hash when it starts (an already-running container does not see a replaced file).
 
@@ -349,11 +391,11 @@ and it does not work under rootless Docker or user-namespace remapping (there, c
 
 By default the port is published on `127.0.0.1` only. To publish it on an address of this computer that other devices can reach, **all three** of these are required, and the bridge container **refuses to start** (exit code 78, with a message that says what is missing) if any is missing:
 
-1. the login above (`docker-compose.login.yml` and a valid `MESHLLM_ADMIN_HASH_FILE`);
+1. the login above (`docker/docker-compose.login.yml` and a valid `MESHLLM_ADMIN_HASH_FILE`);
 2. `MESHLLM_WEB_BIND=<an address of this computer>` in `.env`, for example `192.0.2.10` (the only way to change the published address; the demo ignores it and stays on `127.0.0.1`). Any address that is not `127.x.x.x` or `::1` counts as the network;
 3. `MESHLLM_ALLOWED_HOSTS=<every name or address you will type in the browser>` in `.env`, comma-separated, for example `192.0.2.10,radio.test` (one `--allowed-host` each; this is what stops DNS rebinding).
 
-`docker compose -f docker-compose.yml -f docker-compose.login.yml up -d` then publishes `192.0.2.10:8080`. Ollama's port is never published, and `--demo` is refused on a non-loopback address. Inside the container the app still listens on `0.0.0.0` (that is how a published port reaches it); the rule is enforced twice:
+`docker compose -f docker-compose.yml -f docker/docker-compose.login.yml up -d` then publishes `192.0.2.10:8080`. Ollama's port is never published, and `--demo` is refused on a non-loopback address. Inside the container the app still listens on `0.0.0.0` (that is how a published port reaches it); the rule is enforced twice:
 the entrypoint refuses, and it sets `MESHLLM_PUBLISH_LAN=1` so the app's own start-up check refuses a wildcard bind without a login even if the entrypoint were bypassed. What neither can see is a hand-edited `ports:` line or a `docker run -p 0.0.0.0:...`: do not do that.
 `0.0.0.0` as `MESHLLM_WEB_BIND` follows the same rules (the login is then mandatory), but it publishes on every interface of the computer, including internet-facing ones, and Docker bypasses host firewalls such as `ufw`; name one address instead.
 

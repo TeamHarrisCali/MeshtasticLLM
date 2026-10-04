@@ -1,4 +1,4 @@
-"""Reads the saved evaluation results (eval_results/) and the project's write-ups (docs/*.md) for the Evaluation page. Read-only.
+"""Reads the saved evaluation results (docs/eval_results/) and the project's write-ups (docs/*.md) for the Evaluation page. Read-only.
 
 Tool-choice runs are the CSV files `eval_tools.py` writes (one row per question and repeat); a question counts as right when the
 model picked the right tool, or rightly none, or answered from the live facts it was given. Usefulness runs are the JSON files
@@ -12,11 +12,12 @@ from collections import defaultdict
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent      # the project folder (this file is meshllm/evals.py)
-RESULTS = ROOT / "eval_results"
+RESULTS = ROOT / "docs" / "eval_results"
 DOCS = ROOT / "docs"
 MAX_FILE = 2 * 1024 * 1024
 GOOD = ("correct", "grounded_text")
 DOC_NAME = re.compile(r"^[A-Za-z0-9_-]{1,60}$")
+NOT_WRITEUPS = {"TODO"}      # docs/TODO.md is the developers' hand-off queue, not a write-up for the Evaluation page
 
 
 def _label(name):
@@ -93,14 +94,14 @@ def comparison(runs):
 
 
 def doc_list(folder=DOCS):
-    """Names (without .md) of the write-ups in docs/ that are safe to serve; names failing DOC_NAME are left out."""
-    return sorted(f.stem for f in Path(folder).glob("*.md") if DOC_NAME.match(f.stem))
+    """Names (without .md) of the write-ups in docs/ that are safe to serve; names failing DOC_NAME and the NOT_WRITEUPS are left out."""
+    return sorted(f.stem for f in Path(folder).glob("*.md") if DOC_NAME.match(f.stem) and f.stem not in NOT_WRITEUPS)
 
 
 def read_doc(name, folder=DOCS):
     """The text of docs/<name>.md, or None (only plain names: nothing else on disk can be reached)."""
     # the name is built into a path, so only plain names are allowed: no slashes or dots means no path traversal
-    if not isinstance(name, str) or not DOC_NAME.match(name):
+    if not isinstance(name, str) or not DOC_NAME.match(name) or name in NOT_WRITEUPS:
         return None
     f = Path(folder) / (name + ".md")
     try:

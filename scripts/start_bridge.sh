@@ -1,10 +1,12 @@
 #!/usr/bin/env sh
 # Starts (or restarts) the bridge in the background (Linux / macOS). The Windows equivalent is start_bridge.ps1.
-#   ./start_bridge.sh [bridge flags...]      e.g. ./start_bridge.sh --model qwen2.5:7b
+#   ./scripts/start_bridge.sh [bridge flags...]      e.g. ./scripts/start_bridge.sh --model qwen2.5:7b
 # It finds the radio by itself. Logs (overwritten on each start): logs/bridge.log and logs/bridge.err.log
-dir=$(cd "$(dirname "$0")" && pwd)
+# It can be run from any folder: it works from the project folder, which is the parent of this scripts/ folder.
+here=$(cd "$(dirname "$0")" && pwd)
+dir=$(dirname "$here")
 cd "$dir" || exit 1
-"$dir/stop_bridge.sh" --quiet
+"$here/stop_bridge.sh" --quiet
 sleep 0.5
 py="$dir/.venv/bin/python"                       # the environment made by setup.sh if there is one
 [ -x "$py" ] || py=$(command -v python3 || command -v python)

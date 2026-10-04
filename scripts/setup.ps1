@@ -1,11 +1,11 @@
-# One-step setup for Windows. Finds a Python (3.9 or newer), then runs setup_env.py, which builds the private environment,
+# One-step setup for Windows. Finds a Python (3.9 or newer), then runs scripts/setup_env.py, which builds the private environment,
 # installs the dependencies and checks Ollama and the radio. Safe to run again any time.
-#   powershell -NoProfile -ExecutionPolicy Bypass -File .\setup.ps1 [options]     (or just double-click setup.bat)
+#   powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\setup.ps1 [options]     (or just double-click setup.bat in the project folder)
 #   options are passed on:  --check   --recreate   --pull-model   --install-ollama   --start   --yes
 #   Docker instead of a Python environment:  --docker  (add --tcp RADIO_ADDRESS: Docker Desktop cannot pass USB through)   --docker-stop
 # If no suitable Python is installed it offers to install one with winget.
 param([Parameter(ValueFromRemainingArguments = $true)][string[]]$SetupArgs)
-$dir = $PSScriptRoot
+$dir = Split-Path -Parent $PSScriptRoot      # the project folder (this file is scripts/setup.ps1)
 Set-Location $dir
 
 function Find-Python {
@@ -43,5 +43,5 @@ if (-not $py) {
     if (-not $py) { Write-Host "Install Python, then run setup.bat again."; exit 1 }
 }
 $exe = $py[0]; $pre = @($py | Select-Object -Skip 1)
-& $exe @pre "$dir\setup_env.py" @SetupArgs
+& $exe @pre "$dir\scripts\setup_env.py" @SetupArgs
 exit $LASTEXITCODE

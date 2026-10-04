@@ -6,7 +6,12 @@ something you press yourself: sending a direct message, posting on the public ch
 clock, and pushing radio settings. Nothing else transmits, and the AI can never do any of them.
 
 With `python -m meshllm --demo` every page below is filled with a simulated mesh, and a **Demo mode** badge shows in the header: nothing is
-transmitted and nothing is saved ([README](../README.md#try-it-without-hardware)).
+transmitted and nothing is saved ([setup.md](setup.md#try-it-without-hardware-demo-mode)).
+
+The sidebar has four groups. **Messages:** the public channel (read and post by hand, the AI is kept out), direct messages, and what people asked the
+AI. **Network:** Home (alerts, sensors, map), Nodes, Map, Coverage (how far the radio reaches, walk test), Activity, Trends. **Tools:** Traceroute,
+Telemetry, Radio settings (pull, edit and push the radio's config), Data, Report, Diagnostics, Settings. **AI:** Overview, Model, Access and tools,
+the AI log, and Evaluation. The pages are described below.
 
 ## Messages
 

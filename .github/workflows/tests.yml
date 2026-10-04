@@ -27,7 +27,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
       - name: Run the test suite (radio and Ollama are faked)
-        run: python run_tests.py -v
+        run: python scripts/run_tests.py -v
 
   # Builds the container image and smoke-tests it. Nothing is pushed to a registry (no login, no push).
   docker:
@@ -64,16 +64,16 @@ jobs:
         run: |
           docker compose config -q
           docker compose --profile demo config -q
-          docker compose -f docker-compose.yml -f docker-compose.usb.yml config -q
+          docker compose -f docker-compose.yml -f docker/docker-compose.usb.yml config -q
           # the dashboard-login override needs the path of the hash file, and says so when it is missing
-          if docker compose -f docker-compose.yml -f docker-compose.login.yml config -q 2>/dev/null; then echo "login override accepted a missing MESHLLM_ADMIN_HASH_FILE"; exit 1; fi
-          MESHLLM_ADMIN_HASH_FILE=/nonexistent/admin.hash docker compose -f docker-compose.yml -f docker-compose.login.yml config -q
-          MESHLLM_ADMIN_HASH_FILE=/nonexistent/admin.hash docker compose -f docker-compose.yml -f docker-compose.login.yml -f docker-compose.usb.yml config -q
+          if docker compose -f docker-compose.yml -f docker/docker-compose.login.yml config -q 2>/dev/null; then echo "login override accepted a missing MESHLLM_ADMIN_HASH_FILE"; exit 1; fi
+          MESHLLM_ADMIN_HASH_FILE=/nonexistent/admin.hash docker compose -f docker-compose.yml -f docker/docker-compose.login.yml config -q
+          MESHLLM_ADMIN_HASH_FILE=/nonexistent/admin.hash docker compose -f docker-compose.yml -f docker/docker-compose.login.yml -f docker/docker-compose.usb.yml config -q
       - name: Smoke test the dashboard login (hash from a Compose secret file)
         run: |
           set -eu
           export COMPOSE_PROJECT_NAME=meshllm-ci-login MESHLLM_WEB_PORT=18081
-          dc="docker compose -f docker-compose.yml -f docker-compose.login.yml"
+          dc="docker compose -f docker-compose.yml -f docker/docker-compose.login.yml"
           dir=$(mktemp -d)
           pw=$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')      # a throwaway password for this run only
           # the project's own helper makes the hash; the file is mode 600 and owned by the runner user, exactly the unreadable-secret case

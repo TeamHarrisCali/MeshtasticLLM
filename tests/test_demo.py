@@ -29,7 +29,7 @@ real_before = os.path.getmtime(REAL_DB) if os.path.exists(REAL_DB) else None
 
 # ---- nothing may reach a serial port or leave the machine ----------------------------------------------------
 # (The one traffic demo mode can cause beyond this machine is the browser's OpenStreetMap tile fetch on the Map page, through the
-# bridge's tile cache. It needs a browser looking at that page, is documented in the README, and is not exercised here.)
+# bridge's tile cache. It needs a browser looking at that page, is documented in docs/setup.md, and is not exercised here.)
 serial_calls, remote_connects = [], []
 import meshtastic.serial_interface as _si
 _orig_serial, _orig_connect = _si.SerialInterface, socket.socket.connect

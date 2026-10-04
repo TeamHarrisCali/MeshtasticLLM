@@ -1,10 +1,10 @@
 # USB radio passthrough. LINUX HOSTS ONLY: Docker Desktop on Windows and macOS cannot hand a USB serial device to a container
 # (use the Wi-Fi/TCP path there: MESHLLM_TCP in .env).
 #
-#   docker compose -f docker-compose.yml -f docker-compose.usb.yml up -d
+#   docker compose -f docker-compose.yml -f docker/docker-compose.usb.yml up -d
 #
 # Before you start:
-#   (python setup_env.py --docker does steps 1 and 2 for you and writes them to .env.)
+#   (python scripts/setup_env.py --docker does steps 1 and 2 for you and writes them to .env.)
 #   1. Find the device:        ls -l /dev/ttyUSB* /dev/ttyACM*       and put it in .env as MESHLLM_SERIAL_DEVICE=/dev/ttyACM0 if it is not ttyUSB0
 #   2. Find the group that owns it (the number, not the name; it differs between distributions):
 #                              stat -c %g /dev/ttyUSB0

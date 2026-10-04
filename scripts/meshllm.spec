@@ -41,7 +41,8 @@ if sys.platform.startswith("linux"):
     hidden += ["serial.tools.list_ports_linux", "serial.tools.list_ports_posix"]
 
 # Things the program never uses that PyInstaller would otherwise pull in through optional imports (smaller download).
-excludes = ["tkinter", "matplotlib", "numpy", "pandas", "pytest", "IPython"]
+excludes = ["tkinter", "matplotlib", "numpy", "pandas", "pytest", "IPython",
+            "setup_env", "setup_docker"]      # the installer scripts sit in scripts/ beside the launcher; the packaged program has no installer
 
 a = Analysis(
     [str(ROOT / "scripts" / "launcher.py")],

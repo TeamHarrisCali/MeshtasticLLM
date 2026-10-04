@@ -25,10 +25,13 @@ only the maintainer should push one. As of this page no release exists yet.
    - set `__version__` in `meshllm/__init__.py` (the only place the number is written);
    - in [CHANGELOG.md](CHANGELOG.md) move what is under `## [Unreleased]` into a new `## [X.Y.Z] - YYYY-MM-DD` section (Added, Changed, Fixed, Removed; plain words, and say what is not tried on real hardware),
      leave an empty `## [Unreleased]` above it, and update the two link lines at the bottom of the file;
+   - change the date on the new changelog heading to the day you really release (it is a guess until then);
+   - the sentences that say no release exists yet ("none exists yet", "As of this page no release exists yet") are in `README.md`, `docs/setup.md`, `docs/releasing.md` and `docs/TODO.md`: update them in the same pull request, and tick the open box in the TODO item;
    - merge it when CI is green. `tests/test_release.py` fails if the version is not valid semver or the changelog has no section for it.
 2. **Check what you are about to publish.** On a clean checkout of `main`: `python scripts/release_check.py check vX.Y.Z` (the workflow runs the same code) and `python scripts/release_check.py notes X.Y.Z` (the text that becomes the release notes).
    The package workflow already built and smoke-tested all three programs on the pull request.
-3. **Tag the merge commit and push the tag**:
+3. **Once, before the first release: restrict who can create release tags.** Settings > Rules > Rulesets > New ruleset > New tag ruleset, target `v*`, and restrict creations, updates and deletions to the owner (no bypass list other than the owner). Without it the checks below only stop a *mistaken* tag (see [What protects a release, and what does not](#what-protects-a-release-and-what-does-not)). Optionally also create a protected `release` environment with required reviewers and turn on immutable releases (Settings > General), so a published release and its tag cannot be edited afterwards.
+4. **Tag the merge commit and push the tag.** Main requires a linear history, so a release pull request is squash- or rebase-merged: the commit to tag is the one at the tip of `main` after the merge, never a commit on the pull request's branch (those commits are not on `main`, and the `verify` job refuses them). So the only workable order is: merge, pull `main`, tag, push the tag:
 
    ```bash
    git switch main && git pull
@@ -36,16 +39,24 @@ only the maintainer should push one. As of this page no release exists yet.
    git push origin vX.Y.Z
    ```
 
-4. **Watch the Actions tab.** The [release workflow](../.github/workflows/release.yml) runs these jobs, and a failure in any of them stops the release before anything is published:
-   - `verify`: the tag is exactly `v` plus `meshllm.__version__`, the changelog has a section for it, and the tagged commit is an ancestor of `main` (a tag on an unmerged branch is refused);
+5. **Watch the Actions tab.** The [release workflow](../.github/workflows/release.yml) runs these jobs, and a failure in any of them stops the release before anything is published:
+   - `verify`: the tag is exactly `v` plus `meshllm.__version__`, the changelog has a section for it, and the tagged commit is an ancestor of `main` (a tag on an unmerged branch is refused); it also writes the release notes, so the job that publishes runs none of our code;
    - `test`: the whole test suite;
    - `build`: the package workflow, i.e. the program built and smoke-tested on Linux, Windows and macOS;
    - `checksums`: `SHA256SUMS` for the three archives and a signed build-provenance attestation for each (this job alone may request the signing identity);
    - `publish`: `gh release create` with the changelog section as notes and the archives plus `SHA256SUMS` attached (this job alone may write to the repository). A version with a hyphen (`1.0.0-rc.1`) is marked as a pre-release.
-5. **If it fails**, fix it with a normal pull request. A tag whose release failed can be deleted (`git push origin :refs/tags/vX.Y.Z` and `git tag -d vX.Y.Z`) and made again on the fixed commit; a published release should be
+6. **If it fails**, fix it with a normal pull request. A tag whose release failed can be deleted (`git push origin :refs/tags/vX.Y.Z` and `git tag -d vX.Y.Z`; delete any leftover draft release with that tag on the Releases page first) and made again on the fixed commit; a published release should be
    superseded by a new version instead of rewritten.
 
-The workflows use no secret except the run's own short-lived token, and the tag name reaches a shell only through an environment variable.
+## What protects a release, and what does not
+
+The workflow's checks (the tag is `v` + the version, the changelog has a section, the tagged commit is on `main`, the tests pass, the programs smoke-test) protect against a **mistaken** tag: the wrong number, a forgotten
+changelog, a branch that was never merged. They do **not** protect against a malicious person who can push to the repository. Anyone with write access can push a branch containing an edited `release.yml` and tag
+it; a workflow run from a tag uses the workflow file *at that tag*, so the edited file decides what runs, and it can skip every check above. The real control is the tag ruleset in step 3: only the owner can create `v*` tags,
+so only the owner can start a release run. Treat write access to this repository as the ability to publish, and keep it to people you would let do that.
+
+What the workflows do on their own: they use no secret except the run's own short-lived token, the tag name reaches a shell only through an environment variable, only `checksums` can request the signing identity,
+only `publish` can write to the repository, and `publish` checks nothing out and runs none of the project's code.
 
 ## Checking a download
 
@@ -60,10 +71,12 @@ On Windows PowerShell: `(Get-FileHash .\meshllm-X.Y.Z-windows-x86_64.zip).Hash` 
 That proves the file matches the list, which sits next to it. The **attestation** proves where the file came from: with the [GitHub CLI](https://cli.github.com) (`gh`), run
 
 ```bash
-gh attestation verify meshllm-X.Y.Z-linux-x86_64.tar.gz --repo TeamHarrisCali/MeshtasticLLM
+gh attestation verify meshllm-X.Y.Z-linux-x86_64.tar.gz --repo TeamHarrisCali/MeshtasticLLM \
+  --signer-workflow TeamHarrisCali/MeshtasticLLM/.github/workflows/release.yml --source-ref refs/tags/vX.Y.Z
 ```
 
-It succeeds only if the file was built by a workflow of this repository, and prints which one and the commit; read that run if you want to see what was built.
+It succeeds only if the file was built by this repository's release workflow from that tag, and prints the commit; read that run if you want to see what was built. (Without `--signer-workflow`, any workflow of the repository,
+for example the pull-request packaging one, would also pass.)
 
 ## Building one yourself
 

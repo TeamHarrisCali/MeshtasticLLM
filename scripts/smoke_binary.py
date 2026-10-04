@@ -154,7 +154,9 @@ def main(argv):
             code, body = get(port, "/api/evals")
             check("demo: the bundled evaluation results are listed", code == 200 and len(json.loads(body).get("runs", [])) > 0, code)
             code, body = get(port, "/api/diagnostics")
-            check("demo: Diagnostics shows the version", code == 200 and any(c["id"] == "version" and version in c["detail"] for c in json.loads(body)["checks"]), code)
+            checks = json.loads(body)["checks"] if code == 200 else []
+            check("demo: Diagnostics shows the version", any(c["id"] == "version" and version in c["detail"] for c in checks), code)
+            check("demo: Diagnostics has no start-at-login check (the installer's feature; the installer is not in the program)", checks and not any(c["id"] == "autostart" for c in checks), [c["id"] for c in checks])
     finally:
         rc = stop(proc)
         log.close()

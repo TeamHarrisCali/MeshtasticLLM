@@ -65,6 +65,13 @@ def folder_size(path):
     return sum(os.path.getsize(os.path.join(d, f)) for d, _, fs in os.walk(path) for f in fs)
 
 
+def _anonymous(info):
+    """tarfile filter: do not record who built it (user and group ids and names) in the archive."""
+    info.uid = info.gid = 0
+    info.uname = info.gname = ""
+    return info
+
+
 def make_archive(folder, archive):
     """Pack `folder` (keeping its name as the top-level entry) into `archive` (.zip or .tar.gz by the extension); returns the archive path."""
     top = os.path.basename(folder.rstrip("/\\"))
@@ -76,7 +83,7 @@ def make_archive(folder, archive):
                     z.write(full, os.path.join(top, os.path.relpath(full, folder)))
     else:
         with tarfile.open(archive, "w:gz", compresslevel=9) as t:
-            t.add(folder, arcname=top)
+            t.add(folder, arcname=top, filter=_anonymous)
     return archive
 
 

@@ -5,7 +5,7 @@ Two different kinds of folder, kept apart on purpose:
 * the DATA folder (audit.db, backups/, tile_cache/, logs/): written while running, must survive an upgrade. Run from source (or in
   Docker, which passes `--db /data/audit.db`) it is the project folder, exactly as before. A packaged program (PyInstaller sets
   `sys.frozen`) runs from an install folder or a temporary extraction folder that is read-only or thrown away, so there it is a
-  per-user folder instead: `%APPDATA%\\meshllm` on Windows, `~/Library/Application Support/meshllm` on macOS, `$XDG_DATA_HOME/meshllm`
+  per-user folder instead: `%LOCALAPPDATA%\\meshllm` on Windows, `~/Library/Application Support/meshllm` on macOS, `$XDG_DATA_HOME/meshllm`
   (else `~/.local/share/meshllm`) on Linux. `--data-dir PATH` or the `MESHLLM_DATA_DIR` variable overrides all of that in every mode.
 * the RESOURCE folder (the dashboard's static files, docs/, docs/eval_results/): read-only, shipped with the program. Next to the package
   when run from source, inside the bundle (`sys._MEIPASS`) when packaged.
@@ -44,7 +44,7 @@ def user_data_dir(platform=None, environ=None, home=None):
     environ = os.environ if environ is None else environ
     home = os.path.expanduser("~") if home is None else str(home)
     if platform.startswith("win"):
-        return Path(environ.get("APPDATA") or os.path.join(home, "AppData", "Roaming")) / APP_NAME
+        return Path(environ.get("LOCALAPPDATA") or os.path.join(home, "AppData", "Local")) / APP_NAME      # machine-local, not the roaming profile: a database is not something to sync between PCs
     if platform == "darwin":
         return Path(home) / "Library" / "Application Support" / APP_NAME
     return Path(environ.get("XDG_DATA_HOME") or os.path.join(home, ".local", "share")) / APP_NAME
@@ -82,8 +82,8 @@ def log_dir():
 
 def apply_cli(args, default_db_value):
     """After the command line is parsed: remember --data-dir and, if --db was not given, put the database in the data folder and make that
-    folder (private to the user on POSIX). `default_db_value` is what `--db` defaults to, so an explicit --db (even to the same file) is
-    left alone. Demo mode keeps everything in its own temporary folder, so nothing is created for it. Returns the data folder."""
+    folder (private to the user on POSIX). `default_db_value` is what `--db` defaults to; a --db that differs from it is left alone (a --db that names the
+    default file itself cannot be told apart from no --db at all, so it moves with --data-dir). Demo mode keeps everything in its own temporary folder, so nothing is created for it. Returns the data folder."""
     explicit = getattr(args, "data_dir", None)
     if explicit:
         set_data_dir(explicit)

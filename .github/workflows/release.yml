@@ -6,7 +6,7 @@ name: release
 #   test      the whole test suite
 #   build     the packaged program for Linux, Windows and macOS (the package.yml workflow, with its smoke tests)
 #   checksums SHA256SUMS of the archives, and a build-provenance attestation for each (the only job with id-token / attestations)
-#   publish   `gh release create` with the notes from docs/CHANGELOG.md and the archives (the only job that can write to the repository)
+#   publish   `gh release create` with the notes made by `verify` and the archives (the only job that can write to the repository; it runs none of our code)
 #
 # Nothing here uses a secret other than the workflow's own short-lived token. A tag whose checks fail publishes nothing.
 on:
@@ -38,12 +38,25 @@ jobs:
             echo "error: $TAGGED_COMMIT is not on main; merge the release pull request first and tag the merge commit" >&2
             exit 1
           fi
+      # The release notes are made here, with the checked-out code, so that the job that may write to the repository runs none of it.
+      - name: The release notes (from docs/CHANGELOG.md)
+        env:
+          TAG: ${{ github.ref_name }}
+        run: python3 scripts/release_check.py notes "${TAG#v}" > notes.md
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-notes
+          path: notes.md
+          if-no-files-found: error
+          retention-days: 7
 
   test:
     needs: verify
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
@@ -92,26 +105,31 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  # The only job that can write to the repository. It checks nothing out and runs no script of ours: it downloads what the earlier jobs
+  # made and hands it to `gh release create`.
   publish:
-    needs: checksums
+    needs: [verify, checksums]
     runs-on: ubuntu-latest
     permissions:
       contents: write         # creating the release is the only thing that writes
     steps:
-      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
           name: release-files
           path: release
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-notes
+          path: notes
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           TAG: ${{ github.ref_name }}
         run: |
           set -eu
           version="${TAG#v}"
-          python3 scripts/release_check.py notes "$version" > notes.md
           flags=""
-          case "$version" in *-*) flags="--prerelease" ;; esac      # 1.0.0-rc.1 and the like are pre-releases
+          case "${version%%+*}" in *-*) flags="--prerelease" ;; esac      # 1.0.0-rc.1 is a pre-release; build metadata (1.0.0+build-1) is not
           gh release create "$TAG" release/meshllm-*.tar.gz release/meshllm-*.zip release/SHA256SUMS \
-            --verify-tag --title "Meshtastic LLM Bridge $version" --notes-file notes.md $flags
+            --verify-tag --title "Meshtastic LLM Bridge $version" --notes-file notes/notes.md $flags

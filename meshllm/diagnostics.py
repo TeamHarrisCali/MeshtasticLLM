@@ -78,6 +78,9 @@ class Diagnostics:
         if time.time() - self._auto[0] < 60:
             return self._auto[1]
         result = None
+        if paths.is_frozen():                         # a packaged program has no installer: "start at login" is the installer's feature, so say nothing
+            self._auto = (time.time(), None)
+            return None
         try:
             scripts = str(ROOT / "scripts")
             if scripts not in sys.path:               # setup_env.py is the installer script in the project's scripts/ folder, outside the package

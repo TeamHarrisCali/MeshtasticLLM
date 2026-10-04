@@ -58,7 +58,7 @@ built-in scripted model even if Ollama is running. See [setup.md](setup.md#try-i
 
 `--data-dir PATH` (or the environment variable `MESHLLM_DATA_DIR`; the flag wins) chooses the folder for `audit.db`, `backups/`, `tile_cache/` and
 `logs/`. Without either: the project folder when you run from source, exactly as before; the Docker image passes `--db /data/audit.db` (its volume);
-a packaged program uses your own data folder (`%APPDATA%\meshllm` on Windows, `~/Library/Application Support/meshllm` on macOS,
+a packaged program uses your own data folder (`%LOCALAPPDATA%\meshllm` on Windows, `~/Library/Application Support/meshllm` on macOS,
 `$XDG_DATA_HOME/meshllm` or `~/.local/share/meshllm` on Linux). `--db FILE` still names the database alone (backups and the tile cache then sit next to it, and
 the Diagnostics log viewer reads `logs/` from the data folder). The folder is created, readable by you only on Linux and macOS, when the bridge starts; `--demo`
 ignores `--data-dir` and keeps everything in its temporary folder. Details: [setup.md](setup.md#where-the-data-lives-and-the-downloadable-program).

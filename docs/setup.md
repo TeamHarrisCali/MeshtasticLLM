@@ -464,7 +464,7 @@ Releases page once the first one is published (see [releasing.md](releasing.md);
 (`meshllm.exe` on Windows) from a terminal with the flags you would give `python -m meshllm`: `./meshllm --demo` is the quickest try, `./meshllm --version` the quickest check.
 
 - **Ollama is separate.** The program does not include it or any model; install [Ollama](https://ollama.com/download) as before.
-- **The data goes to your own folder, not next to the program** (a program folder may be read-only or replaced by the next version): `%APPDATA%\meshllm` on Windows,
+- **The data goes to your own folder, not next to the program** (a program folder may be read-only or replaced by the next version): `%LOCALAPPDATA%\meshllm` on Windows,
   `~/Library/Application Support/meshllm` on macOS, `$XDG_DATA_HOME/meshllm` (else `~/.local/share/meshllm`) on Linux. The bridge prints where the database is when it starts, and Diagnostics shows it.
   Upgrading is unpacking the new folder; your data stays where it is.
 - **The dashboard's own pages and the docs are inside the program** (read-only); nothing is written into its folder.

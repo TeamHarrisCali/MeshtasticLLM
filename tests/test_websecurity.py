@@ -532,7 +532,7 @@ EXPECTED = {   # every route, tagged by someone reading this table: a new route 
     "viewer": {"GET": ["/api/status", "/api/stats", "/api/requests", "/api/conversations", "/api/conversation", "/api/queue", "/api/nodes", "/api/actions", "/api/models", "/api/channel",
                        "/api/telemetry", "/api/telemetry/node", "/api/telemetry/watch", "/api/home", "/api/mesh/nodes", "/api/mesh/sensors", "/api/mesh/link", "/api/mesh/linkmap",
                        "/api/mesh/hops", "/api/mesh/trail", "/api/mesh/trails", "/api/mesh/places", "/api/mesh/feed", "/api/ai/overview", "/api/mesh/traffic", "/api/mesh/samples",
-                       "/api/mesh/node", "/api/data/overview", "/api/tiles/stats", "/api/radio/position", "/api/radio/clock", "/api/radio/change", "/api/traceroutes", "/api/traceroute",
+                       "/api/mesh/node", "/api/data/overview", "/api/tiles/stats", "/api/radio/position", "/api/radio/clock", "/api/radio/change", "/api/connection", "/api/traceroutes", "/api/traceroute",
                        "/api/traceroute/request", "/api/unread", "/api/search", "/api/snippets", "/api/coverage", "/api/coverage/walk", "/api/coverage/walk/session", "/api/evals", "/api/docs"],
                "GET_RE": [r"/tiles/(\d{1,2})/(\d{1,8})/(\d{1,8})\.png"], "POST": ["/api/logout", "/api/ai/ask"], "POST_RAW": []},
     "viewer-sensitive": {"GET": ["/api/export.csv", "/api/telemetry/export.csv", "/api/diagnostics", "/api/logs", "/api/report", "/api/report.md"], "GET_RE": [r"/api/data/export/([a-z_]{1,30})\.csv"], "POST": [], "POST_RAW": []},
@@ -540,7 +540,7 @@ EXPECTED = {   # every route, tagged by someone reading this table: a new route 
               "POST": ["/api/pause", "/api/send", "/api/memory/clear", "/api/access/mode", "/api/access/default_cap", "/api/access/node", "/api/queue/cancel", "/api/model", "/api/models/pull",
                        "/api/models/pull/cancel", "/api/channel/post", "/api/channel/clear", "/api/telemetry/watch/add", "/api/telemetry/watch/remove", "/api/telemetry/watch/all",
                        "/api/telemetry/retention", "/api/telemetry/prune", "/api/tiles/clear", "/api/settings/dist_unit", "/api/settings/temp_unit", "/api/radio/position",
-                       "/api/radio/config/pull", "/api/radio/config/save", "/api/radio/config/restore", "/api/radio/change/dismiss", "/api/radio/time", "/api/traceroute/request",
+                       "/api/radio/config/pull", "/api/radio/config/save", "/api/radio/config/restore", "/api/radio/change/dismiss", "/api/radio/time", "/api/connection/ble/scan", "/api/connection/ble/save", "/api/connection/ble/clear", "/api/traceroute/request",
                        "/api/notes/set", "/api/snippets/add", "/api/snippets/delete", "/api/backups/create", "/api/backups/auto", "/api/backups/delete", "/api/backups/restore/existing",
                        "/api/backups/restore/cancel", "/api/coverage/walk/start", "/api/coverage/walk/stop", "/api/coverage/walk/delete"], "POST_RAW": ["/api/backups/restore"]},
     "public": {"GET": ["/api/session"], "GET_RE": [], "POST": ["/api/login"], "POST_RAW": []},
@@ -617,6 +617,23 @@ for table, key, fn in routes:
         admin_forbidden.append((method, path, ra.status_code))
 check("the admin is never refused by the role check on any route", not admin_forbidden, admin_forbidden)
 check("no viewer request transmitted anything", len(br1.iface.sent) == sent_before and br1.outbox.empty(), br1.iface.sent)
+# the Connection page: a viewer sees the kinds of connection and nothing that names an address; the finder routes are admin-only, CSRF- and Origin-checked
+from meshllm import connection as conn_mod
+real_endpoint, FAKE_MAC = br1.endpoint, "AA:BB:CC:DD:EE:FF"
+br1.endpoint = conn_mod.FailoverChain([conn_mod.SerialEndpoint("STUB"), conn_mod.BleEndpoint(FAKE_MAC)])
+br1.audit.set_setting(conn_mod.SAVED_FALLBACK_KEY, FAKE_MAC)
+vw_conn, ad_conn = call("GET", base1, "/api/connection", tok=tok_vw), call("GET", base1, "/api/connection", tok=tok_adm)
+check("Connection page: a viewer gets the chain by kind only, no address, no Bluetooth name, no saved fallback, no scan state", vw_conn.status_code == 200 and FAKE_MAC not in vw_conn.text and "Meshtastic_" not in vw_conn.text and "ble:" not in vw_conn.text
+      and "saved" not in vw_conn.json() and "scan" not in vw_conn.json() and [e["label"] for e in vw_conn.json()["entries"]] == ["USB", "Bluetooth"], vw_conn.text)
+check("...while the admin gets the address, the expected Bluetooth name and the saved fallback", ad_conn.status_code == 200 and ad_conn.json()["entries"][1]["label"] == "ble:" + FAKE_MAC and ad_conn.json()["expected_name"] == "Meshtastic_0001" and ad_conn.json()["saved"] == FAKE_MAC, ad_conn.text)
+check("...and /api/status for a viewer still hides the address too (the same redaction)", FAKE_MAC not in call("GET", base1, "/api/status", tok=tok_vw).text)
+for pth, bd in (("/api/connection/ble/scan", {}), ("/api/connection/ble/save", {"address": "AA:BB:CC:DD:EE:01"}), ("/api/connection/ble/clear", {})):
+    check(f"POST {pth}: viewer 403, anonymous 401, admin without the CSRF token 403, with a foreign Origin 403",
+          call("POST", base1, pth, tok=tok_vw, csrf=csrf_vw, body=bd).status_code == 403 and call("POST", base1, pth, body=bd).status_code == 401
+          and call("POST", base1, pth, tok=tok_adm, body=bd).status_code == 403 and call("POST", base1, pth, tok=tok_adm, csrf=csrf_adm, origin="http://evil.test", body=bd).status_code == 403)
+check("a viewer's attempt saved nothing", br1.audit.get_setting(conn_mod.SAVED_FALLBACK_KEY) == FAKE_MAC)
+br1.audit.delete_setting(conn_mod.SAVED_FALLBACK_KEY)
+br1.endpoint = real_endpoint
 for path in ("/api/export.csv", "/api/telemetry/export.csv", "/api/data/export/nodes.csv", "/api/diagnostics", "/api/logs", "/api/report", "/api/report.md", "/api/backups", "/api/backups/download", "/api/radio/config/backup?id=1"):
     check(f"a viewer does not get {path} (backups, CSV exports, logs, diagnostics, reports)", call("GET", base1, path, tok=tok_vw).status_code == 403)
 sec5 = sec_obj(admin_file=admin_file, viewer_file=viewer_file, allowed_hosts=[], viewer_exports=True)

@@ -26,6 +26,7 @@ from meshllm import actions
 from meshllm import evals
 from meshllm import inbox
 from meshllm import report
+from meshllm.btfinder import FinderError
 from meshllm.channel import ChannelError
 from meshllm.mesh import PositionError
 from meshllm.ollama_models import OllamaError
@@ -643,6 +644,43 @@ def w_radio_time(b, body):
     """POST /api/radio/time: set the radio's clock from this PC. Changes the radio."""
     b.mesh.sync_radio_clock()
     return {"ok": True}
+
+
+# ======================================================================================================================
+# the connection: how the bridge is linked to the radio, the radio's Bluetooth, finding its Bluetooth address (see btfinder.py)
+# ======================================================================================================================
+@get("/api/connection", VIEWER, ctx=True)
+def r_connection(b, q, req):
+    """GET /api/connection: the connection chain, whether the radio's Bluetooth is on and its pairing mode (never the PIN), and for the admin the
+    Bluetooth name to look for, the scan state and the saved fallback. A read-only account gets the kinds of connection but no address or name."""
+    return b.btfinder.view(admin=not (b.web_security.auth_required and req.role != ADMIN))
+
+
+def _finder_call(fn, *args):
+    """Run a BluetoothFinder action, turning its refusal into an HttpError that carries the one-word state for the page."""
+    try:
+        return fn(*args)
+    except FinderError as e:
+        raise HttpError(e.code, str(e), state=e.state) from None
+
+
+@post("/api/connection/ble/scan", ADMIN)
+def w_ble_scan(b, body):
+    """POST /api/connection/ble/scan: start a scan of this PC's Bluetooth for the connected radio's Bluetooth name, one at a time, in the
+    background (poll GET /api/connection). Refused in Docker, without Bluetooth support, while connected over Bluetooth, or while a scan is running."""
+    return _finder_call(b.btfinder.start_scan)
+
+
+@post("/api/connection/ble/save", ADMIN)
+def w_ble_save(b, body):
+    """POST /api/connection/ble/save {address}: save a Bluetooth address (AA:BB:CC:DD:EE:FF) as the fallback connection. Applies at the next start."""
+    return _finder_call(b.btfinder.save, body.get("address"))
+
+
+@post("/api/connection/ble/clear", ADMIN)
+def w_ble_clear(b, body):
+    """POST /api/connection/ble/clear: forget the saved Bluetooth fallback. Applies at the next start."""
+    return _finder_call(b.btfinder.clear)
 
 
 # ======================================================================================================================

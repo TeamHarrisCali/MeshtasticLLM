@@ -13,6 +13,7 @@ home.js
 nodes.js
 map.js
 radio.js
+connection.js
 trends.js
 data.js
 activity.js

@@ -35,6 +35,8 @@ every mode, and a failing Wi-Fi or Bluetooth connection is retried only every 15
 `tcp:192.168.1.50:4403`, `usb:/dev/ttyUSB1`, `usb:auto`) names connections to carry on over when the ones before it are unavailable; a USB entry above the live one is switched
 back to after it has been listed for 10 seconds, Wi-Fi and Bluetooth entries are not probed, and a duplicate or malformed entry is an error
 ([setup.md](setup.md#failover-between-connections)). In Docker, `MESHLLM_FALLBACK` is the comma-separated list.
+With none of `--fallback`, `--tcp` or `--ble` given, a Bluetooth fallback saved from the dashboard's Connection page is used instead (USB first, then that
+address); those flags always win over it, and a change there applies at the next start ([setup.md](setup.md#finding-the-radios-bluetooth-address-from-the-dashboard)).
 `--tcp`, `--ble`, `--port` and `--fallback` are ignored in `--demo`.
 `--no-warm-up` (don't load the model into Ollama's memory at start-up; by default it is loaded and kept ready for 30 minutes after each question).
 

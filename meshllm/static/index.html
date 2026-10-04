@@ -26,6 +26,7 @@
     <button data-view="traceroute"><span class="ic">🧭</span>Traceroute</button>
     <button data-view="telemetry"><span class="ic">📊</span>Telemetry</button>
     <button data-view="radio"><span class="ic">📻</span>Radio settings</button>
+    <button data-view="connection"><span class="ic">🔌</span>Connection</button>
     <button data-view="data"><span class="ic">📚</span>Data</button>
     <button data-view="report"><span class="ic">📝</span>Report</button>
     <button data-view="diagnostics"><span class="ic">🩺</span>Diagnostics</button>
@@ -503,6 +504,19 @@
     </div>
   </div>
 
+  <div id="viewConnection" hidden>
+    <div class="card"><h3>How the bridge is connected <span id="connWhen" class="hint"></span></h3><div id="connChain"></div><p class="hint" id="connText"></p></div>
+    <div class="card"><h3>The radio's Bluetooth</h3><div id="connBt"></div>
+      <p class="hint">Read from the radio over its current connection. The radio tells you whether Bluetooth is on and how pairing works. It does not tell you its Bluetooth address, and the pairing PIN is never read or shown here.</p></div>
+    <div class="card" id="connFindCard"><h3>Find this radio's Bluetooth address</h3>
+      <p id="connExpect" class="hint" style="margin-top:0"></p>
+      <div class="maptools"><button id="connScan" type="button">Scan for it</button></div>
+      <div id="connNote" class="sendnote" role="status"></div>
+      <div id="connFound"></div>
+      <p class="hint">The scan uses this PC's own Bluetooth for up to 25 seconds and keeps only a device named like this radio; other radios nearby are not listed. It cannot run inside Docker, and not while the bridge itself is connected over Bluetooth (a connected radio stops advertising).</p></div>
+    <div class="card" id="connSavedCard"><h3>Bluetooth fallback</h3><div id="connSaved"></div>
+      <p class="hint">A saved address becomes the Bluetooth fallback the next time the bridge starts: USB stays first and Bluetooth takes over when the radio is unplugged. Restart the bridge to apply a change. A <code>--fallback</code>, <code>--tcp</code> or <code>--ble</code> flag on the command line always wins over it.</p></div>
+  </div>
   <div id="viewDiagnostics" hidden>
     <div class="card"><h3>Health check <span id="diagWhen" class="hint"></span></h3><div id="diagList"></div></div>
     <div class="card">

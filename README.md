@@ -60,9 +60,11 @@ All of these are from [demo mode](#try-it-without-hardware): simulated nodes and
 
 ## Requirements
 
-- A Meshtastic radio connected over USB (firmware 2.5 or newer for the encrypted-DM features).
+- A Meshtastic radio connected over USB (firmware 2.5 or newer for the encrypted-DM features). Bluetooth and Wi-Fi radios work too, see below.
 - [Ollama](https://ollama.com/download) with at least one model that supports tool calling (for example `qwen3.5` or `llama3.2:3b`).
 - Python 3.9 or newer. Windows, Linux and macOS are supported. Setup builds its own virtual environment.
+
+The installer below is the main way to run it and supports everything (USB, Bluetooth, Wi-Fi, failover). [Docker](#run-with-docker-second-option) is a second option that needs only Docker instead of Python and Ollama, with a few things it cannot do.
 
 ## Quick start
 
@@ -90,9 +92,20 @@ Then open <http://127.0.0.1:8080/> and, from another node, send a direct message
 remembered in the database. Command-line flags exist as optional overrides ([docs/flags.md](docs/flags.md)). To run in the
 foreground instead: `.venv/bin/python -m meshllm`.
 
-### Run with Docker
+### Run with Docker (second option)
 
-Docker is an alternative to the installer, and the only thing you need is Docker. One command checks Docker, finds your USB radio, offers a dashboard password, writes the settings and starts everything
+Docker is a second option, for when you would rather not install Python or Ollama: the only thing you need is Docker. It does **not** do everything the installer above does:
+
+**What Docker can't do** (use the installer above if you need any of these):
+
+- **Bluetooth.** A container cannot reach the host's Bluetooth service, so a Bluetooth radio, `--ble-scan`, and the **USB-with-Bluetooth failover** (the combination tested on real hardware) work only with the installer. Inside Docker failover can only be between USB and Wi-Fi, which is untested.
+- **USB on Windows and macOS.** Docker Desktop cannot hand a USB serial device to a container, so USB radios work in Docker on Linux only (elsewhere use a Wi-Fi radio, also untested).
+- **USB hot-plug.** The device is passed to the container when it is created: after unplugging and replugging the radio, run the setup command (or `docker compose up -d`) again. The installer's bridge reconnects by itself.
+- **Your existing data.** Docker keeps its own database and its own copy of the AI model, separate from a bridge and an Ollama you already run (restore an old database from the dashboard's Backups page).
+- **The dashboard's log viewer.** The container writes no log files, so read them with `docker compose logs -f bridge`.
+- **Not yet tried:** Docker Desktop on Windows and macOS, and Wi-Fi/TCP radios, with or without Docker.
+
+If none of that matters to you, one command checks Docker, finds your USB radio, offers a dashboard password, writes the settings and starts everything
 (the bridge, its own Ollama, and the one-time AI model download of about 2 GB):
 
 ```bash
@@ -109,8 +122,8 @@ docker compose -f docker-compose.yml -f docker-compose.usb.yml up -d
 # or a Wi-Fi radio on any computer: put MESHLLM_TCP=<its address> in a .env file (copy .env.example), then docker compose up -d
 ```
 
-> **By default the container's dashboard has no login**, so the compose file publishes it on this computer only (`127.0.0.1:8080`) and Ollama's port is not
-> published at all. For a password, make a hash with `python -m meshllm --set-password`, name the file in `.env` and add the override file (the hash goes in as a Compose secret, not an environment variable):
+> **Without a password the container's dashboard has no login**, so the compose file publishes it on this computer only (`127.0.0.1:8080`) and Ollama's port is not
+> published at all. `./setup.sh --docker` offers to set a password; by hand, make a hash with `python -m meshllm --set-password`, name the file in `.env` and add the override file (the hash goes in as a Compose secret, not an environment variable):
 > `docker compose -f docker-compose.yml -f docker-compose.login.yml up -d`. Reaching it from another computer is an explicit opt-in that needs that login (`MESHLLM_WEB_BIND` and `MESHLLM_ALLOWED_HOSTS` in `.env`); the container refuses to start otherwise.
 > Do not hand-edit the port address to `0.0.0.0` or a LAN address. If you run the image without Compose, publish with `-p 127.0.0.1:8080:8080`, never `-p 8080:8080` (that would expose a login-less dashboard on your network). **Bluetooth does not work inside a container** (it needs the
 > host's Bluetooth service): run the bridge on the host for that. **Wi-Fi/TCP has not been tested on real hardware yet.** Full steps, backups,

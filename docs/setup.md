@@ -207,9 +207,21 @@ The radio is not visible inside WSL; run the bridge on the Windows side, or atta
 
 ## Run with Docker
 
-The project can run as containers instead of through `setup.sh`: one for the bridge and dashboard, one for Ollama (the AI model server), and a small one-off
+The project can run as containers instead of through `setup.sh`. **This is the second option**: the installer above supports everything, Docker only needs Docker but cannot do some things (the list is
+just below). The containers are: one for the bridge and dashboard, one for Ollama (the AI model server), and a small one-off
 container (`model-pull`) that downloads the AI model the first time. The files are `Dockerfile`, `docker-compose.yml`, `docker-compose.usb.yml`,
 `docker-compose.login.yml`, `.env.example`, `docker/entrypoint.sh` and the helper `setup_docker.py`.
+
+### What Docker can't do
+
+**What Docker can't do** (use the installer above if you need any of these):
+
+- **Bluetooth.** A container cannot reach the host's Bluetooth service, so a Bluetooth radio, `--ble-scan`, and the **USB-with-Bluetooth failover** (the combination tested on real hardware) work only with the installer. Inside Docker failover can only be between USB and Wi-Fi, which is untested.
+- **USB on Windows and macOS.** Docker Desktop cannot hand a USB serial device to a container, so USB radios work in Docker on Linux only (elsewhere use a Wi-Fi radio, also untested).
+- **USB hot-plug.** The device is passed to the container when it is created: after unplugging and replugging the radio, run the setup command (or `docker compose up -d`) again. The installer's bridge reconnects by itself.
+- **Your existing data.** Docker keeps its own database and its own copy of the AI model, separate from a bridge and an Ollama you already run (restore an old database from the dashboard's Backups page).
+- **The dashboard's log viewer.** The container writes no log files, so read them with `docker compose logs -f bridge`.
+- **Not yet tried:** Docker Desktop on Windows and macOS, and Wi-Fi/TCP radios, with or without Docker.
 
 ### The easy way: one command
 

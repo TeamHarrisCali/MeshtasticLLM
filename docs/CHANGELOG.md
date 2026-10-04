@@ -7,6 +7,10 @@ the section below that matches the tag as the release notes ([releasing.md](rele
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-04
+
+Adds an update check and an in-app update. Everything in 0.1.0 is unchanged. Not yet tried through a real published release (this is the first release that has it), and not tried on Windows or macOS restarts.
+
 ### Added
 
 - **An update check and an in-app update** (Settings > Updates, admin only). The check looks at this repository's published GitHub Releases, is **off by default** (turn it on in Settings; "Check now"
@@ -14,6 +18,14 @@ the section below that matches the tag as the release notes ([releasing.md](rele
   the working tree is clean and the checkout is on a branch), `pip install -r requirements.txt` if that file changed, a check that the new version starts, a rollback if either fails, and a restart
   of the bridge where that is safe. Docker, the downloadable program and other installs are told that a release exists and how to update by hand; they never update themselves
   ([setup.md](setup.md#updating)). It refuses to run pip outside a virtual environment and to overwrite untracked or ignored files, and it never reads `~/.netrc`. Only tried against a local fake of GitHub: no real release has been through it yet.
+
+### Not tried on real hardware
+
+The automated tests fake the radio, Ollama and GitHub. What was tried for real is in the [README status](../README.md#status); in short:
+
+- The update check and the in-app update were tried against a fake GitHub and scratch git repositories, never through a real published release (this is the first release that has them), and a restart after an update was not tried on Windows or macOS.
+- Wi-Fi/TCP, setup on macOS, Docker Desktop, a radio from inside a container and the LAN login through a real reverse proxy were not tried.
+- The Windows download was run by the maintainer on a Windows PC and works; the macOS download has not been run by a person, and no packaged program has been run against a real radio. The programs are not signed, so Windows and macOS will warn before running them.
 
 ## [0.1.0] - 2026-10-04
 
@@ -55,5 +67,6 @@ The automated tests fake the radio and Ollama. What was tried for real is listed
 - The packaged Windows and macOS programs are only smoke-tested in CI (they start, serve the dashboard in demo mode and find their bundled
   files); no packaged program has been run against a real radio. The programs are not signed, so Windows and macOS will warn before running them.
 
-[Unreleased]: https://github.com/TeamHarrisCali/MeshtasticLLM/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/TeamHarrisCali/MeshtasticLLM/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/TeamHarrisCali/MeshtasticLLM/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/TeamHarrisCali/MeshtasticLLM/releases/tag/v0.1.0

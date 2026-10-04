@@ -16,8 +16,8 @@ only the maintainer should push one. The first release is `v0.1.0`.
 - **Ollama is not included.** Install it separately; the program talks to it the same way the Python version does.
 - **USB and Bluetooth behave as with the installer**: the program runs on your computer with your drivers and permissions.
 - **How far they were tested:** every build is started in CI and must serve the dashboard in demo mode, answer `--version`, load its Bluetooth backend (`meshllm --self-check`), find its bundled
-  pages and docs, write its database and backups to the data folder and nothing inside its own folder. That is a smoke test. **No packaged program (Linux, Windows or macOS) has been run against a real
-  radio**; the real-hardware results in the README are for the Python installation.
+  pages and docs, write its database and backups to the data folder and nothing inside its own folder. That is a smoke test. After the first release the maintainer also ran the downloaded Windows program on a real Windows PC and reports it works. **No packaged program (Linux, Windows or macOS) has been confirmed against a real
+  radio**, and the macOS one has not been run by a person; the real-hardware results in the README are for the Python installation.
 
 ## Cutting a release
 

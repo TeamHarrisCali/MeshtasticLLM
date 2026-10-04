@@ -1,0 +1,76 @@
+name: package
+
+# Builds the packaged program (a folder you can run with no Python installed) on Linux, Windows and macOS, runs scripts/smoke_binary.py on
+# each, and keeps the archives as workflow artifacts. PyInstaller cannot cross-compile, so each operating system builds its own; the
+# Windows and macOS jobs are the only place those two are ever run.
+#
+# These jobs are extra: the branch ruleset requires only the names in tests.yml, and this workflow is skipped (not "pending") when a pull
+# request touches none of the paths below, so it can never hold a merge back. Pushing a version tag runs release.yml, which calls this
+# workflow (workflow_call) and then publishes what it built.
+on:
+  pull_request:
+    paths:
+      - "meshllm/**"
+      - "scripts/build_binary.py"
+      - "scripts/launcher.py"
+      - "scripts/meshllm.spec"
+      - "scripts/smoke_binary.py"
+      - "scripts/requirements-build.txt"
+      - "requirements.txt"
+      - "docs/**"
+      - ".github/workflows/package.yml"
+      - ".github/workflows/release.yml"
+  workflow_call:
+  workflow_dispatch:
+
+# Building only reads the repository; uploading an artifact needs no token permission at all.
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: package (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, label: linux }
+          - { os: windows-latest, label: windows }
+          - { os: macos-latest, label: macos }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            scripts/requirements-build.txt
+      - name: Install the program's libraries and PyInstaller
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r scripts/requirements-build.txt
+      - name: Work out the name of the build
+        run: echo "BUILD_NAME=$(python scripts/build_binary.py --print-name)" >> "$GITHUB_ENV"
+      - name: Build
+        run: python scripts/build_binary.py --out dist
+      - name: Smoke test (version, self-check, demo mode, data folder, nothing written inside the program)
+        run: python scripts/smoke_binary.py "dist/$BUILD_NAME"
+      - name: Show the size
+        run: |
+          du -sh "dist/$BUILD_NAME" || true
+          ls -l dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: meshllm-${{ matrix.label }}
+          path: |
+            dist/meshllm-*.tar.gz
+            dist/meshllm-*.zip
+          if-no-files-found: error
+          retention-days: 14

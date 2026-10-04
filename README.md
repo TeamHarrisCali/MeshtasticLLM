@@ -63,6 +63,13 @@ If you would rather not install Python or Ollama, `./setup.sh --docker` starts t
 Without a password the container's dashboard has no login, so Compose publishes it on this computer only; if you run the image without
 Compose, publish with `-p 127.0.0.1:8080:8080`, never `-p 8080:8080`. Full steps, the login, backups and updating: [docs/setup.md](docs/setup.md#run-with-docker).
 
+### Download a program (third option)
+
+No Python and no Docker: a ready-made program to unpack and run (`./meshllm --demo` is a quick try) for **Linux x86_64, Windows x86_64 and macOS on Apple silicon only**
+(Raspberry Pi and other arm64 Linux, and Intel Macs, are not covered). [Ollama](https://ollama.com/download) is still installed separately. Releases appear on the
+[GitHub Releases page](https://github.com/TeamHarrisCali/MeshtasticLLM/releases) once the first one is published; **none exists yet**. The programs are unsigned
+(Windows and macOS will warn) and not yet tried on a real radio; see [docs/releasing.md](docs/releasing.md).
+
 ## Status
 
 What has been tried on real hardware (the automated tests fake the radio and Ollama; [docs/roadmap.md](docs/roadmap.md) lists the rest):

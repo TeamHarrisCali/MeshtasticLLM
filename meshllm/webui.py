@@ -14,11 +14,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from meshllm import webroutes
+from meshllm import paths, webroutes
 from meshllm.webroutes import HttpError, Reply
 from meshllm.websecurity import (CSRF_HEADER, MAX_LOGIN_BODY, PUBLIC, PUBLIC_STATIC, VIEWER, WILDCARD_HOSTS, WebSecurity, tls_context)
 
-STATIC = Path(__file__).parent / "static"
+STATIC = paths.resource_root() / "meshllm" / "static"      # beside the package, or inside the bundle in a packaged program
 _bundle = {"stamp": None, "data": b""}
 MAX_JSON_BODY = 1024 * 1024    # the biggest JSON body any dashboard action sends is a few KB; more is a mistake or an attack
 

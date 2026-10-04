@@ -9,8 +9,9 @@ import sys
 import time
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent      # the project folder (this file is meshllm/diagnostics.py)
-LOG_DIR = ROOT / "logs"
+from meshllm import __version__, paths
+
+ROOT = paths.project_root()      # the project folder (setup_env.py's scripts/ are there; a packaged program has none and the start-at-login check then says nothing)
 # which= value used by the API -> file name inside the log folder
 LOG_FILES = {"out": "bridge.log", "err": "bridge.err.log"}
 MAX_LOG_LINES = 500
@@ -54,11 +55,11 @@ def tail_lines(path, lines=200):
     return out[-lines:]
 
 
-def read_log(which, lines=200, folder=LOG_DIR):
+def read_log(which, lines=200, folder=None):
     """Tail of one of the bridge's log files plus its existence, size and modified time; `which` must be a key of LOG_FILES."""
     if which not in LOG_FILES:
         raise ValueError("which must be out or err")
-    path = Path(folder) / LOG_FILES[which]
+    path = Path(folder or paths.log_dir()) / LOG_FILES[which]
     return {"which": which, "file": LOG_FILES[which], "exists": path.is_file(), "lines": tail_lines(path, lines),
             "size": path.stat().st_size if path.is_file() else 0, "modified": path.stat().st_mtime if path.is_file() else None}
 
@@ -68,7 +69,7 @@ class Diagnostics:
 
     def __init__(self, bridge, log_dir=None):
         self.bridge = bridge
-        self.log_dir = Path(log_dir) if log_dir else LOG_DIR
+        self.log_dir = Path(log_dir) if log_dir else paths.log_dir()
         self._auto = (0.0, None)                          # when the start-at-login state was last asked, and the answer
 
     def _autostart(self):
@@ -77,6 +78,9 @@ class Diagnostics:
         if time.time() - self._auto[0] < 60:
             return self._auto[1]
         result = None
+        if paths.is_frozen():                         # a packaged program has no installer: "start at login" is the installer's feature, so say nothing
+            self._auto = (time.time(), None)
+            return None
         try:
             scripts = str(ROOT / "scripts")
             if scripts not in sys.path:               # setup_env.py is the installer script in the project's scripts/ folder, outside the package
@@ -198,6 +202,7 @@ class Diagnostics:
         if auto:
             add("autostart", "Start at login", "ok" if auto[0] == "installed" else "info", "Installed." if auto[0] == "installed" else "Not set up: the bridge only runs when you start it.",
                 "" if auto[0] == "installed" else "Run  python scripts/setup_env.py --autostart  to start it when you log in.")
+        add("version", "Version", "info", f"Meshtastic LLM Bridge {__version__}, " + ("the packaged program." if paths.is_frozen() else "running from the Python source."))
         add("system", "This computer", "info", f"{platform.system()} {platform.release()}, Python {platform.python_version()}, bridge up {_ago(st['uptime_s']).replace(' ago', '') if st['uptime_s'] >= 90 else 'under 2 min'}.")
         # "info" checks never affect the overall result
         worst = "bad" if any(c["status"] == "bad" for c in checks) else "warn" if any(c["status"] == "warn" for c in checks) else "ok"

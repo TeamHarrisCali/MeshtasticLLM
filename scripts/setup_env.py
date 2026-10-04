@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
 """Set this project up on whatever computer it is on (Windows, Linux or macOS).
 
-    python setup_env.py                 detect the computer, (re)build the private Python environment (.venv), install the
+    python scripts/setup_env.py                 detect the computer, (re)build the private Python environment (.venv), install the
                                         dependencies, and check Ollama and the radio; safe to run again any time
-    python setup_env.py --check         only look and report; change nothing
-    python setup_env.py --recreate      throw the environment away and build it again
-    python setup_env.py --pull-model    also download the AI model the bridge is set to use (asks first)
-    python setup_env.py --install-ollama   install Ollama if it is missing (asks first, shows the exact command)
-    python setup_env.py --start         start the bridge in the background when everything is ready
-    python setup_env.py --autostart     start the bridge every time you log in (this user only, no admin/sudo; asks first): a Task
+    python scripts/setup_env.py --check         only look and report; change nothing
+    python scripts/setup_env.py --recreate      throw the environment away and build it again
+    python scripts/setup_env.py --pull-model    also download the AI model the bridge is set to use (asks first)
+    python scripts/setup_env.py --install-ollama   install Ollama if it is missing (asks first, shows the exact command)
+    python scripts/setup_env.py --start         start the bridge in the background when everything is ready
+    python scripts/setup_env.py --autostart     start the bridge every time you log in (this user only, no admin/sudo; asks first): a Task
                                         Scheduler task on Windows, a systemd user service on Linux, a launchd agent on macOS
-    python setup_env.py --no-autostart  remove that again (the --check report says whether it is installed)
-    python setup_env.py --yes           don't ask questions (for scripts)
+    python scripts/setup_env.py --no-autostart  remove that again (the --check report says whether it is installed)
+    python scripts/setup_env.py --yes           don't ask questions (for scripts)
 
-Docker instead of a Python environment (the only thing needed is Docker; see setup_docker.py and docs/setup.md, "Run with Docker"):
-    python setup_env.py --docker        check Docker, find the radio, offer a dashboard password, write .env and start the containers
-    python setup_env.py --docker --tcp ADDRESS | --lan ADDRESS | --web-port N | --demo | --no-login | --no-start | --check
-    python setup_env.py --docker-stop   stop the containers again
+Docker instead of a Python environment (the only thing needed is Docker; see scripts/setup_docker.py and docs/setup.md, "Run with Docker"):
+    python scripts/setup_env.py --docker        check Docker, find the radio, offer a dashboard password, write .env and start the containers
+    python scripts/setup_env.py --docker --tcp ADDRESS | --lan ADDRESS | --web-port N | --demo | --no-login | --no-start | --check
+    python scripts/setup_env.py --docker-stop   stop the containers again
 
 Moving the project to another computer: copy the folder (audit.db holds all your data and settings; the .venv folder is
 specific to a computer and is rebuilt automatically when it doesn't work any more) and run setup.bat (Windows) or ./setup.sh
@@ -44,7 +44,7 @@ OLLAMA_URL = "http://127.0.0.1:11434"
 IMPORTS = [("meshtastic", "meshtastic"), ("requests", "requests"), ("serial", "pyserial"), ("pubsub", "pypubsub")]
 # USB vendor ids of the chips on Meshtastic boards (Adafruit/Nordic, Espressif, Silicon Labs CP210x, WCH CH340, FTDI, ...)
 RADIO_VIDS = {0x239A, 0x303A, 0x10C4, 0x1A86, 0x0403, 0x2886, 0x1915, 0x2E8A}     # the chips Meshtastic boards use (the bridge has the authoritative list)
-ROOT = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))     # the project folder (this file is scripts/setup_env.py)
 
 
 # ---- console output -------------------------------------------------------------------------------------------------------------------------
@@ -316,7 +316,7 @@ def verify(rep, root, vpy):
     got = check_imports(vpy)
     missing = [m for m, v in got.items() if not v]
     if missing:
-        rep.fail("these packages still can't be imported: " + ", ".join(missing), "Run:  python setup_env.py --recreate")
+        rep.fail("these packages still can't be imported: " + ", ".join(missing), "Run:  python scripts/setup_env.py --recreate")
         return False
     rep.ok("packages: " + ", ".join("%s %s" % (m, got[m]) for m, _ in IMPORTS))
     code, out = run([vpy, "-c", "import meshllm.bridge"], cwd=root, timeout=120)
@@ -511,7 +511,7 @@ def prepare_folder(rep, root, info):
     """Create logs/, make the .sh scripts runnable on Linux/macOS, and say whether an existing audit.db is usable. Reads the database read-only."""
     os.makedirs(os.path.join(root, "logs"), exist_ok=True)
     if info["system"] != "Windows":
-        for name in ("setup.sh", "start_bridge.sh", "stop_bridge.sh"):
+        for name in ("setup.sh", "scripts/start_bridge.sh", "scripts/stop_bridge.sh"):
             path = os.path.join(root, name)
             if os.path.isfile(path):
                 fixed = fix_line_endings(path)
@@ -533,7 +533,7 @@ def prepare_folder(rep, root, info):
 
 def start_command(info):
     """The command a user types to start the bridge on this OS (shown in the final message)."""
-    return r"powershell -NoProfile -ExecutionPolicy Bypass -File .\start_bridge.ps1" if info["system"] == "Windows" else "./start_bridge.sh"
+    return r"powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start_bridge.ps1" if info["system"] == "Windows" else "./scripts/start_bridge.sh"
 
 
 def find_python(explicit=None):
@@ -548,7 +548,7 @@ TASK_NAME = "MeshLLMBridge"
 UNIT_NAME = "mesh-llm-bridge.service"
 LAUNCHD_LABEL = "com.meshllm.bridge"
 SCHTASKS_TR_LIMIT = 261                                   # Task Scheduler refuses a /TR command longer than this
-SYSTEMD_FALLBACK = ("Add ./start_bridge.sh to your desktop's startup applications instead (it starts the bridge when you log in to the desktop).\n"
+SYSTEMD_FALLBACK = ("Add ./scripts/start_bridge.sh to your desktop's startup applications instead (it starts the bridge when you log in to the desktop).\n"
                     "On WSL, run the bridge on the Windows side, or turn systemd on (/etc/wsl.conf:  [boot]  systemd=true) and run this again.")
 
 
@@ -601,8 +601,8 @@ def launchd_plist_text(root, python_exe):
 
 
 def schtasks_create_cmd(root):
-    """Create (or replace: /F) a task that runs start_bridge.ps1 hidden when this user logs on. No /RU and /RL LIMITED: it runs as the current user, never elevated."""
-    script = ntpath.join(root, "start_bridge.ps1")
+    """Create (or replace: /F) a task that runs scripts/start_bridge.ps1 hidden when this user logs on. No /RU and /RL LIMITED: it runs as the current user, never elevated."""
+    script = ntpath.join(root, "scripts", "start_bridge.ps1")
     tr = 'powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%s"' % script
     return ["schtasks", "/Create", "/TN", TASK_NAME, "/SC", "ONLOGON", "/TR", tr, "/RL", "LIMITED", "/F"]
 
@@ -618,8 +618,8 @@ def autostart_plan(info, root, python_exe, home, uid):
         cmd = schtasks_create_cmd(root)
         plan.update(kind="schtasks", install_cmds=[cmd], remove_cmds=[["schtasks", "/Delete", "/TN", TASK_NAME, "/F"]],
                     query_cmd=["schtasks", "/Query", "/TN", TASK_NAME],
-                    summary='a Task Scheduler task named "%s" (this user only) that runs start_bridge.ps1 hidden each time you log in' % TASK_NAME,
-                    note="It takes effect at your next login. To start the bridge right now:  powershell -NoProfile -ExecutionPolicy Bypass -File .\\start_bridge.ps1")
+                    summary='a Task Scheduler task named "%s" (this user only) that runs scripts/start_bridge.ps1 hidden each time you log in' % TASK_NAME,
+                    note="It takes effect at your next login. To start the bridge right now:  powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\start_bridge.ps1")
         if len(cmd[cmd.index("/TR") + 1]) > SCHTASKS_TR_LIMIT:
             plan["problem"] = "the project folder's path is too long for Task Scheduler (%d characters is the limit for the command)" % SCHTASKS_TR_LIMIT
     elif system == "Darwin":
@@ -631,7 +631,7 @@ def autostart_plan(info, root, python_exe, home, uid):
                     remove_cmds=[["launchctl", "bootout", "%s/%s" % (target, LAUNCHD_LABEL)]],
                     query_cmd=["launchctl", "print", "%s/%s" % (target, LAUNCHD_LABEL)],
                     summary="a launchd agent (%s) that starts the bridge when you log in and restarts it if it crashes" % plist,
-                    note="It starts now and at every login. To stop it for good:  python setup_env.py --no-autostart")
+                    note="It starts now and at every login. To stop it for good:  python scripts/setup_env.py --no-autostart")
     elif system == "Linux":
         unit = posixpath.join(home, ".config", "systemd", "user", UNIT_NAME)
         plan.update(kind="systemd", files={unit: systemd_unit_text(root, python_exe)},
@@ -641,7 +641,7 @@ def autostart_plan(info, root, python_exe, home, uid):
                     query_cmd=["systemctl", "--user", "is-enabled", UNIT_NAME],
                     summary="a systemd user service (%s) that starts the bridge when you log in and restarts it if it crashes" % unit,
                     note="It starts now and at every login. To start it at boot instead of at login (before you log in), run once:  loginctl enable-linger $USER\n"
-                         "To stop it for good:  python setup_env.py --no-autostart   (or: systemctl --user stop mesh-llm-bridge)")
+                         "To stop it for good:  python scripts/setup_env.py --no-autostart   (or: systemctl --user stop mesh-llm-bridge)")
     else:
         plan["problem"] = "start at login isn't supported on this kind of computer (%s)" % system
     return plan
@@ -655,9 +655,9 @@ def autostart_blocker(plan, which=shutil.which, isdir=os.path.isdir):
     if plan["kind"] == "systemd" and (not which("systemctl") or not isdir("/run/systemd/system")):
         return "systemd isn't running here (normal for WSL without systemd and for containers), so start at login can't be set up", SYSTEMD_FALLBACK
     if plan["kind"] == "launchd" and not which("launchctl"):
-        return "launchctl isn't available", "Add the bridge to System Settings > General > Login Items by hand (start_bridge.sh)."
+        return "launchctl isn't available", "Add the bridge to System Settings > General > Login Items by hand (scripts/start_bridge.sh)."
     if plan["kind"] == "schtasks" and not which("schtasks"):
-        return "schtasks (Task Scheduler) isn't available", "Put a shortcut to start_bridge.ps1 in the Startup folder instead (Win+R, then: shell:startup)."
+        return "schtasks (Task Scheduler) isn't available", "Put a shortcut to scripts/start_bridge.ps1 in the Startup folder instead (Win+R, then: shell:startup)."
     return None
 
 
@@ -707,7 +707,7 @@ def autostart_install(rep, plan, runner=run, ask=ask_yes, yes=False, which=shuti
         if code != 0:
             hint = out.strip()[-400:]
             if plan["kind"] == "schtasks":
-                hint += "\nIf it says access is denied, run this from a terminal opened with 'Run as administrator', or put a shortcut to start_bridge.ps1 in the Startup folder (Win+R, then: shell:startup)."
+                hint += "\nIf it says access is denied, run this from a terminal opened with 'Run as administrator', or put a shortcut to scripts/start_bridge.ps1 in the Startup folder (Win+R, then: shell:startup)."
             rep.fail("couldn't set up start at login (%s failed)" % " ".join(cmd[:3]), hint)
             return False
     state, detail = autostart_state(plan, runner)
@@ -741,7 +741,7 @@ def autostart_remove(rep, plan, runner=run, which=shutil.which, isdir=os.path.is
     if autostart_state(plan, runner, exists)[0] == "installed":
         rep.fail("start at login still shows as installed", "Remove it by hand:  " + " ".join(plan["remove_cmds"][0]))
         return False
-    rep.ok("start at login removed (the bridge itself is untouched; it is stopped by stop_bridge, not by this)")
+    rep.ok("start at login removed (the bridge itself is untouched; it is stopped by scripts/stop_bridge.sh (scripts/stop_bridge.ps1 on Windows), not by this)")
     return True
 
 
@@ -753,7 +753,7 @@ def run_autostart(rep, root, info, opts, runner=run, ask=ask_yes, which=shutil.w
     if opts.no_autostart:
         return 0 if autostart_remove(rep, plan, runner, which, isdir) else 1
     if state != "ok":
-        rep.warn("the private environment (.venv) isn't ready (%s)" % reason, "Run  python setup_env.py  first; until then the bridge would start with " + py)
+        rep.warn("the private environment (.venv) isn't ready (%s)" % reason, "Run  python scripts/setup_env.py  first; until then the bridge would start with " + py)
     return 0 if autostart_install(rep, plan, runner, ask, opts.yes, which, isdir) else 1
 
 
@@ -812,7 +812,7 @@ def main(argv=None, root=None, out=None, which=shutil.which, runner=run, ask=ask
         code = setup_docker.run_docker(rep, root, info, opts, runner, lambda q, d=True: setup_docker.ask_default(q, d, yes=opts.yes), which)
         return 1 if (code or rep.fails) else 0
 
-    if (opts.autostart or opts.no_autostart) and not opts.check:          # its own job: the rest of the setup is not run (that is python setup_env.py)
+    if (opts.autostart or opts.no_autostart) and not opts.check:          # its own job: the rest of the setup is not run (that is python scripts/setup_env.py)
         return run_autostart(rep, root, info, opts, runner, ask, which, home, uid, isdir)
 
     rep.step("Python")
@@ -822,7 +822,7 @@ def main(argv=None, root=None, out=None, which=shutil.which, runner=run, ask=ask
         rep.fail("can't run Python (%s)" % py, python_install_hint(info, which))
         return 1
     if v < MIN_PY:
-        rep.fail("Python %d.%d is too old (needs %d.%d or newer)" % (v + MIN_PY), python_install_hint(info, which) + "\nThen run this script with the new one, or:  python setup_env.py --python /path/to/python")
+        rep.fail("Python %d.%d is too old (needs %d.%d or newer)" % (v + MIN_PY), python_install_hint(info, which) + "\nThen run this script with the new one, or:  python scripts/setup_env.py --python /path/to/python")
         return 1
     rep.ok("Python %d.%d (%s)" % (v[0], v[1], py))
 
@@ -832,18 +832,18 @@ def main(argv=None, root=None, out=None, which=shutil.which, runner=run, ask=ask
         if state == "ok":
             rep.ok("%s: %s" % (state, reason))
         else:
-            rep.warn("%s: %s" % (state, reason), "Run:  python setup_env.py")
+            rep.warn("%s: %s" % (state, reason), "Run:  python scripts/setup_env.py")
     else:
         # a venv cannot delete itself while its own python is running this script (on Windows the files are locked)
         if (state == "stale" or (opts.recreate and state != "missing")) and os.path.abspath(sys.prefix).startswith(os.path.join(root, ".venv")):
             rep.fail("this script is running from inside the environment it needs to rebuild",
-                     "Run it with the system Python instead:  python setup_env.py --recreate   (not the Python inside the .venv folder)")
+                     "Run it with the system Python instead:  python scripts/setup_env.py --recreate   (not the Python inside the .venv folder)")
             return 1
         if state == "stale" or (opts.recreate and state != "missing"):
             rep.warn("rebuilding the environment (%s)" % ("you asked for it" if opts.recreate and state == "ok" else reason))
             shutil.rmtree(os.path.join(root, ".venv"), ignore_errors=True)
             if os.path.isdir(os.path.join(root, ".venv")):
-                rep.fail("couldn't remove the old .venv folder", "Stop the bridge (stop_bridge) and close anything using it, then run this again.")
+                rep.fail("couldn't remove the old .venv folder", "Stop the bridge (scripts/stop_bridge.sh, or scripts/stop_bridge.ps1 on Windows) and close anything using it, then run this again.")
                 return 1
             state = "missing"
         if state == "missing":
@@ -859,7 +859,7 @@ def main(argv=None, root=None, out=None, which=shutil.which, runner=run, ask=ask
             got = check_imports(vpy)
             missing = [m for m, x in got.items() if not x]
             if missing:
-                rep.warn("missing packages: " + ", ".join(missing), "Run:  python setup_env.py")
+                rep.warn("missing packages: " + ", ".join(missing), "Run:  python scripts/setup_env.py")
             else:
                 rep.ok("packages installed")
         else:
@@ -879,7 +879,7 @@ def main(argv=None, root=None, out=None, which=shutil.which, runner=run, ask=ask
         rep.step("Start at login")
         plan = autostart_plan(info, root, bridge_python(root, info)[0], home or os.path.expanduser("~"), uid if uid is not None else (os.getuid() if hasattr(os, "getuid") else 0))
         state, detail = autostart_state(plan, runner)
-        rep.ok("start at login: %s%s" % (state, " (%s)" % detail if detail else (" (turn it on with: python setup_env.py --autostart)" if state == "not installed" else "")))
+        rep.ok("start at login: %s%s" % (state, " (%s)" % detail if detail else (" (turn it on with: python scripts/setup_env.py --autostart)" if state == "not installed" else "")))
         if opts.autostart or opts.no_autostart:
             rep.info("--check only looks: nothing was changed")
     rep.step("Folder")
@@ -898,10 +898,10 @@ def main(argv=None, root=None, out=None, which=shutil.which, runner=run, ask=ask
     rep.ok("ready" + (" (%d thing%s worth a look above)" % (rep.warns, "" if rep.warns == 1 else "s") if rep.warns else ""))
     rep.info("Start the bridge:   " + start_command(info))
     rep.info("Then open:         http://127.0.0.1:8080/")
-    rep.info("Optional:          python setup_env.py --autostart   (start the bridge at every login)")
+    rep.info("Optional:          python scripts/setup_env.py --autostart   (start the bridge at every login)")
     # --start runs the platform's own launcher script, which detaches the bridge; Windows needs powershell to run a .ps1
     if opts.start:
-        script = os.path.join(root, "start_bridge.ps1" if info["system"] == "Windows" else "start_bridge.sh")
+        script = os.path.join(root, "scripts", "start_bridge.ps1" if info["system"] == "Windows" else "start_bridge.sh")
         cmd = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script] if info["system"] == "Windows" else [script]
         code, text = run(cmd, cwd=root, timeout=120)
         rep.ok("bridge started") if code == 0 else rep.fail("couldn't start the bridge", text.strip()[-300:])

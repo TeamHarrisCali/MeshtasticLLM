@@ -1,11 +1,11 @@
-"""Set the project up to run in Docker, and start it, with one command (called by `python setup_env.py --docker`).
+"""Set the project up to run in Docker, and start it, with one command (called by `python scripts/setup_env.py --docker`).
 
-    python setup_env.py --docker                 check Docker, find the radio, offer a dashboard password, write .env, start everything
-    python setup_env.py --docker --tcp 192.0.2.7 the radio is a Wi-Fi one at that address (--tcp off goes back to USB)
-    python setup_env.py --docker --lan 192.0.2.10 [--allowed-host radio.test]   publish the dashboard to the network (needs the password)
-    python setup_env.py --docker --demo          a simulated mesh: no radio, no Ollama, no password (loopback only)
-    python setup_env.py --docker-stop            stop and remove the containers (the database volume stays)
-    python setup_env.py --docker --check         only look and report; change nothing
+    python scripts/setup_env.py --docker                 check Docker, find the radio, offer a dashboard password, write .env, start everything
+    python scripts/setup_env.py --docker --tcp 192.0.2.7 the radio is a Wi-Fi one at that address (--tcp off goes back to USB)
+    python scripts/setup_env.py --docker --lan 192.0.2.10 [--allowed-host radio.test]   publish the dashboard to the network (needs the password)
+    python scripts/setup_env.py --docker --demo          a simulated mesh: no radio, no Ollama, no password (loopback only)
+    python scripts/setup_env.py --docker-stop            stop and remove the containers (the database volume stays)
+    python scripts/setup_env.py --docker --check         only look and report; change nothing
 
 What it writes is `.env` next to docker-compose.yml (git ignores it): which compose files to use, where the password hash file is, the
 USB device or the radio's address. Nothing secret goes there: the password is only ever asked for at the keyboard by `--set-password`'s own
@@ -234,7 +234,7 @@ def choose_login(rep, root, lines, opts, ask, default_hash, interactive, passwor
             rep.ok("dashboard login: using the existing password (sign in as admin)")
             return default_hash, set_env(lines, "MESHLLM_ADMIN_HASH_FILE", default_hash)
     if opts.check:
-        rep.warn("no dashboard login is set up", "It is recommended; setup asks for one (python setup_env.py --docker).")
+        rep.warn("no dashboard login is set up", "It is recommended; setup asks for one (python scripts/setup_env.py --docker).")
         return None, lines
     if interactive and ask("Protect the dashboard with a password? (recommended; you type it twice, nothing is shown)", True):
         code = passwords.set_password_main("admin", path=default_hash)
@@ -280,9 +280,9 @@ def choose_radio(rep, info, lines, opts, find=None, stat=None):
         return True, lines
     if info.get("system") in ("Windows", "Darwin"):
         rep.warn("no radio configured: Docker Desktop cannot hand a USB radio to a container",
-                 "Use a Wi-Fi radio:  python setup_env.py --docker --tcp RADIO_ADDRESS\nor run the bridge without Docker (setup.bat / ./setup.sh), which supports USB and Bluetooth.")
+                 "Use a Wi-Fi radio:  python scripts/setup_env.py --docker --tcp RADIO_ADDRESS\nor run the bridge without Docker (setup.bat / ./setup.sh), which supports USB and Bluetooth.")
     else:
-        rep.warn("no USB radio found (no /dev/ttyUSB* or /dev/ttyACM*)", "Plug it in and run this again, or use a Wi-Fi radio:  python setup_env.py --docker --tcp RADIO_ADDRESS\n"
+        rep.warn("no USB radio found (no /dev/ttyUSB* or /dev/ttyACM*)", "Plug it in and run this again, or use a Wi-Fi radio:  python scripts/setup_env.py --docker --tcp RADIO_ADDRESS\n"
                  "The dashboard starts anyway and waits for a radio.")
     return False, lines
 
@@ -315,8 +315,8 @@ def choose_lan(rep, lines, opts, hash_file):
 
 
 def compose_file_value(use_login, use_usb, sep=os.pathsep):
-    """The COMPOSE_FILE value for the chosen overrides."""
-    files = ["docker-compose.yml"] + (["docker-compose.login.yml"] if use_login else []) + (["docker-compose.usb.yml"] if use_usb else [])
+    """The COMPOSE_FILE value for the chosen overrides (paths relative to the project folder, where docker-compose.yml is; the overrides live in docker/)."""
+    files = ["docker-compose.yml"] + (["docker/docker-compose.login.yml"] if use_login else []) + (["docker/docker-compose.usb.yml"] if use_usb else [])
     return sep.join(files)
 
 
@@ -330,8 +330,8 @@ def check_port(rep, runner, root, lines, opts):
         return port                                               # it is our own bridge (or demo), already running: this is a re-run
     host_bridge = os.path.isfile(os.path.join(root, "logs", "bridge.pid"))
     rep.fail("port %d is already in use" % port,
-             ("A bridge started from this folder may be running: stop it first (./stop_bridge.sh, or stop_bridge.ps1 on Windows); it also holds the radio.\n" if host_bridge else "")
-             + "Or pick another port:  python setup_env.py --docker --web-port %d" % (port + 1))
+             ("A bridge started from this folder may be running: stop it first (./scripts/stop_bridge.sh, or scripts/stop_bridge.ps1 on Windows); it also holds the radio.\n" if host_bridge else "")
+             + "Or pick another port:  python scripts/setup_env.py --docker --web-port %d" % (port + 1))
     return None
 
 
@@ -384,7 +384,7 @@ def run_docker(rep, root, info, opts, runner, ask, which, interactive=None, find
         if not wait_for_bridge(rep, runner, root, sleep=sleep, now=now, service="demo"):
             return 1
         rep.ok("the demo is running: open http://127.0.0.1:%d/   (a simulated mesh; nothing is transmitted or kept)" % port)
-        rep.info("Stop it:  python setup_env.py --docker-stop")
+        rep.info("Stop it:  python scripts/setup_env.py --docker-stop")
         return 0
 
     lines = read_lines(env_path) or read_lines(example_path)
@@ -436,7 +436,7 @@ def run_docker(rep, root, info, opts, runner, ask, which, interactive=None, find
     rep.step("Done")
     rep.ok("the dashboard is running: open http://%s:%d/" % (where, port) + ("  and sign in as admin" if hash_file else ""))
     rep.info("The AI model downloads in the background the first time (about 2 GB):  docker compose logs -f model-pull")
-    rep.info("Logs:  docker compose logs -f bridge        Stop:  python setup_env.py --docker-stop")
+    rep.info("Logs:  docker compose logs -f bridge        Stop:  python scripts/setup_env.py --docker-stop")
     rep.info("It starts again after a reboot by itself (restart: unless-stopped) once Docker is running.")
     return 0
 

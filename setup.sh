@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# One-step setup for Linux and macOS. Finds a Python (3.9 or newer), then runs setup_env.py, which builds the private
+# One-step setup for Linux and macOS. Finds a Python (3.9 or newer), then runs scripts/setup_env.py, which builds the private
 # environment, installs the dependencies and checks Ollama and the radio. Safe to run again any time.
 #   ./setup.sh [options]        e.g. ./setup.sh --check      ./setup.sh --pull-model      ./setup.sh --recreate
 #   ./setup.sh --docker         run it in Docker instead (checks Docker, finds the radio, offers a password, starts the containers)
@@ -40,4 +40,4 @@ if [ -z "$py" ]; then
   [ -n "$py" ] || { echo "Run that command, then ./setup.sh again."; exit 1; }
 fi
 
-exec "$py" setup_env.py "$@"
+exec "$py" scripts/setup_env.py "$@"

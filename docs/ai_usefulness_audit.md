@@ -6,7 +6,7 @@
 **Method.** 25 realistic questions (mesh, environment, history, PC, questions about itself, jobsite maths) were sent through the
 live bridge with the browser chat, which uses exactly the radio pipeline (queue, YES/NO gate, `qwen3.5:latest`, read-only
 tools). Memory was cleared before each one. Every answer was then checked against what the system actually knows
-or against the maths. Script: `usefulness_audit.py`; raw answers: `eval_results/usefulness_baseline_2026-09-30.json`.
+or against the maths. Script: `usefulness_audit.py`; raw answers: `docs/eval_results/usefulness_baseline_2026-09-30.json`.
 A second look at the 25 real questions already in the audit log (mostly tests from the two radios) agreed with it.
 
 ## Result

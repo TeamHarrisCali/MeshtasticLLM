@@ -72,7 +72,7 @@ The installer below is the main way to run it and supports everything (USB, Blue
 git clone https://github.com/TeamHarrisCali/MeshtasticLLM.git
 cd MeshtasticLLM
 ./setup.sh                 # Linux / macOS     (Windows: double-click setup.bat)
-./start_bridge.sh          # runs in the background; ./stop_bridge.sh stops it
+./scripts/start_bridge.sh          # runs in the background; ./scripts/stop_bridge.sh stops it
 ```
 
 Setup finds Python, builds `.venv`, installs the dependencies, and checks Ollama and the radio. It is safe to run again at any
@@ -118,13 +118,13 @@ Then open <http://127.0.0.1:8080/>. Afterwards plain `docker compose up -d`, `do
 ```bash
 docker compose up -d --build        # also downloads the AI model the first time: docker compose logs -f model-pull
 # a USB radio, on a Linux computer only (see docs/setup.md for the group number):
-docker compose -f docker-compose.yml -f docker-compose.usb.yml up -d
+docker compose -f docker-compose.yml -f docker/docker-compose.usb.yml up -d
 # or a Wi-Fi radio on any computer: put MESHLLM_TCP=<its address> in a .env file (copy .env.example), then docker compose up -d
 ```
 
 > **Without a password the container's dashboard has no login**, so the compose file publishes it on this computer only (`127.0.0.1:8080`) and Ollama's port is not
 > published at all. `./setup.sh --docker` offers to set a password; by hand, make a hash with `python -m meshllm --set-password`, name the file in `.env` and add the override file (the hash goes in as a Compose secret, not an environment variable):
-> `docker compose -f docker-compose.yml -f docker-compose.login.yml up -d`. Reaching it from another computer is an explicit opt-in that needs that login (`MESHLLM_WEB_BIND` and `MESHLLM_ALLOWED_HOSTS` in `.env`); the container refuses to start otherwise.
+> `docker compose -f docker-compose.yml -f docker/docker-compose.login.yml up -d`. Reaching it from another computer is an explicit opt-in that needs that login (`MESHLLM_WEB_BIND` and `MESHLLM_ALLOWED_HOSTS` in `.env`); the container refuses to start otherwise.
 > Do not hand-edit the port address to `0.0.0.0` or a LAN address. If you run the image without Compose, publish with `-p 127.0.0.1:8080:8080`, never `-p 8080:8080` (that would expose a login-less dashboard on your network). **Bluetooth does not work inside a container** (it needs the
 > host's Bluetooth service): run the bridge on the host for that. **Wi-Fi/TCP has not been tested on real hardware yet.** Full steps, backups,
 > updating and stopping are in [docs/setup.md](docs/setup.md#run-with-docker).
@@ -198,7 +198,7 @@ A radio mesh is an open channel and any text on it can be hostile, so the AI is 
 | **Local dashboard** | The web UI binds to `127.0.0.1` by default, with no login. On any other address it refuses to start without a password (scrypt hash in a file only you can read) and a host allow-list; sessions, throttled logins, CSRF checks, an `admin`/`viewer` split on every route and optional HTTPS are described in [docs/setup.md](docs/setup.md#use-the-dashboard-from-a-phone-or-another-computer-lan-login). Without HTTPS the password crosses your network in clear text. |
 
 Details, and what this does *not* protect against (a stolen radio carries a valid key), are in
-[docs/ai_tools.md](docs/ai_tools.md). To report a vulnerability, see [SECURITY.md](SECURITY.md).
+[docs/ai_tools.md](docs/ai_tools.md). To report a vulnerability, see [.github/SECURITY.md](.github/SECURITY.md).
 
 ## The dashboard
 
@@ -231,8 +231,8 @@ The same pages can be read inside the dashboard, on **Evaluation** under Write-u
 ## Tests
 
 ```bash
-python run_tests.py                 # everything, about a minute; no radio or Ollama needed (both are faked)
-python run_tests.py channel backup  # only the test files whose names contain these words
+python scripts/run_tests.py                 # everything, about a minute; no radio or Ollama needed (both are faked)
+python scripts/run_tests.py channel backup  # only the test files whose names contain these words
 ```
 
 The tests use a throwaway temporary folder, so your real `audit.db`, `tile_cache/` and `logs/` are never touched.
@@ -244,8 +244,8 @@ meshllm/           the package: bridge.py (entry point), actions.py (the AI's to
 meshllm/static/    the dashboard: plain HTML, CSS and JavaScript, no build step
 meshllm/tools/     developer tools: tool-choice evaluation and the usefulness audit
 tests/             the suite (radio and Ollama are faked)
-docs/              documentation          eval_results/   saved evaluation runs
-setup_env.py       installer (launched by setup.sh / setup.bat); --docker for Docker       start_bridge.* / stop_bridge.*   run in the background
+docs/              documentation, with docs/eval_results/ (saved evaluation runs)
+scripts/           installer (setup.sh / setup.bat launch scripts/setup_env.py; --docker for Docker), start/stop and test runner
 ```
 
 Every module starts with a docstring that says what it is for; [docs/files.md](docs/files.md) lists them all. Run the bridge in the
@@ -262,12 +262,12 @@ AI agents as the team members. This is a convention the maintainer has asked for
   same model family as the author, so it catches mistakes but is not a substitute for a human reading the code.
 - **Merged to `main` only when CI is green and the review is clean.** CI runs the test suite on every pull request.
 
-Human contributors are welcome and go through the same flow. See [CONTRIBUTING.md](CONTRIBUTING.md).
+Human contributors are welcome and go through the same flow. See [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md).
 
 ## Contributing
 
 Bug reports, hardware reports (what radio, what OS, what happened) and pull requests are welcome. Please read
-[CONTRIBUTING.md](CONTRIBUTING.md) first. Known gaps and ideas are in [docs/roadmap.md](docs/roadmap.md).
+[.github/CONTRIBUTING.md](.github/CONTRIBUTING.md) first. Known gaps and ideas are in [docs/roadmap.md](docs/roadmap.md).
 
 ## License and notices
 

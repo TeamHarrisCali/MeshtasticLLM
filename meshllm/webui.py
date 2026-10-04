@@ -2,7 +2,7 @@
 
 The API itself is a table of small functions in webroutes.py; who may call which route, the login, sessions and the Host/Origin/CSRF
 rules are in websecurity.py. Listens on localhost by default; audit data contains message text. On a non-loopback address it needs a
-login (see SECURITY.md). Every request goes through the same order of checks: Host, then (for a POST) Origin, then the session and
+login (see .github/SECURITY.md). Every request goes through the same order of checks: Host, then (for a POST) Origin, then the session and
 role, then the CSRF token, then the content type, and only then is the body read and the route run.
 """
 import json

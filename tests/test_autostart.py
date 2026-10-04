@@ -1,9 +1,10 @@
-"""setup_env.py start-at-login: the per-OS plans (as pure data), quoting and XML escaping, --check reporting, and that declining or a missing
+"""scripts/setup_env.py start-at-login: the per-OS plans (as pure data), quoting and XML escaping, --check reporting, and that declining or a missing
 systemd executes nothing. Nothing here creates, enables or deletes a real scheduled task, service or launch agent: commands go to a fake
 runner and files go to a throwaway folder."""
 import io, os, plistlib, shutil, sys, tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.join(ROOT, "scripts"))      # the installer scripts live in scripts/
 import setup_env as S
 
 fails = []
@@ -39,14 +40,14 @@ check("Windows uses Task Scheduler and writes no files", p["kind"] == "schtasks"
 c = p["install_cmds"][0]
 check("schtasks create: task name, ONLOGON, limited, replace existing", c[:2] == ["schtasks", "/Create"] and c[c.index("/TN") + 1] == "MeshLLMBridge" and c[c.index("/SC") + 1] == "ONLOGON" and c[c.index("/RL") + 1] == "LIMITED" and "/F" in c, c)
 tr = c[c.index("/TR") + 1]
-check("schtasks runs start_bridge.ps1 hidden, script path quoted (spaces and &)", tr == r'powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + winroot + r'\start_bridge.ps1"', tr)
+check("schtasks runs scripts\\start_bridge.ps1 hidden, script path quoted (spaces and &)", tr == r'powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + winroot + r'\scripts\start_bridge.ps1"', tr)
 check("schtasks query and delete name the same task", p["query_cmd"] == ["schtasks", "/Query", "/TN", "MeshLLMBridge"] and p["remove_cmds"] == [["schtasks", "/Delete", "/TN", "MeshLLMBridge", "/F"]], p)
 check("schtasks: no /RU /RP /SC SYSTEM (nothing that needs admin or a password)", not any(x in c for x in ("/RU", "/RP", "SYSTEM", "HIGHEST", "/S")), c)
 long_root = "C:\\" + "x" * 300
 check("a path too long for Task Scheduler is reported as a problem", S.autostart_plan(WIN, long_root, "p", "h", 0)["problem"] != "", "")
 check("a normal path has no problem", p["problem"] == "")
 uni = "C:\\Users\\S\u00e9bastien\\\u00fcber proj"
-check("schtasks keeps unicode paths intact", uni + "\\start_bridge.ps1" in S.schtasks_create_cmd(uni)[7])
+check("schtasks keeps unicode paths intact", uni + "\\scripts\\start_bridge.ps1" in S.schtasks_create_cmd(uni)[7])
 
 # ---- Linux: systemd user unit
 linroot = "/home/sam/Mesh Project & Co/mesh llm"
@@ -153,7 +154,7 @@ try:
         fr, buf = FakeRunner(), io.StringIO()
         ok = S.autostart_install(S.Report(buf), lp, fr, yes_, True, **kw)
         out = buf.getvalue()
-        check("%s: says systemd isn't running, names the fallback, runs nothing" % label, ok is True and fr.calls == [] and "systemd isn't running" in out and "start_bridge.sh" in out and "startup applications" in out and "WSL" in out, out)
+        check("%s: says systemd isn't running, names the fallback, runs nothing" % label, ok is True and fr.calls == [] and "systemd isn't running" in out and "scripts/start_bridge.sh" in out and "startup applications" in out and "WSL" in out, out)
     os.remove(unitfile) if os.path.exists(unitfile) else None
 
     # ---- macOS and Windows: executing via the fake runner
@@ -226,11 +227,11 @@ S.main(["--check", "--dir", ROOT], out=buf, runner=fr, info=WIN)
 check("--check reports 'installed' when the query succeeds", "start at login: installed" in buf.getvalue())
 
 # ---- plain `python setup_env.py` never touches start-at-login; the options exist; ASCII-only text
-src = open(os.path.join(ROOT, "setup_env.py"), encoding="utf-8").read()
+src = open(os.path.join(ROOT, "scripts", "setup_env.py"), encoding="utf-8").read()
 check("the autostart code is reachable only via the flags", src.count("run_autostart(") == 2 and "if (opts.autostart or opts.no_autostart) and not opts.check:" in src)
 check("--autostart and --no-autostart are documented in the docstring", "--autostart" in S.__doc__ and "--no-autostart" in S.__doc__)
 check("setup_env.py has no non-ASCII characters", all(ord(c) < 128 for c in src))
-check("setup_env.py is LF-only", open(os.path.join(ROOT, "setup_env.py"), "rb").read().count(bytes([13])) == 0)
+check("setup_env.py is LF-only", open(os.path.join(ROOT, "scripts", "setup_env.py"), "rb").read().count(bytes([13])) == 0)
 for label, pl in plans.items():
     txt = "\n".join([pl["summary"], pl["note"]])
     check("%s plan messages are ASCII only" % label, all(ord(c) < 128 for c in txt), txt)

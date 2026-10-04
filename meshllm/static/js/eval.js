@@ -15,7 +15,7 @@ async function refreshEval(force) {
   const d = evalData;
   // the newest run of each model and prompt variant, development and held-out side by side
   const cmp = $("evalCompare"); cmp.replaceChildren();
-  if (!d.comparison.length) cmp.append(el("p", "hint", "No saved tool-choice runs found in eval_results/."));
+  if (!d.comparison.length) cmp.append(el("p", "hint", "No saved tool-choice runs found in docs/eval_results/."));
   else {
     const t = el("table", "evtable"), h = el("tr");
     for (const c of ["Model · prompt variant", "Development questions", "Held-out questions", "Average answer time"]) h.append(el("th", null, c));

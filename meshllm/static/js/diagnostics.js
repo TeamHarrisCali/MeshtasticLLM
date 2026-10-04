@@ -34,7 +34,7 @@ async function refreshLog(force) {
   let d; try { d = await api(`/api/logs?which=${$("logWhich").value}&lines=${$("logLines").value}`); } catch { return; }
   const box = $("logBox"), text = d.lines.join("\n");
   logText = text;
-  $("logNote").textContent = !d.exists ? "This log doesn't exist yet. It is created when the bridge is started with start_bridge." : `${d.file} · ${fmtBytes(d.size)}${d.modified ? " · last written " + fmtTime(d.modified) : ""}. Showing the last ${d.lines.length} line${d.lines.length === 1 ? "" : "s"}.`;
+  $("logNote").textContent = !d.exists ? "This log doesn't exist yet. It is created when the bridge is started with scripts/start_bridge." : `${d.file} · ${fmtBytes(d.size)}${d.modified ? " · last written " + fmtTime(d.modified) : ""}. Showing the last ${d.lines.length} line${d.lines.length === 1 ? "" : "s"}.`;
   if (box.textContent === text) return;
   // Keep following the end of the log if Follow is on or the reader is already at the bottom; otherwise leave their scroll position alone.
   const stick = $("logFollow").checked || box.scrollHeight - box.scrollTop - box.clientHeight < 40;

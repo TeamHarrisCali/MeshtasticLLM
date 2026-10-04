@@ -39,8 +39,8 @@ def service_blocks(compose):
     return blocks
 
 compose = read("docker-compose.yml")
-usb = read("docker-compose.usb.yml")
-login_yml = read("docker-compose.login.yml")
+usb = read("docker", "docker-compose.usb.yml")
+login_yml = read("docker", "docker-compose.login.yml")
 dockerfile = read("Dockerfile")
 ignore = read(".dockerignore")
 entry = read("docker", "entrypoint.sh")
@@ -92,12 +92,13 @@ check("it has a healthcheck on the public /api/session route using python's urll
       "HEALTHCHECK" in dockerfile and "urllib.request" in dockerfile and "127.0.0.1:8080/api/session" in dockerfile and "EXPOSE 8080" in dockerfile and "docker/entrypoint.sh" in dockerfile)
 copies = [l for l in code_lines(dockerfile) if l.startswith("COPY ")]
 check("COPY lists what is needed and never copies the whole folder", not any(re.match(r"^COPY\s+(--\S+\s+)*\.\s", l) for l in copies)
-      and all(any(w in l for l in copies) for w in ("requirements.txt", "meshllm/", "docs/", "eval_results/", "LICENSE")), copies)
+      and all(any(w in l for l in copies) for w in ("requirements.txt", "meshllm/", "docs/", "LICENSE")), copies)
+check("the saved evaluation results travel inside docs/ (docs/eval_results/), which the image copies whole", os.path.isdir(os.path.join(ROOT, "docs", "eval_results")) and not os.path.exists(os.path.join(ROOT, "eval_results")))
 check("/data exists and is owned by the app user", "mkdir /data" in dockerfile and "chown 10001:10001 /data" in dockerfile)
 
 # ---- .dockerignore ----------------------------------------------------------------------------------------------------------------
 ign = set(l.strip() for l in code_lines(ignore))
-for needed in ("audit.db", "backups", "logs", "tile_cache", "private", ".git", ".venv", "tests", "__pycache__", ".claude", "*.db", ".env", "*.hash", "secrets"):
+for needed in ("audit.db", "backups", "logs", "tile_cache", "private", ".git", ".venv", "tests", "scripts", "__pycache__", ".claude", "*.db", ".env", "*.hash", "secrets"):
     check(f".dockerignore excludes {needed}", needed in ign, sorted(ign))
 check(".env is git-ignored, .env.example is not", re.search(r"^\.env$", read(".gitignore"), re.M) is not None and ".env.example" not in "\n".join(code_lines(read(".gitignore"))))
 

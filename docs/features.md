@@ -140,7 +140,7 @@
   guess. This replaced an observed failure: qwen3.5 answered "how's the mesh doing?" with "12 nodes, 4 low on
   battery", numbers it invented. The gate and tool prompts and the tool descriptions were sharpened for the cases
   it missed (a node given by `!id`, a status question mixed with a request to change something). Evaluation:
-  `python -m meshllm.tools.eval_tools --variant gated_retry` matches what the bridge now does; results in `eval_results/`.
+  `python -m meshllm.tools.eval_tools --variant gated_retry` matches what the bridge now does; results in `docs/eval_results/`.
 - **Link-quality map** (Map page). Tick "Link quality" and a line is drawn from our radio to every node heard *directly*,
   coloured by its average SNR (green 5 dB or better, then yellow-green, amber, orange, red below -10 dB) and thicker the
   more packets it contributed; the map reframes on you and your neighbours. Below the map, **Direct neighbours** shows a

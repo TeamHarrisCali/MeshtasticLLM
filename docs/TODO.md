@@ -2,13 +2,13 @@
 
 This file is the hand-off for whoever (person or AI agent) picks the project up next. Work top to bottom. Each item is its own
 branch and pull request, reviewed by someone who did not write it, and merged only when CI is green; see
-[CONTRIBUTING.md](CONTRIBUTING.md). Items 2 to 4 depend on each other as noted under each.
+[CONTRIBUTING.md](../.github/CONTRIBUTING.md). Items 2 to 4 depend on each other as noted under each.
 
 ## Scope
 
 This is a **hobby project for one person's own radios**. It is not a fleet, crew or jobsite tool: no check-ins for other people's
 radios, no crew groups, no job calculators. The AI stays read-only on a fixed tool menu and never transmits on its own
-([docs/roadmap.md](docs/roadmap.md) has the design rules).
+([docs/roadmap.md](roadmap.md) has the design rules).
 
 ## Queue
 
@@ -68,7 +68,7 @@ radios, no crew groups, no job calculators. The AI stays read-only on a fixed to
     is kept with `frame-ancestors 'none'`, `base-uri`, `form-action`, plus `Referrer-Policy: no-referrer`, `X-Frame-Options`, and cross-origin opener/resource policies.
   - [x] **TLS:** optional `--tls-cert` / `--tls-key` (TLS 1.2+, the handshake runs in the connection's own thread under a time limit), a documented reverse-proxy setup (`docs/setup.md`), and a warning on the login page whenever the
     connection is not TLS and the peer is not loopback. No HSTS is sent (a self-signed certificate plus HSTS would lock a browser out). Without TLS the clear-text password is documented as an owner-accepted risk.
-  - [x] **Docs:** README, `docs/flags.md`, `SECURITY.md`, `docs/roadmap.md`, `docs/setup.md`, `docs/dashboard.md`, `docs/files.md` updated.
+  - [x] **Docs:** README, `docs/flags.md`, `.github/SECURITY.md`, `docs/roadmap.md`, `docs/setup.md`, `docs/dashboard.md`, `docs/files.md` updated.
   - Done when: every rule above has a test, an independent security review is clean, and the docs match.
   - [x] **Independent security review** done (REQUEST CHANGES; every finding was then fixed and covered by tests and mutation checks by the builder's side, but the fixes were not re-reviewed by the reviewer: a viewer could evict the admin's session; a stranger could hold the global wait on the owner; plus a loopback Host edge case, viewer status redaction, a 64-connection cap, `__Host-` cookies and test gaps). Left as follow-ups: the tile cache's per-tile lock table grows without bound and a viewer can make the owner's address fetch many tiles (`meshllm/tiles.py`; needs a per-session fetch budget); a slow client can still hold one of the 64 connections for a long time; a viewer shares the admin's web-console AI conversation.
   - Things the builder could not check: a real browser through a real reverse proxy; real hardware; long-run memory use of the in-memory tables; Python 3.9 on this machine (CI runs it).
@@ -78,7 +78,7 @@ radios, no crew groups, no job calculators. The AI stays read-only on a fixed to
   - [x] An image for the bridge (`Dockerfile`), plus a Compose file with an Ollama service and a volume for the database. Runs as a numeric non-root
     user (10001) and the `/data` volume is writable by it. The base image is pinned by tag **and digest**, and Dependabot's Docker ecosystem keeps it current.
     There is also a `demo` profile (`docker compose --profile demo up demo`) that needs no radio and no Ollama.
-  - [x] The password hash comes from a Compose `secrets:` file (`docker-compose.login.yml`, path in `MESHLLM_ADMIN_HASH_FILE`), not from an environment variable (those show up in `docker inspect`; checked with a real
+  - [x] The password hash comes from a Compose `secrets:` file (`docker/docker-compose.login.yml`, path in `MESHLLM_ADMIN_HASH_FILE`), not from an environment variable (those show up in `docker inspect`; checked with a real
     `docker compose up`). The unreadable-secret problem (a Compose file secret keeps the host file's owner and mode, so the `600` file from `--set-password` is unreadable by uid 10001; Compose ignores `uid`/`gid`/`mode` for file secrets) is solved by
     the entrypoint: the container starts as root with only `DAC_OVERRIDE`, `SETUID` and `SETGID`, copies the hash into a 0400 file owned by 10001 on a memory-only tmpfs (`/run/meshllm`), drops to 10001 and re-runs itself;
     the bridge then runs as 10001 with no capabilities, the root file system stays read-only. Trade-off and the rejected host-side `chown 10001` alternative: `docs/setup.md`. Only the admin account is wired (no viewer file in Docker); changing the password needs `docker compose restart bridge`.
@@ -86,10 +86,10 @@ radios, no crew groups, no job calculators. The AI stays read-only on a fixed to
   - [x] Dashboard port published on the host loopback only (`127.0.0.1:8080`) and Ollama's port not published, with a warning in the compose file and the docs.
   - [x] The LAN as an explicit opt-in for the published address: `MESHLLM_WEB_BIND` plus `MESHLLM_ALLOWED_HOSTS` in `.env`, only together with the login. The default publish stays `127.0.0.1`. The container refuses to start (exit 78, clear message) on a non-loopback
     publish address without the login or without allowed hosts, and never for `--demo`; the entrypoint also sets `MESHLLM_PUBLISH_LAN=1` so the app's own check refuses a login-less wildcard bind. Not covered by design: a hand-edited `ports:` line or `docker run -p 0.0.0.0:...`.
-  - [x] USB serial passthrough (`docker-compose.usb.yml`, Linux hosts only); on Windows and macOS use the Wi-Fi/TCP radio path (item 2); Bluetooth does not work in a container. Documented in `docs/setup.md`.
+  - [x] USB serial passthrough (`docker/docker-compose.usb.yml`, Linux hosts only); on Windows and macOS use the Wi-Fi/TCP radio path (item 2); Bluetooth does not work in a container. Documented in `docs/setup.md`.
     The container, the image and the demo were tried on Linux; USB and Wi-Fi from inside a container have **not** been tried with a real radio, and Docker Desktop not at all.
   - [x] CI builds the image, smoke-tests the demo container and the login override (healthy with a login, sign-in through the published port, no hash in `docker inspect`, PID 1 uid 10001 with no capabilities, LAN publish refused without a login); nothing is pushed to a registry.
-  - [x] One-command start: `./setup.sh --docker` (`setup.bat --docker`) = `setup_docker.py`: checks Docker, finds the USB radio (Linux) or takes `--tcp`, offers the dashboard password in the terminal, writes `.env`, starts the containers and waits for healthy; a `model-pull` service downloads the AI model on the first start. Tried for real on Linux (Docker 29.8.2): start, login through the published port, model download, demo, stop. Not tried: Docker Desktop, Windows, macOS, a real USB radio from the script, `--lan`.
+  - [x] One-command start: `./setup.sh --docker` (`setup.bat --docker`) = `scripts/setup_docker.py`: checks Docker, finds the USB radio (Linux) or takes `--tcp`, offers the dashboard password in the terminal, writes `.env`, starts the containers and waits for healthy; a `model-pull` service downloads the AI model on the first start. Tried for real on Linux (Docker 29.8.2): start, login through the published port, model download, demo, stop. Not tried: Docker Desktop, Windows, macOS, a real USB radio from the script, `--lan`.
   - [x] Independent security review of the login-in-Docker change (the root-then-10001 copy and the LAN rule): APPROVE WITH NITS; the one real finding (`--demo` through `MESHLLM_EXTRA_ARGS` on a LAN publish) and the wording nits were fixed and tested, not re-reviewed.
   - [ ] Done when: `docker compose up` gives a working dashboard behind the login with a faked or real radio, the docs explain each platform. Open: the login was proven with no radio attached (the demo profile ignores passwords, so there is no faked-radio login);
     a real radio from inside a container (USB, Wi-Fi), Docker Desktop on Windows/macOS, rootless Docker, and a real peer on a LAN (how the client address looks through Docker's proxy) have not been tried.
@@ -105,5 +105,5 @@ Crew or jobsite features (see Scope), anything that lets the AI transmit or chan
 ## Status
 
 As of this commit everything else is merged and green: the `meshllm` package, the mesh-only AI tools, the dashboard, the test suite (run
-`python run_tests.py` for the current count; CI runs it on Python 3.9, 3.10, 3.12 and 3.13), and the review workflow. Known smaller gaps are in
-[docs/roadmap.md](docs/roadmap.md).
+`python scripts/run_tests.py` for the current count; CI runs it on Python 3.9, 3.10, 3.12 and 3.13), and the review workflow. Known smaller gaps are in
+[docs/roadmap.md](roadmap.md).

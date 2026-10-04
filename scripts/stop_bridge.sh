@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 # Stops the background bridge, if one is running (Linux / macOS). The Windows equivalent is stop_bridge.ps1.
-#   ./stop_bridge.sh [--quiet]
+#   ./scripts/stop_bridge.sh [--quiet]
 pids=$(pgrep -f ' -m meshllm( |$)' 2>/dev/null)
 if [ -n "$pids" ]; then
   kill $pids 2>/dev/null
@@ -10,4 +10,4 @@ if [ -n "$pids" ]; then
 else
   [ "$1" = "--quiet" ] || echo "Bridge was not running."
 fi
-rm -f "$(dirname "$0")/logs/bridge.pid"
+rm -f "$(dirname "$0")/../logs/bridge.pid"

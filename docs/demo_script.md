@@ -2,12 +2,12 @@
 
 A walk through the project in the order that tells the story: a radio mesh with no internet, a local AI reachable from any
 node, and a dashboard that makes it understandable and safe. Times are rough. Have the radio plugged in and Ollama running
-before you start (`python setup_env.py --check` tells you if anything is missing).
+before you start (`python scripts/setup_env.py --check` tells you if anything is missing).
 
 ## Before you begin (1 minute, off stage)
 
-1. `python setup_env.py --check`. Everything should be `[ok]` (an Ollama or radio warning means fix that first).
-2. Start the bridge: `powershell -NoProfile -ExecutionPolicy Bypass -File .\start_bridge.ps1` (Windows) or `./start_bridge.sh`.
+1. `python scripts/setup_env.py --check`. Everything should be `[ok]` (an Ollama or radio warning means fix that first).
+2. Start the bridge: `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start_bridge.ps1` (Windows) or `./scripts/start_bridge.sh`.
 3. Open <http://127.0.0.1:8080/>. Another person with a Meshtastic node ready to DM this radio is ideal; if not, the browser
    chat on the **AI conversations** side and the **AI overview** page show the same pipeline.
 
@@ -78,4 +78,4 @@ Numbers to quote (from the saved runs on the page):
 | "AI model isn't available" | Start Ollama (`ollama serve`) or pick an installed model on the **Model** page. |
 | Answers take 10+ seconds | First question after a quiet spell loads the model; the bridge keeps it loaded for 30 minutes afterwards. |
 | A node times out | Check **Diagnostics** and the **AI log** status; direct messages show delivery per part. |
-| Nothing else works | `python setup_env.py --check` and the **Diagnostics** page say what is missing. |
+| Nothing else works | `python scripts/setup_env.py --check` and the **Diagnostics** page say what is missing. |

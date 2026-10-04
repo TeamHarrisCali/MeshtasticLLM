@@ -1,8 +1,8 @@
 """Runs every test in tests/ and prints one line per file and a total.
 
-    python run_tests.py                 # all of them (about a minute; no radio or Ollama needed, both are faked)
-    python run_tests.py channel setup   # only the files whose names contain one of these words
-    python run_tests.py -v              # also print every failing check's detail
+    python scripts/run_tests.py                 # all of them (about a minute; no radio or Ollama needed, both are faked)
+    python scripts/run_tests.py channel setup   # only the files whose names contain one of these words
+    python scripts/run_tests.py -v              # also print every failing check's detail
 
 Each test file is an ordinary script that prints PASS / FAIL lines and exits non-zero on any failure. They use a
 throwaway temp folder for databases and caches, so your real audit.db, tile_cache/ and logs/ are never touched.
@@ -15,7 +15,7 @@ import sys
 import tempfile
 import time
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))      # the project folder (this file is scripts/run_tests.py)
 
 
 def main(argv):

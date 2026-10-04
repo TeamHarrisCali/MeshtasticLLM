@@ -9,7 +9,7 @@
 ## Checklist
 
 - [ ] One topic on this branch (feature/fix/docs), branched from an up-to-date `main`
-- [ ] `python run_tests.py` passes and CI is green
+- [ ] `python scripts/run_tests.py` passes and CI is green
 - [ ] New behaviour has tests (the radio and Ollama are faked in `tests/`); a bug fix has a test that fails without the fix
 - [ ] Reviewed independently of the author; findings addressed or answered above
 - [ ] Docs updated if behaviour changed (`docs/`, and `README.md` if it is user-facing)

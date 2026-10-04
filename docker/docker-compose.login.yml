@@ -4,8 +4,8 @@
 #      It writes a mode-600 file (by default ~/.config/meshllm/admin.hash). Only a scrypt hash is in it, but treat it as a secret.
 #   2. In .env put the file's ABSOLUTE path (Compose does not expand ~):     MESHLLM_ADMIN_HASH_FILE=/absolute/path/to/admin.hash
 #   3. Start with this file added:
-#        docker compose -f docker-compose.yml -f docker-compose.login.yml up -d
-#      (or set COMPOSE_FILE=docker-compose.yml:docker-compose.login.yml in .env; add :docker-compose.usb.yml for a USB radio)
+#        docker compose -f docker-compose.yml -f docker/docker-compose.login.yml up -d
+#      (or set COMPOSE_FILE=docker-compose.yml:docker/docker-compose.login.yml in .env; add :docker/docker-compose.usb.yml for a USB radio)
 #   After changing the password with --set-password again:  docker compose restart bridge   (the hash is read once at container start)
 #
 # Why the secret is a file and not an environment variable: `docker inspect` shows a container's environment to anyone who can use

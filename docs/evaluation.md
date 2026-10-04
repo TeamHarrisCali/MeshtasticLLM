@@ -11,14 +11,14 @@ used for tuning; `--set heldout`).
 
 > **The tool menu changed.** The AI used to have five checks of the computer it runs on (disk space, uptime, CPU/RAM, Ollama,
 > bridge status) as well as the mesh lookups. Those were removed; it now only looks things up about the mesh, and the
-> questions about the computer in both sets became "should call no tool" cases. The CSVs in `eval_results/` and the table
+> questions about the computer in both sets became "should call no tool" cases. The CSVs in `docs/eval_results/` and the table
 > below were measured on the earlier menu. Re-run `eval_tools.py` (both sets) on your model before quoting any number for the current one.
 
 ## Current menu (mesh-only)
 
 Measured 2026-10-02 with `python -m meshllm.tools.eval_tools --model llama3.2:3b --variant gated_retry --set dev|heldout --runs 3`
-(the bridge's current gate plus one insisting retry). CSVs: `eval_results/dev_mesh_only_llama32.csv` and
-`eval_results/heldout_mesh_only_llama32.csv`. The question sets changed with the menu, so these numbers are **not comparable** with the
+(the bridge's current gate plus one insisting retry). CSVs: `docs/eval_results/dev_mesh_only_llama32.csv` and
+`docs/eval_results/heldout_mesh_only_llama32.csv`. The question sets changed with the menu, so these numbers are **not comparable** with the
 table further down.
 
 | Set | Correct | By category (correct / total) |
@@ -41,7 +41,7 @@ How to read it:
 
 ## Earlier menu (computer checks plus mesh lookups)
 
-Results on llama3.2:3b with the earlier menu, 3 runs per prompt (CSVs in `eval_results/`):
+Results on llama3.2:3b with the earlier menu, 3 runs per prompt (CSVs in `docs/eval_results/`):
 
 | Configuration | dev | held-out | Main weakness |
 |---|---|---|---|

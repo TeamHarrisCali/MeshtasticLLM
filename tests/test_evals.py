@@ -51,7 +51,9 @@ check("an empty folder is fine", E.overview(os.path.join(tmp, "none"), os.path.j
 open(os.path.join(docs, "demo_script.md"), "w", encoding="utf-8").write("# Demo\n\nhello")
 open(os.path.join(docs, "other.txt"), "w").write("not markdown")
 open(os.path.join(tmp, "secret.md"), "w").write("outside the docs folder")
+open(os.path.join(docs, "TODO.md"), "w").write("the hand-off queue")
 check("only .md files in docs are listed", E.doc_list(docs) == ["demo_script"])
+check("TODO.md (the developers' hand-off queue) is not a write-up: not listed, not served", "TODO" not in E.doc_list(docs) and E.read_doc("TODO", docs) is None)
 check("a document can be read", E.read_doc("demo_script", docs) == "# Demo\n\nhello")
 for bad in ["../secret", "..\\secret", "demo_script.md", "demo script", "", None, 5, "a" * 100, "/etc/passwd", "C:\\Windows\\win.ini", "demo_script\x00"]:
     check(f"read_doc refuses {bad!r}", E.read_doc(bad, docs) is None)
@@ -66,7 +68,7 @@ best = d["comparison"][0]
 check("the best model shown has a held-out score (the honest one)", best["heldout"] is not None and best["heldout"]["pct"] >= 90, best)
 r = rq.get(base + "/api/docs", params={"name": "demo_script"}, timeout=5)
 check("a document is served", r.status_code == 200 and r.json()["text"].startswith("# Demo script"))
-for bad in ["../audit", "..%2f..%2faudit", "README", "setup_env", "x/y", "audit.db", ""]:
+for bad in ["../audit", "..%2f..%2faudit", "README", "setup_env", "TODO", "x/y", "audit.db", ""]:
     r = rq.get(base + "/api/docs?name=" + bad, timeout=5)
     check(f"the docs route refuses {bad!r}", r.status_code == 404, r.status_code)
 check("no name at all is a clean 404", rq.get(base + "/api/docs", timeout=5).status_code == 404)

@@ -97,7 +97,7 @@ def open_failure_reason(port, error, windows=os.name == "nt"):
         except (ImportError, KeyError, OSError):
             pass
         hint = f" - the port belongs to the '{group}' group; add your user to it and log in again" if group else ""
-        return 10, f"permission denied{hint} (python setup_env.py --check says exactly what to run)"
+        return 10, f"permission denied{hint} (python scripts/setup_env.py --check says exactly what to run)"
     if denied or "busy" in text or "exclusively lock" in text:
         return 10, "in use by another program"
     return 60, f"no Meshtastic radio answered ({str(error)[:70]})"  # a device that is not a radio, or one that did not handshake

@@ -11,7 +11,7 @@
 #                          default 127.0.0.1). Anything but a 127.x.x.x or ::1 address means "reachable from the network"
 #   MESHLLM_ALLOWED_HOSTS  host names / addresses the dashboard may be browsed by, comma-separated      -> one --allowed-host each
 #
-# THE LOGIN (docker-compose.login.yml). The password hash is a Compose secret: a file mounted at /run/secrets/meshllm_admin_hash
+# THE LOGIN (docker/docker-compose.login.yml). The password hash is a Compose secret: a file mounted at /run/secrets/meshllm_admin_hash
 # (never an environment variable, which `docker inspect` shows). A Compose file secret keeps the host file's owner and mode, so the
 # mode-600 file `python -m meshllm --set-password` writes is unreadable for the app's user (uid 10001). The login override therefore
 # starts this script as root with exactly three capabilities (DAC_OVERRIDE to read the file, SETUID and SETGID to drop root) and the
@@ -31,13 +31,13 @@ set -eu -o pipefail
 
 die() { local code="$1"; shift; echo "meshllm: $*" >&2; exit "$code"; }      # die CODE message
 
-APP_UID=10001                                    # the image's user (Dockerfile); also what docker-compose.login.yml's tmpfs is owned by
+APP_UID=10001                                    # the image's user (Dockerfile); also what docker/docker-compose.login.yml's tmpfs is owned by
 secret_src="${MESHLLM_SECRETS_DIR:-/run/secrets}/meshllm_admin_hash"      # (the two variables exist so tests can point elsewhere)
 secret_copy="${MESHLLM_RUN_DIR:-/run/meshllm}/admin.hash"
 
-# ---- stage 1: only when started as root (docker-compose.login.yml) ----------------------------------------------------------------
+# ---- stage 1: only when started as root (docker/docker-compose.login.yml) ----------------------------------------------------------------
 if [ "$(id -u)" = 0 ]; then
-    [ -f "$secret_src" ] || die 1 "refusing to run the bridge as root. Root is only for copying the dashboard password hash, and $secret_src is not there (is docker-compose.login.yml in use?)"
+    [ -f "$secret_src" ] || die 1 "refusing to run the bridge as root. Root is only for copying the dashboard password hash, and $secret_src is not there (is docker/docker-compose.login.yml in use?)"
     # keep the groups Docker added with group_add (the USB serial device's group) but never root's own group 0
     keep_groups="$(id -G | tr ' ' '\n' | { grep -vx 0 || true; } | paste -sd, -)"
     drop=(setpriv --reuid "$APP_UID" --regid "$APP_UID")
@@ -45,7 +45,7 @@ if [ "$(id -u)" = 0 ]; then
     # root reads the secret (DAC_OVERRIDE) but the copy is written by the unprivileged user, so it is born 0400 and owned by it and no
     # chown capability is needed. head: a password hash is one short line; never copy an arbitrary big file into memory
     if ! head -c 4096 -- "$secret_src" | "${drop[@]}" /bin/sh -c 'umask 277 && cat > "$1"' sh "$secret_copy"; then
-        die 1 "could not copy the dashboard password hash to $secret_copy (it needs the tmpfs from docker-compose.login.yml and the capability DAC_OVERRIDE to read $secret_src)"
+        die 1 "could not copy the dashboard password hash to $secret_copy (it needs the tmpfs from docker/docker-compose.login.yml and the capability DAC_OVERRIDE to read $secret_src)"
     fi
     [ -s "$secret_copy" ] || die 1 "the dashboard password hash file ($secret_src) is empty"
     export MESHLLM_PASSWORD_HASH_FILE="$secret_copy"
@@ -80,7 +80,7 @@ if [ "$demo" = 0 ]; then
         login="$secret_src"
     fi
     if [ -n "$login" ] && [ ! -r "$login" ]; then
-        die 1 "the dashboard password hash file $login is not readable by uid $(id -u). Start with docker-compose.login.yml (it copies the file for you), or make the host file readable by uid $APP_UID (chown $APP_UID, mode 0400)."
+        die 1 "the dashboard password hash file $login is not readable by uid $(id -u). Start with docker/docker-compose.login.yml (it copies the file for you), or make the host file readable by uid $APP_UID (chown $APP_UID, mode 0400)."
     fi
 fi
 
@@ -99,7 +99,7 @@ if [ "$lan" = 1 ]; then
         die 78 "--demo has no login and must not be published beyond this computer (MESHLLM_PUBLISH_ADDR=$publish)"
     fi
     if [ -z "$login" ]; then
-        die 78 "MESHLLM_WEB_BIND=$publish publishes the dashboard to the network, which needs the login: set a password with 'python -m meshllm --set-password', point MESHLLM_ADMIN_HASH_FILE at the file it wrote and add -f docker-compose.login.yml (docs/setup.md, Run with Docker). Refusing to start without it."
+        die 78 "MESHLLM_WEB_BIND=$publish publishes the dashboard to the network, which needs the login: set a password with 'python -m meshllm --set-password', point MESHLLM_ADMIN_HASH_FILE at the file it wrote and add -f docker/docker-compose.login.yml (docs/setup.md, Run with Docker). Refusing to start without it."
     fi
     if [ "${#allowed[@]}" = 0 ]; then
         die 78 "MESHLLM_WEB_BIND=$publish publishes the dashboard to the network, which needs MESHLLM_ALLOWED_HOSTS: the address or name you will type in the browser, comma-separated (for example 192.0.2.10,radio.test). Refusing to start without it."

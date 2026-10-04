@@ -1,4 +1,4 @@
-# Keep the build context to what the image needs: the code, requirements, licence, docs and saved evaluation results.
+# Keep the build context to what the image needs: the code, requirements, licence, docs (including docs/eval_results) and docker/entrypoint.sh.
 # Everything below is either private data from a real mesh or only useful on a developer's computer.
 .git
 .github
@@ -34,11 +34,9 @@ __pycache__
 *.pyc
 setup.sh
 setup.bat
-setup.ps1
-setup_env.py
-start_bridge.*
-stop_bridge.*
-run_tests.py
+scripts
 Dockerfile
 docker-compose*.yml
+docker/docker-compose*.yml
+docs/TODO.md
 .dockerignore

@@ -8,7 +8,7 @@ except the few `public` routes (the login itself, the session probe, the login p
 accounts: `admin` (all routes) or `viewer` (the routes tagged `viewer`; an admin route is a 403). Routes with no tag are `admin`
 (default-deny). A viewer can read the dashboard and ask the AI a log-only question; it cannot transmit, change the radio or the settings,
 or download backups. CSV exports, logs, diagnostics and reports (they hold message text) are closed to viewers unless the owner passes
-`--viewer-exports`. See SECURITY.md for the threat model and what this does not protect against.
+`--viewer-exports`. See .github/SECURITY.md for the threat model and what this does not protect against.
 """
 import hashlib
 import hmac

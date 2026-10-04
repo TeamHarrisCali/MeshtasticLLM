@@ -458,8 +458,8 @@ CI builds the image on every pull request and smoke-tests the demo container (it
 in the project folder, as always. `--data-dir PATH` or the environment variable `MESHLLM_DATA_DIR` moves all four anywhere, in every mode ([flags.md](flags.md#version-and-data-folder));
 Docker keeps them in its volume at `/data`. To move an existing installation, stop the bridge and copy `audit.db` (and `backups/` if you want them) into the new folder.
 
-**The downloadable program** is the same bridge built with PyInstaller into a folder you can run with no Python installed. Releases appear on the project's GitHub
-Releases page once the first one is published (see [releasing.md](releasing.md); none exists yet). Download the archive for your system
+**The downloadable program** is the same bridge built with PyInstaller into a folder you can run with no Python installed. Releases are on the project's GitHub
+Releases page (see [releasing.md](releasing.md)). Download the archive for your system
 (`meshllm-<version>-linux-x86_64.tar.gz`, `-macos-arm64.tar.gz` or `-windows-x86_64.zip`), check it against `SHA256SUMS`, unpack it anywhere and run the `meshllm` program inside
 (`meshllm.exe` on Windows) from a terminal with the flags you would give `python -m meshllm`: `./meshllm --demo` is the quickest try, `./meshllm --version` the quickest check.
 

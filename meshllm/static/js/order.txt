@@ -25,6 +25,7 @@ snippets.js
 search.js
 notify.js
 settings.js
+updates.js
 diagnostics.js
 report.js
 coverage.js

@@ -279,6 +279,41 @@ Tested: Windows 11 natively, and Linux (Ubuntu 24.04) under WSL (fresh build, a 
 starting and stopping the bridge). macOS is covered by unit tests of the detection and install-command logic only, not run on a Mac.
 The radio is not visible inside WSL; run the bridge on the Windows side, or attach the radio with usbipd-win.
 
+## Updating
+
+Settings > Updates ([dashboard.md](dashboard.md#updates), admin only) can tell you when a new release is out, and a **git checkout** can update itself from there. The bridge never updates by itself: the button is yours to press.
+
+**The check, and your privacy.** It follows the project's published **releases** (tags such as `v0.2.0`), not `main`; drafts and pre-releases are ignored, and an older or equal version is never offered. It is **off by default**:
+the README promises that the only outbound connections are ones you ask for. Turn on *Look for a new release by itself* and the bridge asks `https://api.github.com/repos/TeamHarrisCali/MeshtasticLLM/releases/latest` about once a day
+(a failed attempt is retried after three hours; GitHub's rate-limit answers are respected; the answer is cached in the database). GitHub sees this computer's IP address and the program's name and version (`meshllm/0.1.0`, a header like
+a browser's); nothing else is sent, no identifier and no data about your mesh. **Check now** always works, even with the switch off, because you pressed it. The connection uses HTTPS with the certificate verified, a timeout and a size limit; it never follows
+a redirect and never blocks start-up or the dashboard (it runs on its own thread). The address is a constant in the code: no setting, flag or request can point it elsewhere. Demo mode contacts nothing.
+
+**What "Update now" does, by kind of install** (Settings shows which one you have):
+
+| You run | What happens |
+|---|---|
+| **A git checkout** (a folder with `.git`, e.g. a `git clone`; `git` must be on the PATH) | The only kind that updates itself, in these steps, each with its own message if it fails: it refuses if tracked files have uncommitted changes (nothing is ever reset or forced over your work) or if HEAD is not on a branch; it checks that `origin` is this project's own GitHub repository; it fetches only the one release tag and `main`; it requires the tag's commit to be on `origin/main` (the rule the release workflow uses) and to say the same version in `meshllm/__init__.py`; it requires a plain fast-forward; **it makes a database backup first and stops if that fails**; it fast-forwards (`git merge --ff-only`); if `requirements.txt` changed it runs `pip install -r requirements.txt` with the Python that runs the bridge; it starts the new code just far enough to print its version; and finally it restarts the bridge (below). If pip or that check fails, the checkout is put back on the previous commit with `git reset --keep` and the bridge keeps running the old version. |
+| **Docker** | It cannot update itself (that would need the Docker socket, which is never given to the container). Settings shows the commands to run on the computer that runs Docker, in the project folder: `git pull`, then `./setup.sh --docker` (or `docker compose up -d --build` if you start it with Compose yourself). `docker compose pull` alone would not do it: the bridge image is built from this folder. Your data volume is kept ([Run with Docker](#run-with-docker)). |
+| **The downloadable program** | Notify only. It links to the release page; download the new archive and check it first ([releasing.md](releasing.md#checking-a-download)), unpack it and start it. Your data stays in your data folder. It does not replace itself: a running program cannot overwrite its own file on Windows, and the checksum file comes from the same place as the archive, so it only catches a damaged download. |
+| **Anything else** (a copied folder, a zip, pip) | Notify only; update it the way you installed it. |
+
+**Restart.** After a git update the bridge shuts down the normal way (radio closed, web server stopped, database written) and starts itself again in place with `os.execv`, which keeps the same process id and the same
+stdout/stderr redirection, so `scripts/start_bridge.sh`'s PID file, the systemd user service and the launchd agent keep working. It only does that when the process was started as `python -m meshllm` (what the start scripts and the
+autostart units run), outside Docker, and **not on Windows** (there an exec starts a new process with a new id and the old console and PID file would point at a dead one). In every other case it says
+*updated; restart the bridge to finish* and leaves the restart to you. The dashboard is unavailable for a few seconds, a question being answered at that moment is answered again if it is under `--queue-ttl` old, and a reply still waiting to be sent is lost (as with any restart). Browser sessions end with the restart: you sign in again if the dashboard has a login.
+
+**Your data and the schema.** Opening an older database with newer code upgrades it automatically (missing columns and tables are added at start-up; nothing is ever dropped or downgraded), and the update makes a backup first (Settings > Backups, named in the result).
+
+**Going back.** Settings shows the previous commit after an update. Stop the bridge, run `git checkout <that commit>` in the project folder, and start it again. That leaves a detached HEAD, so in-app updates refuse until you `git switch main` again
+(add `git reset --keep <that commit>` first if you want the branch to stay on the old version). Newer code may have upgraded the database in a way the older code does not know about: the old code is likely to ignore what it does not know, but that is **not tested**;
+the safe way back is to restore the backup the update made (Settings > Backups) after going back. Packages that pip upgraded are not downgraded by a rollback; `pip install -r requirements.txt` from the old version does that.
+
+**What it trusts.** This repository's GitHub account and your confirmation click. `pip install -r requirements.txt` from the pulled release runs code from that release, so updating needs the same trust as installing it by hand ([SECURITY.md](../.github/SECURITY.md)).
+
+**Known limits.** A checkout whose `origin` is not this project (a fork) or that has its own commits is told to update by hand; a shallow clone may be refused; only the admin can use it, and with no login (loopback) any program on that computer can; the packaged program and Docker never update themselves;
+the restart is not automatic on Windows; the in-app update has only been tried against a local fake of GitHub and scratch repositories, not against a real published release or under a real systemd, launchd or Task Scheduler supervisor.
+
 ## Run with Docker
 
 The project can run as containers instead of through `setup.sh`. **This is the second option**: the installer above supports everything, Docker only needs Docker but cannot do some things (the list is

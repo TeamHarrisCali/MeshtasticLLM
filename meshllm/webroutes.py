@@ -33,12 +33,13 @@ from meshllm.ollama_models import OllamaError
 from meshllm.radio_config import ConfigError, RadioMismatch
 from meshllm.telemetry import KINDS as TELEMETRY_KINDS, METRICS as TELEMETRY_METRICS, TelemetryError
 from meshllm.traceroute import TracerouteError
+from meshllm.updater import UpdateBusy, UpdateError
 from meshllm.websecurity import ADMIN, PUBLIC, ROLES, VIEWER
 
 # route tables filled by the decorators below and read by webui.py: exact GET paths, exact POST paths, GET patterns, raw-upload POST paths
 GET, POST, GET_RE, POST_RAW = {}, {}, [], {}
 # exceptions whose message is meant for the operator: error_reply() turns these into a 400 instead of a 500
-USER_ERRORS = (ValueError, ChannelError, TracerouteError, TelemetryError, OllamaError, PositionError, ConfigError)
+USER_ERRORS = (ValueError, ChannelError, TracerouteError, TelemetryError, OllamaError, PositionError, ConfigError, UpdateError)
 
 
 class HttpError(Exception):
@@ -818,6 +819,39 @@ def w_backup_stage(b, body):
 def w_backup_cancel(b, body):
     """POST /api/backups/restore/cancel: discard the staged restore."""
     return {"cancelled": b.backups.cancel_staged()}
+
+
+# ======================================================================================================================
+# updates: the opt-in check for a newer release, and the update of a git checkout (all admin-only; see updater.py)
+# ======================================================================================================================
+@get("/api/update", ADMIN)
+def r_update(b, q):
+    """GET /api/update: the version, the install type and what it can do, the saved check (latest release, notes as plain text), progress and the last update.
+    Admin only (a viewer has no use for it and it names the install type and commits); makes no network call, it only reads what was saved."""
+    return b.updater.status()
+
+
+@post("/api/update/check", ADMIN)
+def w_update_check(b, body):
+    """POST /api/update/check: ask GitHub for the latest release now (works even with the periodic check off: the admin pressed the button). Sends one HTTPS GET, nothing else."""
+    return b.updater.check_now()
+
+
+@post("/api/update/setting", ADMIN)
+def w_update_setting(b, body):
+    """POST /api/update/setting {enabled}: turn the periodic (at most daily) check on or off. It is off by default. A real boolean is required."""
+    b.updater.set_enabled(body.get("enabled"))
+    return {"check_enabled": b.updater.enabled()}
+
+
+@post("/api/update/apply", ADMIN, ctx=True)
+def w_update_apply(b, body, req):
+    """POST /api/update/apply {tag}: update a git checkout to the release the server last saw (the tag must match it exactly). Starts a background update and returns at once;
+    the page then reads GET /api/update for progress. Refused in demo mode and for every install type but a git checkout."""
+    try:
+        return b.updater.start_apply(body.get("tag"), who=req.role or "local")
+    except UpdateBusy as e:
+        raise HttpError(409, str(e))
 
 
 # ======================================================================================================================

@@ -39,6 +39,10 @@ This bridge connects an untrusted radio mesh to a local language model, so the i
   `docker exec` and the healthcheck still run as that configured root user. Publishing beyond loopback (`MESHLLM_WEB_BIND`) makes the container refuse to start without the login and `MESHLLM_ALLOWED_HOSTS`;
   a hand-edited `ports:` line or `docker run -p 0.0.0.0:...` is invisible to it and unprotected. The traffic is clear text (no TLS in Compose), and every connection through Docker's proxy looks like it comes from the Docker gateway.
   See [docs/setup.md](../docs/setup.md#run-with-docker).
+- Updates: the dashboard can look for a newer release and, on a git checkout, update itself. What that trusts is this repository's GitHub account (the release list and the tags on `main`) and the
+  admin's confirmation click; it follows only tags of the form `v1.2.3` that are on `main` of the project's own `origin`, never another address or ref. The check is **off by default** and sends one
+  HTTPS GET (no identifier; GitHub sees the IP address and `meshllm/<version>`). The update runs `pip install -r requirements.txt` from the pulled release, so it runs code from that release: it needs the same trust as
+  installing it by hand. The packaged program and Docker never replace themselves. With no dashboard login (loopback) any program on that computer can start an update, as it can change other settings. Details: [docs/setup.md](../docs/setup.md#updating).
 - A public key proves a device, not a person. A lost or stolen radio or phone carries a valid key; unpin it in the Access page.
 - This is hobby software provided as is (see `LICENSE`). There is no formal response-time commitment, but reports are welcome and
   will be looked at.

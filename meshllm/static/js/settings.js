@@ -1,6 +1,6 @@
 // settings: the Settings page. Display units (/api/settings/temp_unit, /api/settings/dist_unit), notification options (notify.js),
 // backups (/api/backups plus create, auto, delete, download, restore, restore/existing, restore/cancel), saved map tiles
-// (/api/tiles/stats, /api/tiles/clear), telemetry retention (/api/telemetry/retention) and the start-at-login check from
+// (/api/tiles/stats, /api/tiles/clear), telemetry retention (/api/telemetry/retention), updates (updates.js) and the start-at-login check from
 // /api/diagnostics. Uses fmtBytes from data.js.
 // ---- settings: display units, notifications, backups, storage, start at login ------------------------------------------------------------------
 // settingsAt throttles refreshes; backupsSig is the signature of the backup list last drawn.
@@ -11,6 +11,7 @@ const NT_BOXES = { ntChannel: "channel", ntDm: "dm", ntAlerts: "alerts", ntSound
 // One-time setup of the Settings controls. Switching on desktop notifications asks the browser for permission and switches back off if it is refused.
 function initSettings() {
   if (settingsReady) return; settingsReady = true;
+  initUpdates();
   for (const b of $("setTemp").children) b.addEventListener("click", async () => {
     const { ok } = await post("/api/settings/temp_unit", { unit: b.dataset.v }); if (ok) { setTempUnit(b.dataset.v); homeTick.home = homeTick.sensors = 0; showUnits(); }
   });
@@ -96,6 +97,7 @@ async function refreshSettings(force) {
   for (const [id, key] of Object.entries(NT_BOXES)) $(id).checked = ntGet(key);
   showNtNote();
   refreshBackups(force);
+  refreshUpdates(force);
   try { const t = await api("/api/tiles/stats"); $("stTiles").textContent = `${t.tiles} tiles · ${fmtBytes(t.bytes)} of ${fmtBytes(t.max_bytes)} allowed`; } catch {}
   // Do not overwrite the retention field while it is being edited.
   try { const t = await api("/api/telemetry?limit=1"); if (document.activeElement !== $("stRetention")) $("stRetention").value = t.retention_days; } catch {}

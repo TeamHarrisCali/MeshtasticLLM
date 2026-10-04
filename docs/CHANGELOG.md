@@ -7,6 +7,14 @@ the section below that matches the tag as the release notes ([releasing.md](rele
 
 ## [Unreleased]
 
+### Added
+
+- **An update check and an in-app update** (Settings > Updates, admin only). The check looks at this repository's published GitHub Releases, is **off by default** (turn it on in Settings; "Check now"
+  always works) and sends nothing but one HTTPS request. A git checkout can then update itself from the dashboard: a database backup first, a fast-forward to the release tag (only if it is on `main`,
+  the working tree is clean and the checkout is on a branch), `pip install -r requirements.txt` if that file changed, a check that the new version starts, a rollback if either fails, and a restart
+  of the bridge where that is safe. Docker, the downloadable program and other installs are told that a release exists and how to update by hand; they never update themselves
+  ([setup.md](setup.md#updating)). Only tried against a local fake of GitHub: no real release has been through it yet.
+
 ## [0.1.0] - 2026-10-04
 
 The first version: everything the project does today. It is a hobby project written by AI under a human maintainer's direction

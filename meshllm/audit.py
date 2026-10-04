@@ -119,6 +119,11 @@ class Audit:
             self.db.executescript(_INDEXES)
             self.db.commit()
 
+    def commit_and_flush(self):
+        """Write out anything pending (used just before the bridge replaces itself with a newer version; every write already commits)."""
+        with self.lock:
+            self.db.commit()
+
     def new_request(self, node_id, node_name, prompt, status="queued", rx_snr=None, rx_rssi=None,
                     hops=None, response=None, kind="ai", action=None, auth=None):
         """Insert a new row stamped with the current time and return its id (used later by update/bump)."""

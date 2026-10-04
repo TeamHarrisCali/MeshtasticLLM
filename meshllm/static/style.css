@@ -435,3 +435,9 @@ label.setrow { cursor: pointer; } label.setrow input { width: 18px; height: 18px
 .loginbox button { width: 100%; margin-top: 16px; padding: 10px; }
 .loginbox .sendnote { padding: 8px 0 0; }
 .loginbox .banner { margin: 12px 0 0; font-size: 13px; }
+
+/* updates: the header pill and the card's error text */
+.pill.upd { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; cursor: pointer; }
+.hint.err { color: var(--bad); }
+.updnotes { max-height: 220px; overflow: auto; white-space: pre-wrap; word-break: break-word; margin: 8px 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; font: inherit; font-size: 13px; }
+.updlink { color: var(--accent); }

@@ -179,7 +179,7 @@ this feature.
 The dashboard's **Connection** page (Tools) puts that together, for the admin account only:
 
 1. *How the bridge is connected*: the failover chain and which entry is live, as on Home and Diagnostics.
-2. *The radio's Bluetooth*: on or off and the pairing mode, read from the settings the radio sent when the bridge connected.
+2. *The radio's Bluetooth*: on or off and (admin only) the pairing mode, read from the settings the radio sent when the bridge connected.
 3. **Scan for it**: a scan of this PC's Bluetooth (up to 25 seconds, one at a time, in the background) that keeps only a device advertising the
    expected name. Other radios in range are dropped, never listed. It says plainly when nothing was found (the radio is off, out of range, or
    held by a phone or another computer, which stops it advertising) or when Bluetooth is unavailable.
@@ -194,7 +194,10 @@ directly on the PC, or run `python -m meshllm --ble-scan` there, to find the add
 it says so. It is refused while the bridge is itself connected over Bluetooth, because a connected radio does not advertise and a scan could
 disturb the live link. Radios whose Bluetooth name was changed may not match the expected name. macOS reports a Bluetooth device as a long
 identifier instead of an address; those can be found but not saved here (use `--fallback ble:NAME` instead). A viewer (read-only) account sees the kinds of
-connection and whether the radio's Bluetooth is on, never an address, the radio's Bluetooth name, the saved fallback, or the scan.
+connection and whether the radio's Bluetooth is on, never an address, the radio's Bluetooth name or pairing mode, the saved fallback, or the scan.
+Only one scan runs at a time, and a scan that never reports back stops blocking a new one after 60 seconds. After a failed or timed-out scan a new one
+is refused for about 30 seconds, because BlueZ can keep a discovery running for a short while after the bridge gives up on it. A scan started just
+as USB drops may overlap one Bluetooth connect attempt of the failover chain; if the link then misbehaves, wait a minute and it settles.
 Real Bluetooth scanning from the dashboard has not been tried on a real radio yet; the tests use a fake scan.
 
 ## Use the dashboard from a phone or another computer (LAN login)

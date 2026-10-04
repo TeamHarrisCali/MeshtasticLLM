@@ -99,11 +99,11 @@ In detail:
   **Never shown, saved or written:** Wi-Fi (password), security (private key, admin keys), MQTT (credentials),
   the Bluetooth PIN, and channels. Operator-only: the AI cannot reach it. Backups live in `radio_config_backups`
   (newest 40 kept). Code: `radio_config.py`; tests: `test_radio_config.py` (real protobuf objects, fake radio).
-- **Connection** (Tools group). How the bridge is connected (the failover chain), whether the radio's Bluetooth is on and its pairing mode
+- **Connection** (Tools group). How the bridge is connected (the failover chain), whether the radio's Bluetooth is on and (admin only) its pairing mode
   (read from the radio's settings, never the PIN), and, admin only, **Find this radio's Bluetooth address**: a one-at-a-time scan of this PC's
   Bluetooth that keeps only the device named `Meshtastic_` + the last four hex digits of the radio's node id, and **Use as Bluetooth fallback**,
   which saves the address (strictly validated) in the settings database and is used at the next start when no `--fallback`, `--tcp` or `--ble`
-  flag is given. The radio does not report its Bluetooth address over USB. Refused in Docker and without bleak/BlueZ; viewers see no addresses.
+  flag is given. The radio does not report its Bluetooth address over USB. Refused in Docker and without bleak/BlueZ; viewers see no addresses and no pairing mode.
   Code: `btfinder.py`, `connection.py`; tests: `test_btfinder.py` (fake scan, fake radio).
 - **Sensors and the temperature unit.** Home's "Sensors around you" is built from the environment telemetry the bridge
   recorded (this PC's timestamps, so it doesn't depend on the radio's clock). It shows the **average** temperature,

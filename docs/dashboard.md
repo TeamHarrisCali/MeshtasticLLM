@@ -50,7 +50,7 @@ or show a desktop notification while the tab is in the background.
   and its pairing mode, and, for the admin, **Find this radio's Bluetooth address**: a scan of this PC's Bluetooth that lists only the device
   named `Meshtastic_` plus the last four hex digits of the radio's node id, and **Use as Bluetooth fallback**, which saves it so no
   `--fallback` flag is needed (restart the bridge to apply it; command-line flags always win). The radio does not report its Bluetooth
-  address over USB, and the pairing PIN is never read or shown. The scan does not work in Docker, and a read-only viewer sees no addresses. It transmits nothing.
+  address over USB, and the pairing PIN is never read or shown. The scan does not work in Docker, and a read-only viewer sees no addresses and no pairing mode. It sends no mesh traffic and changes nothing on the radio.
   Details: [setup.md](setup.md#finding-the-radios-bluetooth-address-from-the-dashboard).
 - **Data.** Everything this bridge collects, how much, how long it is kept, and downloads.
 - **Report.** A written summary of the last day, week or month: nodes, traffic, signal and range, sensors, the AI, the public channel

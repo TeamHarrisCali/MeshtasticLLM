@@ -16,7 +16,7 @@ from meshtastic.protobuf import config_pb2, localonly_pb2
 check = Checker()
 HERE = tempfile.mkdtemp(prefix="meshbt_")
 MAC, MAC2 = "AA:BB:CC:DD:EE:FF", "AA:BB:CC:DD:EE:02"
-PIN = 482915           # the fake radio's Bluetooth PIN: it must never show up anywhere
+PIN = 123456           # the fake radio's Bluetooth PIN (obviously fake): it must never show up anywhere
 out = io.StringIO()    # everything the code under test prints is collected here, to search it for the PIN
 
 
@@ -247,8 +247,97 @@ with contextlib.redirect_stdout(out):
 viewer = br.btfinder.view(admin=False)
 check("the viewer's view has no address, name, saved value or scan: kinds only", set(viewer) == {"connected", "kind", "failover", "entries", "text", "admin", "bluetooth", "port"} and viewer["port"] == "USB" and "Meshtastic_" not in json.dumps(viewer))
 
+# ---- review fixes ------------------------------------------------------------------------------------------------------------------------------
+# 1. the node id is read once per request: a radio that stops answering after the first read cannot make the check and the name disagree
+br, f = finder()
+reads = []
+def flaky():
+    reads.append(1)
+    return {"id": "!00000a01"} if len(reads) == 1 else {}
+br.iface.getMyUser = flaky
+with contextlib.redirect_stdout(out):
+    r = f.start_scan(); until(lambda: f.scan_state()["state"] == "done")
+check("start_scan reads the node id once (a radio that stops answering after the first read still gets the right name)", len(reads) == 1 and r["expected"] == "Meshtastic_0a01" and f.scan_state()["expected"] == "Meshtastic_0a01", (reads, r))
+br, f = finder()
+br.iface.getMyUser = lambda: {}
+try: f.start_scan(); err = None
+except BF.FinderError as e: err = e
+check("a radio that gives no node id is refused before any lock is taken or thread started", err is not None and err.state == "refused" and f.scan_state()["state"] == "idle", err)
+
+# 2. a scan that never reports back stops blocking after SCAN_STALE; its late answer is then ignored
+class FakeClock:
+    t = 1000.0
+    def __call__(self): return self.t
+clock = FakeClock()
+hang, runs = threading.Event(), []
+def stuck():
+    runs.append(len(runs) + 1); me = runs[-1]
+    if me == 1: hang.wait(10); return [dev("Meshtastic_0a01", MAC2)]       # the first scan hangs, then answers late
+    return [dev("Meshtastic_0a01", MAC)]
+br, f = finder(); f.scan_fn, f.clock = stuck, clock
+with contextlib.redirect_stdout(out):
+    f.start_scan(); until(lambda: runs)
+    clock.t += BF.SCAN_STALE - 1
+    try: f.start_scan(); err = None
+    except BF.FinderError as e: err = e
+    check("a scan 59 s old still blocks a new one (busy)", err is not None and err.state == "busy")
+    clock.t += 2
+    st = f.scan_state()
+    check("after 60 s the page says the scan never finished and that a new one can start", st["state"] == "error" and "never finished" in st["message"], st)
+    f.start_scan(); until(lambda: f.scan_state()["state"] == "done")
+    check("a stale scan no longer blocks: the new scan runs and answers", len(runs) == 2 and f.scan_state()["candidates"][0]["address"] == MAC, f.scan_state())
+    hang.set(); time.sleep(0.3)
+check("the stale scan's late answer does not overwrite the new one", f.scan_state()["candidates"][0]["address"] == MAC and MAC2 not in json.dumps(f.scan_state()))
+
+# a thread that cannot be started leaves nothing 'scanning'
+class NoThreads:
+    def Thread(self, *a, **k): raise RuntimeError("can't start new thread")
+br, f = finder()
+real_threading = BF.threading
+BF.threading = NoThreads()
+try: f.start_scan(); err = None
+except RuntimeError as e: err = e
+finally: BF.threading = real_threading
+check("when the scan thread cannot be started the error is raised and the state goes back to idle (not busy for ever)", err is not None and f.scan_state()["state"] == "idle", err)
+with contextlib.redirect_stdout(out):
+    f.start_scan(); until(lambda: f.scan_state()["state"] == "done")
+check("...and a scan can be started afterwards", f.scan_state()["state"] == "done")
+br, f = finder()
+f.ble_check = lambda: (_ for _ in ()).throw(RuntimeError("D-Bus exploded"))
+try: f.start_scan(); err = None
+except BF.FinderError as e: err = e
+check("an unexpected failure loading Bluetooth support is a clean 'unavailable' refusal and leaves the state idle", err is not None and err.state == "unavailable" and "RuntimeError" in str(err) and f.scan_state()["state"] == "idle", err)
+
+# 6. after a failed scan a new one waits ERROR_COOLDOWN (BlueZ may still be finishing the old discovery)
+clock2 = FakeClock()
+br, f = finder(); f.clock = clock2
+def timed_out(): raise conn.BleTimeout("Bluetooth scan timed out after 25 s while scanning")
+f.scan_fn = timed_out
+with contextlib.redirect_stdout(out):
+    f.start_scan(); until(lambda: f.scan_state()["state"] == "error")
+    try: f.start_scan(); err = None
+    except BF.FinderError as e: err = e
+    check("right after a timed-out scan a new one is refused as busy, with the reason", err is not None and err.state == "busy" and "settling" in str(err), err)
+    f.scan_fn = lambda: [dev("Meshtastic_0a01", MAC)]
+    clock2.t += BF.ERROR_COOLDOWN + 1
+    f.start_scan(); until(lambda: f.scan_state()["state"] == "done")
+check("after the cooldown a new scan runs normally", f.scan_state()["candidates"][0]["address"] == MAC)
+br, f = finder(); f.scan_fn = lambda: [dev("Meshtastic_0b02", MAC2)]
+with contextlib.redirect_stdout(out):
+    f.start_scan(); until(lambda: f.scan_state()["state"] == "done"); f.start_scan(); until(lambda: f.scan_state()["state"] == "done")
+check("a finished scan (not an error) can be repeated at once", f.scan_state()["state"] == "done")
+
+# 4/5. a viewer's data: kind names only for every entry, and no pairing mode
+br, f = finder()
+br.endpoint = conn.FailoverChain([conn.SerialEndpoint("STUB"), conn.TcpEndpoint("radio.test"), conn.BleEndpoint(MAC)])
+vv, av = f.view(admin=False), f.view(admin=True)
+check("a viewer's entry labels are exactly the kind names (USB, Wi-Fi, Bluetooth): no port, host or address", [e["label"] for e in vv["entries"]] == ["USB", "Wi-Fi", "Bluetooth"] and MAC not in json.dumps(vv) and "radio.test" not in json.dumps(vv) and "STUB" not in json.dumps(vv), vv)
+check("...while the admin's labels keep the real ones", [e["label"] for e in av["entries"]][1:] == ["tcp://radio.test:4403", "ble:" + MAC], av["entries"])
+check("a viewer is told whether the radio's Bluetooth is on, but not its pairing mode", vv["bluetooth"] == {"known": True, "enabled": True} and "mode" not in json.dumps(vv).lower() and "no pin" not in json.dumps(vv).lower(), vv["bluetooth"])
+check("...the admin gets the mode", av["bluetooth"]["mode"] == "FIXED_PIN" and av["bluetooth"]["mode_text"] == "fixed PIN")
+
 # ---- the PIN is nowhere ----------------------------------------------------------------------------------------------------------------------
 everything = json.dumps([f.view(admin=True), f.view(admin=False), f.scan_state(), f.radio_bluetooth()]) + out.getvalue()
-check("the PIN does not appear in any page data, scan state, reply or anything printed", str(PIN) not in everything and "fixed_pin" not in everything)
+check("the PIN does not appear in any page data, scan state, reply or anything printed", not re.search(r"(?<![\d.])%d(?!\d)" % PIN, everything) and "fixed_pin" not in everything)
 
 check.done()

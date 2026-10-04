@@ -45,7 +45,7 @@ function renderConnection(d) {
   else {
     const on = el("div", "irow static"); on.append(el("span", null, "Bluetooth"), el("small", null, bt.enabled ? "on" : "off"));
     const mode = el("div", "irow static"); mode.append(el("span", null, "Pairing"), el("small", null, bt.mode_text));
-    box.append(on, mode);
+    box.append(on); if (bt.mode_text) box.append(mode);
     if (!bt.enabled) box.append(el("div", "hint", "Bluetooth is switched off on the radio, so nothing can be found or connected over it until it is turned on (Radio settings, Bluetooth)."));
   }
   for (const id of ["connFindCard", "connSavedCard"]) $(id).hidden = !d.admin;

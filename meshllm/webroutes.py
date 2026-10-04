@@ -651,7 +651,7 @@ def w_radio_time(b, body):
 # ======================================================================================================================
 @get("/api/connection", VIEWER, ctx=True)
 def r_connection(b, q, req):
-    """GET /api/connection: the connection chain, whether the radio's Bluetooth is on and its pairing mode (never the PIN), and for the admin the
+    """GET /api/connection: the connection chain, whether the radio's Bluetooth is on and (admin only) its pairing mode (never the PIN), and for the admin the
     Bluetooth name to look for, the scan state and the saved fallback. A read-only account gets the kinds of connection but no address or name."""
     return b.btfinder.view(admin=not (b.web_security.auth_required and req.role != ADMIN))
 

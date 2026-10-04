@@ -22,6 +22,8 @@ from meshllm import connection
 # what the radio's Bluetooth pairing mode means, in the words the page shows (the PIN itself is never read)
 PAIRING = {"RANDOM_PIN": "random PIN (shown on the radio's screen)", "FIXED_PIN": "fixed PIN", "NO_PIN": "no PIN (anyone nearby can pair)"}
 SCAN_KEEP = 300             # seconds a finished scan's answer stays on the page before it is forgotten
+SCAN_STALE = 60             # seconds after which a scan that never reported back no longer blocks a new one (the scan itself times out at 25)
+ERROR_COOLDOWN = 30         # seconds after a failed (for example timed-out) scan before another may start: BlueZ may still be finishing the old discovery
 DOCKER_MESSAGE = ("Bluetooth is not available in Docker: the container cannot see this computer's Bluetooth adapter. "
                   "Run the bridge directly on the PC (not in Docker) to find the address, or run  python -m meshllm --ble-scan  there.")
 
@@ -88,8 +90,11 @@ class BluetoothFinder:
         except Exception:
             return {"known": False, "reason": "The radio has not sent its Bluetooth settings."}
 
-    def blocked(self):
-        """Why a scan cannot start right now (a sentence), or None when it can. Checked again when the scan is requested."""
+    def blocked(self, node_id=False):
+        """Why a scan cannot start right now (a sentence), or None when it can. Checked again when the scan is requested.
+        `node_id` is the id already read by the caller (so one request reads it once); by default it is read here."""
+        if node_id is False:
+            node_id = self.node_id()
         if getattr(self.bridge.args, "demo", False):
             return "Demo mode has no real radio or Bluetooth."
         if self.container():
@@ -99,7 +104,7 @@ class BluetoothFinder:
         if self.active_kind() == "ble":
             return ("The bridge is connected over Bluetooth right now. A radio that is connected stops advertising, so a scan cannot find it, "
                     "and scanning could disturb the live link. Its address is the one in the connection list above.")
-        if self.node_id() is None or connection.expected_ble_name(self.node_id()) is None:
+        if connection.expected_ble_name(node_id) is None:
             return "The radio did not report its node id, so its Bluetooth name cannot be worked out."
         return None
 
@@ -118,8 +123,8 @@ class BluetoothFinder:
 
     # ---- the page's data ---------------------------------------------------------------------------------------------
     def view(self, admin):
-        """What the Connection page shows. A read-only account gets the chain's kinds and the radio's Bluetooth state, and nothing that
-        names an address, the radio's Bluetooth name, the saved fallback or the scan."""
+        """What the Connection page shows. A read-only account gets the chain's kinds and whether the radio's Bluetooth is on, and nothing that
+        names an address, the radio's Bluetooth name or pairing mode, the saved fallback or the scan."""
         b = self.bridge
         info = b.endpoint.connection_info(b.iface is not None)
         entries = [dict(e) for e in info.get("entries") or []]
@@ -133,6 +138,8 @@ class BluetoothFinder:
         else:
             out["port"] = connection.KIND_NAMES.get(out["kind"], "radio") if connected else None
         if not admin:
+            bt = out["bluetooth"]       # the pairing mode (it can read "no PIN") is for the admin; a viewer is told only whether Bluetooth is on
+            out["bluetooth"] = {k: v for k, v in bt.items() if k not in ("mode", "mode_text")}
             return out
         saved, running = self.saved(), b.saved_fallback[1] if b.saved_fallback else None
         flags = self.flags_override()
@@ -148,31 +155,50 @@ class BluetoothFinder:
         with self.lock:
             s = dict(self.scan)
             if s["state"] in ("done", "error", "unavailable") and self.clock() - s.get("finished", 0) > SCAN_KEEP:
-                self.scan = {"state": "idle"}
+                self.scan = {"state": "idle", "gen": s.get("gen", 0)}
                 return {"state": "idle"}
-        s.pop("finished", None)
+            if s["state"] == "scanning" and self.clock() - s.get("started", 0) > SCAN_STALE:
+                return {"state": "error", "expected": s.get("expected"), "candidates": [],
+                        "message": "The last scan never finished. You can start a new one."}
+        for k in ("finished", "started", "gen"):
+            s.pop(k, None)
         return s
 
     # ---- the scan -------------------------------------------------------------------------------------------------
     def start_scan(self):
         """Begin one scan on a background thread and return at once ({"state": "scanning"}). Raises FinderError when it cannot run (Docker, no
         Bluetooth support, nothing to look for, a Bluetooth link already live) or when a scan is already running (state 'busy')."""
-        why = self.blocked()
+        node_id = self.node_id()                   # read once: the radio may drop between two reads, and the check and the name must agree
+        why = self.blocked(node_id)
         if why:
             raise FinderError("unavailable" if self.container() else "refused", why)
+        expected = connection.expected_ble_name(node_id)
+        if expected is None:
+            raise FinderError("refused", "The radio did not report its node id, so its Bluetooth name cannot be worked out.")
         try:
             self.ble_check()                       # fail now, in one line, when bleak or BlueZ support is missing
         except connection.BleUnavailable as e:
             raise FinderError("unavailable", str(e), 400) from None
-        expected = connection.expected_ble_name(self.node_id())
+        except Exception as e:
+            raise FinderError("unavailable", f"Bluetooth support could not be loaded ({type(e).__name__}: {str(e)[:80]}).", 400) from None
         with self.lock:
-            if self.scan["state"] == "scanning":
+            now, cur = self.clock(), self.scan
+            if cur["state"] == "scanning" and now - cur.get("started", 0) <= SCAN_STALE:
                 raise FinderError("busy", "A Bluetooth scan is already running. Wait for it to finish (up to about 25 seconds).")
-            self.scan = {"state": "scanning", "expected": expected, "started": self.clock()}
-        threading.Thread(target=self._run, args=(expected,), daemon=True, name="ble-find").start()
+            if cur["state"] == "error" and now - cur.get("finished", 0) < ERROR_COOLDOWN:
+                raise FinderError("busy", "The last scan failed a moment ago and Bluetooth may still be settling. Try again in about half a minute.")
+            gen = cur.get("gen", 0) + 1            # a scan that was given up on as stale must not write its late result over this one
+            self.scan = {"state": "scanning", "expected": expected, "started": now, "gen": gen}
+        try:
+            threading.Thread(target=self._run, args=(expected, gen), daemon=True, name="ble-find").start()
+        except BaseException:                      # no thread could be started: do not leave the page 'scanning' for good
+            with self.lock:
+                if self.scan.get("gen") == gen:
+                    self.scan = {"state": "idle", "gen": gen}
+            raise
         return {"state": "scanning", "expected": expected}
 
-    def _run(self, expected):
+    def _run(self, expected, gen):
         """The scan thread: run the scan, keep only the device with the expected name, and record the outcome."""
         try:
             devices = self.scan_fn()
@@ -189,7 +215,9 @@ class BluetoothFinder:
             result = {"state": "error", "expected": expected, "candidates": [],
                       "message": f"The Bluetooth scan failed ({type(e).__name__}: {str(e)[:100]})."}
         with self.lock:
-            self.scan = dict(result, finished=self.clock())
+            if self.scan.get("gen") != gen:          # a newer scan took over after this one went stale: its answer is not wanted
+                return
+            self.scan = dict(result, finished=self.clock(), gen=gen)
         print(f"[connection] Bluetooth scan finished: {result['state']}, {len(result['candidates'])} match(es)", flush=True)
 
     # ---- the saved fallback -----------------------------------------------------------------------------------------------

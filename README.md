@@ -68,7 +68,7 @@ Compose, publish with `-p 127.0.0.1:8080:8080`, never `-p 8080:8080`. Full steps
 No Python and no Docker: a ready-made program to unpack and run (`./meshllm --demo` is a quick try) for **Linux x86_64, Windows x86_64 and macOS on Apple silicon only**
 (Raspberry Pi and other arm64 Linux, and Intel Macs, are not covered). [Ollama](https://ollama.com/download) is still installed separately. Download them from the
 [GitHub Releases page](https://github.com/TeamHarrisCali/MeshtasticLLM/releases) (first release: v0.1.0). The programs are unsigned
-(Windows and macOS will warn) and not yet tried on a real radio; see [docs/releasing.md](docs/releasing.md).
+(Windows and macOS will warn). The Windows download was run by the maintainer and works; none has been tried on a real radio, and macOS has not been run by a person; see [docs/releasing.md](docs/releasing.md).
 
 ## Status
 

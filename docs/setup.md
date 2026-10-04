@@ -473,4 +473,4 @@ Releases page (see [releasing.md](releasing.md)). Download the archive for your 
 - **No installer, no start at login.** Those belong to `setup.sh` / `setup.bat`; the program is just the bridge.
 - **USB and Bluetooth behave as with the installer**, because the program runs on your computer, not in a container: the same drivers, the same `dialout` group on Linux, the same Bluetooth pairing notes.
 - **Unsigned.** The programs are not code-signed or notarised, so Windows SmartScreen and macOS Gatekeeper will warn the first time ([releasing.md](releasing.md#what-the-downloads-are-and-are-not)).
-- **What was tried:** CI builds and starts each program and serves the demo dashboard on Linux, Windows and macOS. No packaged program has been run against a real radio.
+- **What was tried:** CI builds and starts each program and serves the demo dashboard on Linux, Windows and macOS. The maintainer also ran the downloaded Windows program on a real Windows PC and reports that it works; no packaged program has been confirmed against a real radio, and the macOS download has not been run by a person.

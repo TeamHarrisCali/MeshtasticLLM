@@ -287,7 +287,7 @@ container (`model-pull`) that downloads the AI model the first time. The files a
 
 **What Docker can't do** (use the installer above if you need any of these):
 
-- **Bluetooth.** A container cannot reach the host's Bluetooth service, so a Bluetooth radio, `--ble-scan`, and the **USB-with-Bluetooth failover** (the combination tested on real hardware) work only with the installer. Inside Docker failover can only be between USB and Wi-Fi, which is untested.
+- **Bluetooth.** A container cannot reach the host's Bluetooth service, so a Bluetooth radio, `--ble-scan`, the dashboard's [Bluetooth address finder](#finding-the-radios-bluetooth-address-from-the-dashboard), and the **USB-with-Bluetooth failover** (the combination tested on real hardware) work only with the installer. Inside Docker failover can only be between USB and Wi-Fi, which is untested.
 - **USB on Windows and macOS.** Docker Desktop cannot hand a USB serial device to a container, so USB radios work in Docker on Linux only (elsewhere use a Wi-Fi radio, also untested).
 - **USB hot-plug.** The device is passed to the container when it is created: after unplugging and replugging the radio, run the setup command (or `docker compose up -d`) again. The installer's bridge reconnects by itself.
 - **Your existing data.** Docker keeps its own database and its own copy of the AI model, separate from a bridge and an Ollama you already run (restore an old database from the dashboard's Backups page).

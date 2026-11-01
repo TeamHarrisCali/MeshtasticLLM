@@ -57,7 +57,7 @@ services:
   ollama:
     # The AI model server. No `ports:` on purpose: only the bridge (on this Compose network) talks to it. Pulling a model:
     #   docker compose exec ollama ollama pull llama3.2:3b
-    image: ollama/ollama:0.35.1
+    image: ollama/ollama:0.40.13
     restart: unless-stopped
     volumes:
       - ollama-models:/root/.ollama
@@ -75,7 +75,7 @@ services:
     # `docker compose logs -f model-pull`). It does nothing when a model is already installed, unless MESHLLM_MODEL names one, and it exits
     # when done. MESHLLM_PULL_MODEL=0 turns it off (for example to download a model yourself). The bridge works meanwhile and says the model is
     # missing until the download finishes.
-    image: ollama/ollama:0.35.1
+    image: ollama/ollama:0.40.13
     depends_on: [ollama]
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
